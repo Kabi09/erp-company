@@ -141,6 +141,7 @@ export const ProfilePage: React.FC = () => {
   const { user, refresh, toast } = useERP();
   const [name, setName] = useState(user?.name || '');
   const [phone, setPhone] = useState(user?.phone || '');
+  const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -150,12 +151,20 @@ export const ProfilePage: React.FC = () => {
     e.preventDefault();
     setSaving(true);
     try {
+      if (newPassword && newPassword.trim().length < 8) {
+        throw new Error('New password must be at least 8 characters long.');
+      }
+      if (newPassword && !currentPassword) {
+        throw new Error('Current password is required to change password.');
+      }
       await erpApi.updateProfile({
         name: name.trim(),
         phone: phone.trim(),
+        currentPassword: currentPassword || undefined,
         newPassword: newPassword.trim() || undefined,
       });
       await refresh();
+      setCurrentPassword('');
       setNewPassword('');
       toast('success', 'Profile updated successfully');
     } catch (err) {
@@ -212,7 +221,7 @@ export const ProfilePage: React.FC = () => {
           <Field label="Phone">
             <Input value={phone} onChange={(e) => setPhone(e.target.value)} />
           </Field>
-          <Field label="Change Password (optional)" hint="Minimum 6 characters. Leave blank to keep current password.">
+          <Field label="New Password (optional)" hint="Minimum 8 characters. Leave blank to keep current password.">
             <Input
               type="password"
               value={newPassword}
@@ -220,6 +229,17 @@ export const ProfilePage: React.FC = () => {
               placeholder="••••••••"
             />
           </Field>
+          {newPassword.length > 0 && (
+            <Field label="Current Password" required hint="Verify your current identity to confirm password change.">
+              <Input
+                type="password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Enter current password"
+                required
+              />
+            </Field>
+          )}
           <div className="pt-2 flex justify-end">
             <Button type="submit" loading={saving}>
               <User className="w-4 h-4" /> Save Changes

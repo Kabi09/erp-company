@@ -270,6 +270,23 @@ export class MongoERPRepository implements IERPRepository {
     return computeMaterialStockMap(txs as unknown as StockTransaction[]);
   }
 
+  /**
+   * Synchronize MaterialModel currentStock balances with transaction ledger
+   */
+  public async syncMaterialStock(): Promise<Record<string, number>> {
+    const stockMap = await this.computeStockMap();
+    const materials = await MaterialModel.find().lean();
+    for (const mat of materials) {
+      if (stockMap[mat.id] !== undefined) {
+        const bal = stockMap[mat.id];
+        if (mat.currentStock !== bal) {
+          await MaterialModel.updateOne({ id: mat.id }, { $set: { currentStock: bal } });
+        }
+      }
+    }
+    return stockMap;
+  }
+
   // --- PAGINATION HELPER ---
   private async paginate<T>(
     model: Model<any>,
@@ -612,10 +629,29 @@ export class MongoERPRepository implements IERPRepository {
         throw new Error(`Material request ${mr.docNo} is already ${mr.status}.`);
       }
 
-      const stockMap = await this.computeStockMap();
+      const stockMap = await this.syncMaterialStock();
       const validLines = (rawItems || []).filter((i) => Number(i.issuingQty) > 0);
       if (validLines.length === 0) {
         throw new Error('Enter a positive issuing quantity for at least one material.');
+      }
+
+      // Atomic conditional decrement to eliminate race conditions under concurrent requests
+      for (const line of validLines) {
+        const issueQty = Number(line.issuingQty);
+        const mrItem = mr.items.find((x) => x.materialId === line.materialId);
+        if (!mrItem) throw new Error(`Material ${line.materialId} is not on ${mr.docNo}.`);
+
+        const updated = await MaterialModel.findOneAndUpdate(
+          { id: line.materialId, currentStock: { $gte: issueQty } },
+          { $inc: { currentStock: -issueQty } },
+          { session: session || undefined, returnDocument: 'after' },
+        );
+        if (!updated) {
+          const currentMat = await MaterialModel.findOne({ id: line.materialId }).session(session || null);
+          throw new Error(
+            `INSUFFICIENT_STOCK: Available stock exhausted or below requested quantity (${issueQty}) for ${mrItem.materialName}. Current stock is ${currentMat?.currentStock ?? 0}.`,
+          );
+        }
       }
 
       const issueItems: MaterialIssueItem[] = [];

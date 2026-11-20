@@ -4,7 +4,7 @@ import type { DocCounters, ERPDatabase, SalesOrder } from '../../src/types/erp';
 import { deriveSalesOrderFulfillment } from '../../src/utils/erpLogic';
 import { DeliveryOrderModel, ProductionOrderModel, SalesOrderModel } from '../models';
 
-export const PREFIX_MAP: Record<keyof DocCounters, string> = {
+export const PREFIX_MAP: Record<string, string> = {
   ENQ: 'ENQ',
   QT: 'QT',
   PI: 'PI',
@@ -21,6 +21,7 @@ export const PREFIX_MAP: Record<keyof DocCounters, string> = {
   QC: 'QC',
   RW: 'RW',
   DEL: 'DEL',
+  EMP: 'EMP',
 };
 
 export const generateId = (prefix: string) =>

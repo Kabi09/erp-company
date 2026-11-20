@@ -20,6 +20,7 @@ const MaterialSchema = new Schema<Material>(
     specification: { type: String, default: '' },
     unit: { type: String, default: 'Nos' },
     minStock: { type: Number, default: 0, min: 0 },
+    currentStock: { type: Number, default: 0, min: 0 },
     storageLocation: { type: String, default: 'Main Store' },
     preferredSupplierId: { type: String, index: true },
     active: { type: Boolean, default: true, index: true },

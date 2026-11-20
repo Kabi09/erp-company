@@ -114,6 +114,7 @@ supplyChainRouter.post('/supply-chain/materials', requireAuth, requirePerm('supp
       minStock: Math.max(0, Number(body.minStock) || 0),
       storageLocation: body.storageLocation?.trim() || 'Main Store',
       preferredSupplierId: body.preferredSupplierId || undefined,
+      currentStock: Math.max(0, Number(body.openingStock) || 0),
       active: true,
       createdAt: now,
     };
@@ -184,6 +185,7 @@ supplyChainRouter.post('/supply-chain/stock-adjustment', requireAuth, requirePer
     };
 
     await StockTransactionModel.create(entry);
+    await MaterialModel.updateOne({ id: mat.id }, { $set: { currentStock: nextBal } });
     res.status(201).json(entry);
   } catch (err) {
     sendError(res, err);
@@ -223,111 +225,14 @@ supplyChainRouter.post('/supply-chain/material-issues', requireAuth, requirePerm
       items: Array<{ materialId: string; issuingQty: number }>;
       remarks?: string;
     };
-    const mr = await MaterialRequestModel.findOne({ id: materialRequestId });
-    if (!mr) throw new Error('NOT_FOUND:Material request not found.');
-    if (mr.status === 'Fully Issued' || mr.status === 'Cancelled') {
-      throw new Error(`Material request ${mr.docNo} is already ${mr.status}.`);
-    }
-
-    const stockMap = await mongoERPRepository.computeStockMap();
-    const validLines = (items || []).filter((i) => Number(i.issuingQty) > 0);
-    if (validLines.length === 0) {
-      throw new Error('Enter a positive issuing quantity for at least one material.');
-    }
-
-    const issueItems = [];
-    for (const line of validLines) {
-      const mrItem = mr.items.find((x) => x.materialId === line.materialId);
-      if (!mrItem) throw new Error(`Material ${line.materialId} is not on ${mr.docNo}.`);
-      const available = stockMap[mrItem.materialId] || 0;
-      const check = validateMaterialIssueLine({
-        requiredQty: mrItem.requiredQty,
-        alreadyIssuedQty: mrItem.issuedQty,
-        availableStock: available,
-        issuingQty: Number(line.issuingQty),
-      });
-      if (!check.valid) throw new Error(`${mrItem.materialName}: ${check.error}`);
-      stockMap[mrItem.materialId] = check.stockAfter;
-      mrItem.issuedQty = round2(mrItem.issuedQty + Number(line.issuingQty));
-      issueItems.push({
-        materialId: mrItem.materialId,
-        materialCode: mrItem.materialCode,
-        materialName: mrItem.materialName,
-        unit: mrItem.unit,
-        issuedQty: Number(line.issuingQty),
-        receivedQty: 0,
-      });
-    }
-
-    const now = new Date().toISOString();
-    const miDocNo = await mongoERPRepository.getNextDocNo('MI');
-    const mi = {
-      id: generateId('mi'),
-      docNo: miDocNo,
-      materialRequestId: mr.id,
-      materialRequestDocNo: mr.docNo,
-      productionOrderId: mr.productionOrderId,
-      productionOrderDocNo: mr.productionOrderDocNo,
-      issueDate: issueDate || now.slice(0, 10),
-      items: issueItems,
-      receiptAcknowledged: false,
-      issuedBy: req.user!.name,
-      remarks: remarks?.trim() || '',
-      createdAt: now,
-    };
-
-    await MaterialIssueModel.create(mi);
-
-    const stockTxDocs = [];
-    const runningMap = await mongoERPRepository.computeStockMap();
-    for (const ii of issueItems) {
-      const bal = round2((runningMap[ii.materialId] || 0) - ii.issuedQty);
-      runningMap[ii.materialId] = bal;
-      stockTxDocs.push({
-        id: generateId('st'),
-        materialId: ii.materialId,
-        materialCode: ii.materialCode,
-        materialName: ii.materialName,
-        unit: ii.unit,
-        type: 'Material Issue' as const,
-        quantityDelta: -ii.issuedQty,
-        balanceAfter: bal,
-        linkedDocType: 'MI',
-        linkedDocId: mi.id,
-        linkedDocNo: mi.docNo,
-        remarks: `Issued against ${mr.docNo} (${mr.productionOrderDocNo})`,
-        performedBy: req.user!.name,
-        timestamp: now,
-      });
-    }
-    if (stockTxDocs.length > 0) {
-      await StockTransactionModel.create(stockTxDocs);
-    }
-
-    const derived = deriveMaterialRequestStatus(mr.toObject() as any);
-    mr.status = derived.status;
-    mr.receiptStatus = derived.receiptStatus;
-    mr.updatedAt = now;
-    await mr.save();
-
-    await mongoERPRepository.addNotification({
-      title: `Materials Issued (${mi.docNo})`,
-      message: `${mr.status} for ${mr.productionOrderDocNo}. Please acknowledge physical receipt in Production.`,
-      department: 'production',
-      severity: mr.status === 'Fully Issued' ? 'success' : 'info',
-      link: '/production/material-receipts',
-    });
-    await mongoERPRepository.addActivity({
-      actorId: req.user!.id,
-      actorName: req.user!.name,
-      department: 'supply_chain',
-      action: 'Issued Materials',
-      entityType: 'MaterialIssue',
-      entityId: mi.id,
-      entityDocNo: mi.docNo,
-      details: `Issued ${issueItems.length} material line(s) for ${mr.docNo} (${mr.status}).`,
-    });
-
+    if (!materialRequestId) throw new Error('materialRequestId is required.');
+    const mi = await mongoERPRepository.issueMaterial(
+      materialRequestId,
+      items || [],
+      remarks || '',
+      issueDate || '',
+      { id: req.user!.id, name: req.user!.name },
+    );
     res.status(201).json(mi);
   } catch (err) {
     sendError(res, err);
@@ -567,6 +472,7 @@ supplyChainRouter.post('/supply-chain/grns/:id/verify', requireAuth, requirePerm
       }
 
       if (acc > 0) {
+        await MaterialModel.updateOne({ id: grnItem.materialId }, { $inc: { currentStock: acc } });
         const nextBal = round2((stockMap[grnItem.materialId] || 0) + acc);
         stockMap[grnItem.materialId] = nextBal;
         stockTxDocs.push({

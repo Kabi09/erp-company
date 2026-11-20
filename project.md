@@ -128,16 +128,23 @@
     - Lightweight dropdown options endpoints (`/options`) with minimal projection.
     - Department dashboard summary endpoints (`/summary`).
     - Frontend API service (`src/services/api.ts`) updated with paginated and options querying.
-    - 20/20 automated tests passing across domain logic, MongoDB integration, and 28-step full lifecycle suite.
-- **Known Issues & Technical Debt (Analyzed for Phase 4)**:
-  - *H-02 (Storage)*: Client-side base64 Data URL file attachments stored in database fields. Needs cloud object storage (S3/GCS/MinIO) with signed URLs in Phase 4.
-  - *H-04 (Documents)*: HTML/Print-based simulated PDF generation. Needs server-side binary PDF generation in Phase 4.
-  - *M-04 (Frontend Bundle)*: Monolithic >640KB client chunk. Needs route-level `React.lazy()` code splitting in Phase 4.
-- **Pending Work for Phase 4 (Production Hardening & Cloud Deploy)**:
-  - Cloud object storage for binary document attachments.
-  - Server-side PDF generation service.
-  - Route-level lazy loading and bundle optimization.
-  - Containerization (Dockerfile & Docker Compose) with MongoDB replica set automation.
+  - Phase 4 Security, Authentication, RBAC & Hardening:
+    - Multi-document transaction topology enforcement (`REQUIRE_REPLICA_SET`), with verified rollback on local replica set `rs0`.
+    - Atomic inventory concurrency protection eliminating race conditions via conditional updates (`$gte`) on `MaterialModel`.
+    - Department-scoped `/api/erp/bootstrap` preventing cross-department data leaks, with unconditional employee `passwordHash` purging.
+    - Dual-token JWT session lifecycle (15m Access Token, 7d Refresh Token, token rotation, reuse detection, logout, logout-all).
+    - Administrative safeguards: anti self-privilege escalation, last active Super Admin protection, and soft deactivation over hard deletion.
+    - Anti-enumeration authentication defenses and sliding rate-limiter against brute-force login attacks.
+    - Security middleware suite: security headers (nosniff, frameguard, etc.), CORS, NoSQL injection sanitizer, and 2MB request body ceiling.
+    - Route-level `React.lazy()` and `Suspense` code splitting, reducing client bundle from >644 kB to 355 kB.
+    - 28/28 automated tests passing across domain logic, MongoDB integration, full lifecycle, and security/concurrency/transaction suites.
+- **Known Issues & Technical Debt (Analyzed for Phase 5)**:
+  - *H-02 (Storage)*: Client-side base64 Data URL file attachments stored in database fields. Needs cloud object storage (S3/GCS/MinIO) with signed URLs in Phase 5.
+  - *H-04 (Documents)*: HTML/Print-based simulated PDF generation. Needs server-side binary PDF generation in Phase 5.
+- **Pending Work for Phase 5 (Production Hardening & Cloud Deploy)**:
+  - Cloud object storage for binary document attachments (S3/MinIO).
+  - Server-side PDF generation service (Puppeteer/PDFKit).
+  - Containerization (Dockerfile & Docker Compose) with MongoDB replica set orchestration.
 
 ---
 
@@ -163,3 +170,15 @@
   - Updated frontend API services (`src/services/api.ts`).
   - Added `server/tests/mongo-integration.test.ts` and verified 20/20 test suites passing.
   - Authored comprehensive `PHASE_3_MIGRATION.md` report.
+- **v2.3.0 (Phase 4 – Authentication, Security, Employee Management & Role-Based Access Control)**:
+  - Enforced strict MongoDB transaction topology validation: multi-document operations require replica set / Atlas and throw clear configuration errors if unavailable.
+  - Eliminated concurrent material issuance race conditions via atomic conditional updates (`{ currentStock: { $gte: issueQty } }`), preventing negative stock under parallel requests.
+  - Scoped `/api/erp/bootstrap` strictly by department, eliminating sensitive cross-department leaks and stripping `passwordHash` across all responses.
+  - Implemented dual-token JWT architecture: 15-minute Access Token, 7-day Refresh Token, `SessionModel` with SHA-256 token hashing, token rotation, replay attack detection, and global session revocation.
+  - Hardened password policies: bcrypt 10 rounds, min 8 characters, complexity check, current password verification for changes, and session invalidation upon password update.
+  - Added brute-force login protection via sliding-window rate limiting on `/api/auth/login`.
+  - Added enterprise security middlewares: `securityHeaders` (nosniff, frameguard, etc.), CORS configuration, NoSQL injection sanitizer, and 2MB JSON body ceiling.
+  - Implemented administrative guards: sequential `EMP-XXXX` generation, self-privilege escalation block, last active Super Admin protection, and soft deactivation over hard deletion.
+  - Code-split client bundle with `React.lazy()` and `Suspense`, dropping monolithic bundle size by 45% (from >644 kB to 355 kB).
+  - Created `server/tests/security-auth.test.ts`, achieving 28/28 passing tests across the entire test suite.
+  - Authored comprehensive `PHASE_4_SECURITY.md` report.

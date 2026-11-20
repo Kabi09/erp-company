@@ -469,7 +469,13 @@ export const AppLayout: React.FC = () => {
               <ErrorBanner message={error} onRetry={refresh} />
             </div>
           )}
-          {loading && !data ? <LoadingSkeleton /> : <Outlet />}
+          {loading && !data ? (
+            <LoadingSkeleton />
+          ) : (
+            <React.Suspense fallback={<LoadingSkeleton />}>
+              <Outlet />
+            </React.Suspense>
+          )}
         </main>
       </div>
 

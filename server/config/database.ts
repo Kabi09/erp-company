@@ -46,7 +46,9 @@ export async function connectDatabase(customUri?: string): Promise<typeof mongoo
         console.log(`[MongoDB] Multi-document transaction capability: ACTIVE (Replica Set: ${replStatus.set})`);
       } else {
         supportsTransactions = false;
-        console.log('[MongoDB] Running on Standalone instance. Transactions will execute with atomic single-doc updates.');
+        console.log(
+          '[MongoDB] Running on Standalone instance. Transactions will execute with atomic single-doc updates unless replica set is strictly required.',
+        );
       }
     } catch {
       supportsTransactions = false;
@@ -65,6 +67,7 @@ export async function disconnectDatabase(): Promise<void> {
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();
     isConnected = false;
+    supportsTransactions = false;
     console.log('[MongoDB] Connection cleanly closed.');
   }
 }
@@ -77,13 +80,20 @@ export function doesSupportTransactions(): boolean {
   return supportsTransactions;
 }
 
+export function isReplicaSetActive(): boolean {
+  return supportsTransactions;
+}
+
 /**
  * Transaction Execution Helper:
  * If running on a Replica Set (Atlas or local replica set), executes within an atomic multi-document transaction session.
- * If running on standalone development MongoDB, executes operations directly while guaranteeing safety.
+ * If running on standalone development MongoDB and transactions are required (env.requireReplicaSet is true or options.requireReplicaSet is true),
+ * throws an explicit configuration error rather than silently failing to provide multi-doc ACID guarantees.
+ * Otherwise in development mode, executes operations directly with atomic single-document operations.
  */
 export async function withTransaction<T>(
   operation: (session: ClientSession | null) => Promise<T>,
+  options?: { requireReplicaSet?: boolean },
 ): Promise<T> {
   if (supportsTransactions) {
     const session = await mongoose.startSession();
@@ -97,6 +107,11 @@ export async function withTransaction<T>(
       await session.endSession();
     }
   } else {
+    if (env.requireReplicaSet || options?.requireReplicaSet) {
+      throw new Error(
+        'TRANSACTION_TOPOLOGY_REQUIRED: MongoDB replica set (local rs0 or MongoDB Atlas) is required for critical multi-document transactional operations. Standalone MongoDB cannot guarantee ACID rollback across multiple collections.',
+      );
+    }
     return await operation(null);
   }
 }

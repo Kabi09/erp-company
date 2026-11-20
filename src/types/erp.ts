@@ -373,6 +373,7 @@ export interface Material {
   specification: string;
   unit: string;
   minStock: number;
+  currentStock?: number;
   storageLocation: string;
   preferredSupplierId?: string;
   active: boolean;
@@ -807,6 +808,7 @@ export interface DocCounters {
   QC: number;
   RW: number;
   DEL: number;
+  EMP?: number;
 }
 
 export interface ERPDatabase {

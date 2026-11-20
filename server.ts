@@ -4,11 +4,23 @@ import path from 'path';
 import { createServer as createViteServer } from 'vite';
 import { connectDatabase } from './server/config/database';
 import { env } from './server/config/environment';
+import { corsMiddleware, noSqlSanitizer, securityHeaders } from './server/middleware/auth.middleware';
 import { apiRouter } from './server/routes';
 
 export function createApp() {
   const app = express();
-  app.use(express.json({ limit: '15mb' }));
+
+  // Enterprise Security Headers
+  app.use(securityHeaders);
+
+  // CORS Middleware
+  app.use(corsMiddleware);
+
+  // Secure JSON body parsing with restricted 2MB payload ceiling
+  app.use(express.json({ limit: '2mb' }));
+
+  // NoSQL Injection Sanitizer
+  app.use(noSqlSanitizer);
 
   // Mount REST API
   app.use('/api', apiRouter);

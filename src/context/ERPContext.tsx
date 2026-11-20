@@ -1,5 +1,13 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { erpApi, getAuthToken, setAuthToken, type ERPBootstrapPayload } from '../services/api';
+import {
+  clearAuthTokens,
+  erpApi,
+  getAuthToken,
+  getRefreshToken,
+  setAuthToken,
+  setRefreshToken,
+  type ERPBootstrapPayload,
+} from '../services/api';
 import type { AuthUser, Department, PermissionAction, PermissionModule } from '../types/erp';
 
 export interface ToastMessage {
@@ -18,6 +26,8 @@ interface ERPContextValue {
   toggleTheme: () => void;
   login: (identifier: string, password: string) => Promise<AuthUser>;
   logout: () => void;
+  logoutAll: () => Promise<void>;
+  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   refresh: () => Promise<void>;
   can: (module: PermissionModule, action?: PermissionAction) => boolean;
   getDefaultRoute: (u?: AuthUser | null) => string;
@@ -70,15 +80,18 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
 
-  const getDefaultRoute = useCallback((u: AuthUser | null = user): string => {
-    if (!u) return '/login';
-    if (u.department === 'admin') return '/sales';
-    if (u.department === 'sales') return '/sales';
-    if (u.department === 'supply_chain') return '/supply-chain';
-    if (u.department === 'production') return '/production';
-    if (u.department === 'logistics') return '/logistics';
-    return '/sales';
-  }, [user]);
+  const getDefaultRoute = useCallback(
+    (u: AuthUser | null = user): string => {
+      if (!u) return '/login';
+      if (u.department === 'admin') return '/sales';
+      if (u.department === 'sales') return '/sales';
+      if (u.department === 'supply_chain') return '/supply-chain';
+      if (u.department === 'production') return '/production';
+      if (u.department === 'logistics') return '/logistics';
+      return '/sales';
+    },
+    [user],
+  );
 
   const refresh = useCallback(async () => {
     const token = getAuthToken();
@@ -117,6 +130,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     async (identifier: string, password: string) => {
       const res = await erpApi.login(identifier, password);
       setAuthToken(res.token);
+      setRefreshToken(res.refreshToken);
       setUser(res.user);
       setActiveDept(res.user.department === 'admin' ? 'sales' : res.user.department);
       setLoading(true);
@@ -130,12 +144,40 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     [toast],
   );
 
-  const logout = useCallback(() => {
-    setAuthToken(null);
-    setUser(null);
-    setData(null);
-    toast('info', 'Signed out', 'Your session has been ended.');
+  const logout = useCallback(async () => {
+    try {
+      const rt = getRefreshToken();
+      if (rt) {
+        await erpApi.logout(rt).catch(() => {});
+      }
+    } finally {
+      clearAuthTokens();
+      setUser(null);
+      setData(null);
+      toast('info', 'Signed out', 'Your session has been ended.');
+    }
   }, [toast]);
+
+  const logoutAll = useCallback(async () => {
+    try {
+      await erpApi.logoutAll().catch(() => {});
+    } finally {
+      clearAuthTokens();
+      setUser(null);
+      setData(null);
+      toast('info', 'All Sessions Revoked', 'You have been signed out from all devices.');
+    }
+  }, [toast]);
+
+  const changePassword = useCallback(
+    async (currentPassword: string, newPassword: string) => {
+      const res = await erpApi.changePassword(currentPassword, newPassword);
+      setAuthToken(res.token);
+      setRefreshToken(res.refreshToken);
+      toast('success', 'Password Updated', 'Your password has been changed securely.');
+    },
+    [toast],
+  );
 
   const can = useCallback(
     (module: PermissionModule, action: PermissionAction = 'view') => {
@@ -156,6 +198,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       toggleTheme,
       login,
       logout,
+      logoutAll,
+      changePassword,
       refresh,
       can,
       getDefaultRoute,
@@ -165,7 +209,25 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       activeDept,
       setActiveDept,
     }),
-    [user, data, loading, error, theme, toggleTheme, login, logout, refresh, can, getDefaultRoute, toasts, toast, dismissToast, activeDept],
+    [
+      user,
+      data,
+      loading,
+      error,
+      theme,
+      toggleTheme,
+      login,
+      logout,
+      logoutAll,
+      changePassword,
+      refresh,
+      can,
+      getDefaultRoute,
+      toasts,
+      toast,
+      dismissToast,
+      activeDept,
+    ],
   );
 
   return <ERPContext.Provider value={value}>{children}</ERPContext.Provider>;

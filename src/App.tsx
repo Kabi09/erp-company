@@ -8,63 +8,62 @@ import { LoginPage } from './pages/LoginPage';
 import { DEPARTMENTS } from './config/navigation';
 import type { PermissionModule } from './types/erp';
 
-// Sales Management
-import { SalesDashboard, SalesReportsPage } from './pages/sales/SalesDashboard';
-import { EnquiriesPage, EnquiryDetailPage } from './pages/sales/EnquiriesPage';
-import { FollowUpsPage } from './pages/sales/FollowUpsPage';
-import { CustomersPage, ProductsPage } from './pages/sales/CustomersProductsPage';
-import { QuotationsPage } from './pages/sales/QuotationsPage';
-import {
-  CustomerPOsPage,
-  PaymentsPage,
-  ProformaInvoicesPage,
-  SalesOrdersPage,
-} from './pages/sales/OrdersCommercialPage';
+// Sales Management (Code-split)
+const SalesDashboard = React.lazy(() => import('./pages/sales/SalesDashboard').then((m) => ({ default: m.SalesDashboard })));
+const SalesReportsPage = React.lazy(() => import('./pages/sales/SalesDashboard').then((m) => ({ default: m.SalesReportsPage })));
+const EnquiriesPage = React.lazy(() => import('./pages/sales/EnquiriesPage').then((m) => ({ default: m.EnquiriesPage })));
+const EnquiryDetailPage = React.lazy(() => import('./pages/sales/EnquiriesPage').then((m) => ({ default: m.EnquiryDetailPage })));
+const FollowUpsPage = React.lazy(() => import('./pages/sales/FollowUpsPage').then((m) => ({ default: m.FollowUpsPage })));
+const CustomersPage = React.lazy(() => import('./pages/sales/CustomersProductsPage').then((m) => ({ default: m.CustomersPage })));
+const ProductsPage = React.lazy(() => import('./pages/sales/CustomersProductsPage').then((m) => ({ default: m.ProductsPage })));
+const QuotationsPage = React.lazy(() => import('./pages/sales/QuotationsPage').then((m) => ({ default: m.QuotationsPage })));
+const CustomerPOsPage = React.lazy(() => import('./pages/sales/OrdersCommercialPage').then((m) => ({ default: m.CustomerPOsPage })));
+const PaymentsPage = React.lazy(() => import('./pages/sales/OrdersCommercialPage').then((m) => ({ default: m.PaymentsPage })));
+const ProformaInvoicesPage = React.lazy(() => import('./pages/sales/OrdersCommercialPage').then((m) => ({ default: m.ProformaInvoicesPage })));
+const SalesOrdersPage = React.lazy(() => import('./pages/sales/OrdersCommercialPage').then((m) => ({ default: m.SalesOrdersPage })));
 
-// Supply Chain Management
-import { SupplyChainDashboard, SupplyChainReportsPage } from './pages/supply-chain/SupplyChainDashboard';
-import { MaterialIssuesPage, MaterialRequestsPage } from './pages/supply-chain/MaterialRequestsPage';
-import {
-  MaterialsInventoryPage,
-  StockHistoryPage,
-  SuppliersPage,
-} from './pages/supply-chain/MaterialsInventoryPage';
-import {
-  GRNAndVerificationPage,
-  SupplierPOsPage,
-  SupplierReturnsPage,
-} from './pages/supply-chain/PurchasingGrnPage';
+// Supply Chain Management (Code-split)
+const SupplyChainDashboard = React.lazy(() => import('./pages/supply-chain/SupplyChainDashboard').then((m) => ({ default: m.SupplyChainDashboard })));
+const SupplyChainReportsPage = React.lazy(() => import('./pages/supply-chain/SupplyChainDashboard').then((m) => ({ default: m.SupplyChainReportsPage })));
+const MaterialIssuesPage = React.lazy(() => import('./pages/supply-chain/MaterialRequestsPage').then((m) => ({ default: m.MaterialIssuesPage })));
+const MaterialRequestsPage = React.lazy(() => import('./pages/supply-chain/MaterialRequestsPage').then((m) => ({ default: m.MaterialRequestsPage })));
+const MaterialsInventoryPage = React.lazy(() => import('./pages/supply-chain/MaterialsInventoryPage').then((m) => ({ default: m.MaterialsInventoryPage })));
+const StockHistoryPage = React.lazy(() => import('./pages/supply-chain/MaterialsInventoryPage').then((m) => ({ default: m.StockHistoryPage })));
+const SuppliersPage = React.lazy(() => import('./pages/supply-chain/MaterialsInventoryPage').then((m) => ({ default: m.SuppliersPage })));
+const GRNAndVerificationPage = React.lazy(() => import('./pages/supply-chain/PurchasingGrnPage').then((m) => ({ default: m.GRNAndVerificationPage })));
+const SupplierPOsPage = React.lazy(() => import('./pages/supply-chain/PurchasingGrnPage').then((m) => ({ default: m.SupplierPOsPage })));
+const SupplierReturnsPage = React.lazy(() => import('./pages/supply-chain/PurchasingGrnPage').then((m) => ({ default: m.SupplierReturnsPage })));
 
-// Production Management
-import {
-  ProductionDashboard,
-  ProductionPlanningReportsPage,
-  ReceivedSalesOrdersPage,
-} from './pages/production/ProductionDashboard';
-import { ProductionOrderDetailPage, ProductionOrdersListPage } from './pages/production/ProductionOrdersPage';
-import { BomMaterialRequestsPage, MaterialReceiptsPage } from './pages/production/BomReceiptsPage';
-import { DailyUpdatesPage, QualityCheckPage, ReworkPage } from './pages/production/DailyQualityReworkPage';
+// Production Management (Code-split)
+const ProductionDashboard = React.lazy(() => import('./pages/production/ProductionDashboard').then((m) => ({ default: m.ProductionDashboard })));
+const ProductionPlanningReportsPage = React.lazy(() => import('./pages/production/ProductionDashboard').then((m) => ({ default: m.ProductionPlanningReportsPage })));
+const ReceivedSalesOrdersPage = React.lazy(() => import('./pages/production/ProductionDashboard').then((m) => ({ default: m.ReceivedSalesOrdersPage })));
+const ProductionOrderDetailPage = React.lazy(() => import('./pages/production/ProductionOrdersPage').then((m) => ({ default: m.ProductionOrderDetailPage })));
+const ProductionOrdersListPage = React.lazy(() => import('./pages/production/ProductionOrdersPage').then((m) => ({ default: m.ProductionOrdersListPage })));
+const BomMaterialRequestsPage = React.lazy(() => import('./pages/production/BomReceiptsPage').then((m) => ({ default: m.BomMaterialRequestsPage })));
+const MaterialReceiptsPage = React.lazy(() => import('./pages/production/BomReceiptsPage').then((m) => ({ default: m.MaterialReceiptsPage })));
+const DailyUpdatesPage = React.lazy(() => import('./pages/production/DailyQualityReworkPage').then((m) => ({ default: m.DailyUpdatesPage })));
+const QualityCheckPage = React.lazy(() => import('./pages/production/DailyQualityReworkPage').then((m) => ({ default: m.QualityCheckPage })));
+const ReworkPage = React.lazy(() => import('./pages/production/DailyQualityReworkPage').then((m) => ({ default: m.ReworkPage })));
 
-// Logistics & Delivery Management
-import {
-  DeliveryIssuesPage,
-  DeliveryOrdersPage,
-  LogisticsDashboard,
-  LogisticsReportsPage,
-  ReadyForDispatchPage,
-} from './pages/logistics/LogisticsPages';
+// Logistics & Delivery Management (Code-split)
+const DeliveryIssuesPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.DeliveryIssuesPage })));
+const DeliveryOrdersPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.DeliveryOrdersPage })));
+const LogisticsDashboard = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.LogisticsDashboard })));
+const LogisticsReportsPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.LogisticsReportsPage })));
+const ReadyForDispatchPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.ReadyForDispatchPage })));
 
-// Shared & Administration
-import { OrderTrackingDetailPage, OrderTrackingPage } from './pages/shared/OrderTrackingPage';
-import { NotificationsPage, ProfilePage } from './pages/shared/NotificationsProfilePage';
-import {
-  ActivityLogsPage,
-  AdminDashboard,
-  AppSettingsPage,
-  CompanyProfilePage,
-  EmployeesPage,
-  RolesPermissionsPage,
-} from './pages/shared/AdminPages';
+// Shared & Administration (Code-split)
+const OrderTrackingDetailPage = React.lazy(() => import('./pages/shared/OrderTrackingPage').then((m) => ({ default: m.OrderTrackingDetailPage })));
+const OrderTrackingPage = React.lazy(() => import('./pages/shared/OrderTrackingPage').then((m) => ({ default: m.OrderTrackingPage })));
+const NotificationsPage = React.lazy(() => import('./pages/shared/NotificationsProfilePage').then((m) => ({ default: m.NotificationsPage })));
+const ProfilePage = React.lazy(() => import('./pages/shared/NotificationsProfilePage').then((m) => ({ default: m.ProfilePage })));
+const ActivityLogsPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.ActivityLogsPage })));
+const AdminDashboard = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.AdminDashboard })));
+const AppSettingsPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.AppSettingsPage })));
+const CompanyProfilePage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.CompanyProfilePage })));
+const EmployeesPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.EmployeesPage })));
+const RolesPermissionsPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.RolesPermissionsPage })));
 
 const HomeRedirect: React.FC = () => {
   const { user, loading } = useERP();

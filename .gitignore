@@ -7,4 +7,5 @@ coverage/
 .env*
 !.env.example
 .aistudio/
+data/replica_test_db/
 

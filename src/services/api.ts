@@ -1,4 +1,5 @@
 import type {
+  ActivityLog,
   AuthUser,
   DeliveryOrder,
   Enquiry,
@@ -13,6 +14,7 @@ import type {
 } from '../types/erp';
 
 const TOKEN_KEY = 'cryo_erp_jwt_token';
+const REFRESH_KEY = 'cryo_erp_jwt_refresh';
 
 export function getAuthToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
@@ -24,6 +26,23 @@ export function setAuthToken(token: string | null): void {
   } else {
     localStorage.removeItem(TOKEN_KEY);
   }
+}
+
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_KEY);
+}
+
+export function setRefreshToken(token: string | null): void {
+  if (token) {
+    localStorage.setItem(REFRESH_KEY, token);
+  } else {
+    localStorage.removeItem(REFRESH_KEY);
+  }
+}
+
+export function clearAuthTokens(): void {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_KEY);
 }
 
 export interface PaginationParams {
@@ -61,6 +80,38 @@ export interface ERPBootstrapPayload extends ERPDatabase {
   currentUser: AuthUser;
 }
 
+let isRefreshing = false;
+let refreshSubscribers: Array<(token: string) => void> = [];
+
+function onRefreshed(token: string) {
+  refreshSubscribers.forEach((callback) => callback(token));
+  refreshSubscribers = [];
+}
+
+async function tryRefreshToken(): Promise<string | null> {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+
+  try {
+    const res = await fetch('/api/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refreshToken }),
+    });
+    if (!res.ok) {
+      clearAuthTokens();
+      return null;
+    }
+    const data = await res.json();
+    setAuthToken(data.token);
+    setRefreshToken(data.refreshToken);
+    return data.token;
+  } catch {
+    clearAuthTokens();
+    return null;
+  }
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
   const headers: Record<string, string> = {
@@ -74,6 +125,38 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     ...options,
     headers,
   });
+
+  if (response.status === 401 && path !== '/auth/login' && path !== '/auth/refresh') {
+    // Attempt automatic silent refresh
+    if (!isRefreshing) {
+      isRefreshing = true;
+      const newToken = await tryRefreshToken();
+      isRefreshing = false;
+      if (newToken) {
+        onRefreshed(newToken);
+        headers.Authorization = `Bearer ${newToken}`;
+        const retryRes = await fetch(`/api${path}`, { ...options, headers });
+        const retryText = await retryRes.text();
+        return (retryText ? JSON.parse(retryText) : {}) as T;
+      }
+    } else {
+      // Wait for ongoing refresh
+      return new Promise<T>((resolve, reject) => {
+        refreshSubscribers.push(async (newToken) => {
+          try {
+            headers.Authorization = `Bearer ${newToken}`;
+            const retryRes = await fetch(`/api${path}`, { ...options, headers });
+            const retryText = await retryRes.text();
+            resolve((retryText ? JSON.parse(retryText) : {}) as T);
+          } catch (e) {
+            reject(e);
+          }
+        });
+      });
+    }
+    clearAuthTokens();
+  }
+
   const text = await response.text();
   let data: any = {};
   try {
@@ -82,9 +165,6 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     data = { error: text || 'Invalid server response' };
   }
   if (!response.ok) {
-    if (response.status === 401 && path !== '/auth/login') {
-      setAuthToken(null);
-    }
     throw new Error(data.error || `Request failed (${response.status})`);
   }
   return data as T;
@@ -93,12 +173,31 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const erpApi = {
   // Auth
   login: (identifier: string, password: string) =>
-    request<{ token: string; user: AuthUser }>('/auth/login', {
+    request<{ token: string; refreshToken: string; user: AuthUser }>('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ identifier, password }),
     }),
+  refresh: (refreshToken: string) =>
+    request<{ token: string; refreshToken: string; user: AuthUser }>('/auth/refresh', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+    }),
+  logout: (refreshToken?: string) =>
+    request<{ ok: boolean }>('/auth/logout', {
+      method: 'POST',
+      body: JSON.stringify({ refreshToken }),
+    }),
+  logoutAll: () =>
+    request<{ ok: boolean; revokedCount: number }>('/auth/logout-all', {
+      method: 'POST',
+    }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request<{ ok: boolean; message: string; token: string; refreshToken: string }>('/auth/change-password', {
+      method: 'POST',
+      body: JSON.stringify({ currentPassword, newPassword }),
+    }),
   me: () => request<{ user: AuthUser }>('/auth/me'),
-  updateProfile: (payload: { name?: string; phone?: string; newPassword?: string }) =>
+  updateProfile: (payload: { name?: string; phone?: string; currentPassword?: string; newPassword?: string }) =>
     request<{ user: AuthUser }>('/auth/profile', {
       method: 'PATCH',
       body: JSON.stringify(payload),
@@ -122,52 +221,56 @@ export const erpApi = {
     request(`/sales/products/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   createEnquiry: (payload: any) =>
     request('/sales/enquiries', { method: 'POST', body: JSON.stringify(payload) }),
-  updateEnquiryStatus: (id: string, status: string, rejectionReason?: string) =>
-    request(`/sales/enquiries/${id}/status`, {
-      method: 'POST',
-      body: JSON.stringify({ status, rejectionReason }),
-    }),
+  updateEnquiry: (id: string, payload: any) =>
+    request(`/sales/enquiries/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  addFollowUp: (payload: any) =>
+    request('/sales/follow-ups', { method: 'POST', body: JSON.stringify(payload) }),
   createFollowUp: (payload: any) =>
     request('/sales/follow-ups', { method: 'POST', body: JSON.stringify(payload) }),
   createQuotation: (payload: any) =>
     request('/sales/quotations', { method: 'POST', body: JSON.stringify(payload) }),
   reviseQuotation: (id: string, payload: any) =>
     request(`/sales/quotations/${id}/revise`, { method: 'POST', body: JSON.stringify(payload) }),
-  updateQuotationStatus: (id: string, status: string, rejectionReason?: string) =>
-    request(`/sales/quotations/${id}/status`, {
-      method: 'POST',
-      body: JSON.stringify({ status, rejectionReason }),
-    }),
+  acceptQuotation: (id: string, notes?: string) =>
+    request(`/sales/quotations/${id}/accept`, { method: 'POST', body: JSON.stringify({ notes }) }),
+  rejectQuotation: (id: string, reason: string) =>
+    request(`/sales/quotations/${id}/reject`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  updateQuotationStatus: (id: string, status: string, reason?: string) =>
+    request(`/sales/quotations/${id}/${status.toLowerCase()}`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  generatePI: (payload: any) =>
+    request('/sales/proforma-invoices', { method: 'POST', body: JSON.stringify(payload) }),
   createProformaInvoice: (payload: any) =>
     request('/sales/proforma-invoices', { method: 'POST', body: JSON.stringify(payload) }),
   createCustomerPO: (payload: any) =>
     request('/sales/customer-pos', { method: 'POST', body: JSON.stringify(payload) }),
-  resolveCustomerPODiscrepancy: (id: string, resolutionNotes: string) =>
-    request(`/sales/customer-pos/${id}/resolve-discrepancy`, {
-      method: 'POST',
-      body: JSON.stringify({ resolutionNotes }),
-    }),
+  resolveCustomerPODiscrepancy: (id: string, payload: any) =>
+    request(`/sales/customer-pos/${id}/resolve`, { method: 'POST', body: JSON.stringify(payload) }),
   createPayment: (payload: any) =>
     request('/sales/payments', { method: 'POST', body: JSON.stringify(payload) }),
-  verifyPayment: (id: string, status: 'Verified' | 'Rejected' | 'Reversed', remarks?: string) =>
-    request(`/sales/payments/${id}/verify`, {
-      method: 'POST',
-      body: JSON.stringify({ status, remarks }),
-    }),
+  verifyPayment: (id: string, status?: string) =>
+    request(`/sales/payments/${id}/verify`, { method: 'POST', body: JSON.stringify({ status }) }),
+  confirmSalesOrder: (payload: any) =>
+    request('/sales/orders/confirm', { method: 'POST', body: JSON.stringify(payload) }),
   createSalesOrder: (payload: any) =>
-    request('/sales/sales-orders', { method: 'POST', body: JSON.stringify(payload) }),
+    request('/sales/orders/confirm', { method: 'POST', body: JSON.stringify(payload) }),
 
   // Supply Chain
   createMaterial: (payload: any) =>
     request('/supply-chain/materials', { method: 'POST', body: JSON.stringify(payload) }),
-  adjustStock: (payload: { materialId: string; quantityDelta: number; remarks: string }) =>
-    request('/supply-chain/stock-adjustment', { method: 'POST', body: JSON.stringify(payload) }),
+  updateMaterial: (id: string, payload: any) =>
+    request(`/supply-chain/materials/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  stockAdjustment: (payload: any) =>
+    request('/supply-chain/stock-adjustments', { method: 'POST', body: JSON.stringify(payload) }),
+  adjustStock: (payload: any) =>
+    request('/supply-chain/stock-adjustments', { method: 'POST', body: JSON.stringify(payload) }),
   createSupplier: (payload: any) =>
     request('/supply-chain/suppliers', { method: 'POST', body: JSON.stringify(payload) }),
+  updateSupplier: (id: string, payload: any) =>
+    request(`/supply-chain/suppliers/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   createMaterialIssue: (payload: any) =>
     request('/supply-chain/material-issues', { method: 'POST', body: JSON.stringify(payload) }),
   createSupplierPO: (payload: any) =>
-    request('/supply-chain/supplier-pos', { method: 'POST', body: JSON.stringify(payload) }),
+    request('/supply-chain/purchase-orders', { method: 'POST', body: JSON.stringify(payload) }),
   createGRN: (payload: any) =>
     request('/supply-chain/grns', { method: 'POST', body: JSON.stringify(payload) }),
   verifyGRN: (id: string, payload: any) =>
@@ -178,50 +281,64 @@ export const erpApi = {
   // Production
   createProductionOrder: (payload: any) =>
     request('/production/orders', { method: 'POST', body: JSON.stringify(payload) }),
+  updateProductionOrderStatus: (id: string, status: string, notes?: string) =>
+    request(`/production/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, notes }) }),
+  startProduction: (id: string, payload?: any) =>
+    request(`/production/orders/${id}/start`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  completeManufacturing: (id: string, payload?: any) =>
+    request(`/production/orders/${id}/complete`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  createBOM: (payload: any) =>
+    request('/production/boms', { method: 'POST', body: JSON.stringify(payload) }),
   saveBOM: (payload: any) =>
     request('/production/boms', { method: 'POST', body: JSON.stringify(payload) }),
-  sendBOMRequest: (bomId: string) =>
-    request(`/production/boms/${bomId}/send-request`, { method: 'POST' }),
-  acknowledgeMaterialReceipt: (issueId: string, discrepancyNotes?: string) =>
-    request(`/production/material-receipts/${issueId}/acknowledge`, {
-      method: 'POST',
-      body: JSON.stringify({ discrepancyNotes }),
-    }),
-  startProduction: (id: string, payload: any) =>
-    request(`/production/orders/${id}/start`, { method: 'POST', body: JSON.stringify(payload) }),
+  createMaterialRequest: (payload: any) =>
+    request('/production/material-requests', { method: 'POST', body: JSON.stringify(payload) }),
+  sendBOMRequest: (payload: any) =>
+    request('/production/material-requests', { method: 'POST', body: JSON.stringify(payload) }),
+  acknowledgeMaterialReceipt: (id: string, notes?: string) =>
+    request(`/production/material-receipts/${id}/acknowledge`, { method: 'POST', body: JSON.stringify({ notes }) }),
+  addDailyUpdate: (payload: any) =>
+    request('/production/daily-updates', { method: 'POST', body: JSON.stringify(payload) }),
   createDailyUpdate: (payload: any) =>
     request('/production/daily-updates', { method: 'POST', body: JSON.stringify(payload) }),
-  completeManufacturing: (id: string, payload: any) =>
-    request(`/production/orders/${id}/complete-manufacturing`, {
-      method: 'POST',
-      body: JSON.stringify(payload),
-    }),
+  createQC: (payload: any) =>
+    request('/production/quality-checks', { method: 'POST', body: JSON.stringify(payload) }),
   createQualityCheck: (payload: any) =>
     request('/production/quality-checks', { method: 'POST', body: JSON.stringify(payload) }),
+  resolveRework: (id: string, payload: any) =>
+    request(`/production/rework/${id}/resolve`, { method: 'POST', body: JSON.stringify(payload) }),
   completeRework: (id: string, payload: any) =>
     request(`/production/rework/${id}/complete`, { method: 'POST', body: JSON.stringify(payload) }),
 
   // Logistics
   createDeliveryOrder: (payload: any) =>
     request('/logistics/delivery-orders', { method: 'POST', body: JSON.stringify(payload) }),
-  confirmDispatch: (id: string, payload: any) =>
-    request(`/logistics/delivery-orders/${id}/dispatch`, { method: 'POST', body: JSON.stringify(payload) }),
-  confirmDelivery: (id: string, payload: any) =>
-    request(`/logistics/delivery-orders/${id}/deliver`, { method: 'POST', body: JSON.stringify(payload) }),
-  resolveDeliveryIssue: (id: string, payload: { resolutionNotes: string; retryTransit: boolean }) =>
-    request(`/logistics/delivery-issues/${id}/resolve`, { method: 'POST', body: JSON.stringify(payload) }),
+  updateDeliveryStatus: (id: string, payload: any) =>
+    request(`/logistics/delivery-orders/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  confirmDispatch: (id: string, payload?: any) =>
+    request(`/logistics/delivery-orders/${id}/dispatch`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  confirmDelivery: (id: string, payload?: any) =>
+    request(`/logistics/delivery-orders/${id}/deliver`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  reportDeliveryIssue: (payload: any) =>
+    request('/logistics/issues', { method: 'POST', body: JSON.stringify(payload) }),
+  resolveDeliveryIssue: (id: string, payload: any) =>
+    request(`/logistics/issues/${id}/resolve`, { method: 'POST', body: JSON.stringify(payload) }),
 
   // Admin
   createEmployee: (payload: any) =>
     request('/admin/employees', { method: 'POST', body: JSON.stringify(payload) }),
   updateEmployee: (id: string, payload: any) =>
     request(`/admin/employees/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteEmployee: (id: string) =>
+    request(`/admin/employees/${id}`, { method: 'DELETE' }),
   updateRole: (id: string, payload: any) =>
     request(`/admin/roles/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   updateCompany: (payload: any) =>
     request('/admin/company', { method: 'PUT', body: JSON.stringify(payload) }),
   resetDemoData: (mode: 'seed' | 'clean') =>
     request('/admin/reset-demo', { method: 'POST', body: JSON.stringify({ mode }) }),
+  getAuditLogs: (params?: PaginationParams & { department?: string; actorId?: string; action?: string }) =>
+    request<PaginatedResponse<ActivityLog>>(`/admin/audit-logs${toQueryString(params)}`),
 
   // Phase 3: Paginated Queries
   getEnquiries: (params?: PaginationParams) =>
