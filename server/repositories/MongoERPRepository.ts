@@ -448,24 +448,51 @@ export class MongoERPRepository implements IERPRepository {
   // --- DASHBOARD SUMMARIES ---
 
   public async getSalesSummary() {
-    const [enquiries, quotations, orders, payments] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10);
+    const [
+      totalEnquiries,
+      newEnquiries,
+      qualifiedEnquiries,
+      todaysFollowUps,
+      overdueFollowUps,
+      pendingQuotations,
+      acceptedQuotations,
+      orders,
+      payments,
+      recentActivities,
+    ] = await Promise.all([
       EnquiryModel.countDocuments(),
-      QuotationModel.countDocuments({ status: { $in: ['Sent', 'Pending', 'Negotiation'] } as any }),
+      EnquiryModel.countDocuments({ status: { $in: ['New', 'Contacted'] } }),
+      EnquiryModel.countDocuments({ status: 'Qualified' }),
+      FollowUpModel.countDocuments({ status: 'Scheduled', nextFollowUpDate: today }),
+      FollowUpModel.countDocuments({ status: 'Scheduled', nextFollowUpDate: { $lt: today } }),
+      QuotationModel.countDocuments({ status: { $in: ['Draft', 'Sent', 'Pending', 'Negotiation'] } }),
+      QuotationModel.countDocuments({ status: 'Accepted' }),
       SalesOrderModel.find().lean(),
       PaymentEntryModel.find().lean(),
+      ActivityLogModel.find({ department: 'sales' }).sort({ timestamp: -1 }).limit(10).lean(),
     ]);
 
-    const totalOrders = orders.length;
-    const totalRevenue = orders.reduce((sum, o) => sum + (o.commercialStatus !== 'Cancelled' ? o.totalAmount : 0), 0);
+    const confirmedOrders = orders.filter((o) => o.commercialStatus === 'Confirmed');
+    const totalRevenue = confirmedOrders.reduce((sum, o) => sum + o.totalAmount, 0);
     const totalCollected = payments.reduce((sum, p) => sum + (p.status === 'Verified' ? p.amount : 0), 0);
+    const totalOutstanding = Math.max(0, totalRevenue - totalCollected);
 
     return {
-      totalEnquiries: enquiries,
-      openQuotations: quotations,
-      totalOrders,
+      totalEnquiries,
+      newEnquiries,
+      qualifiedEnquiries,
+      todaysFollowUps,
+      overdueFollowUps,
+      pendingQuotations,
+      acceptedQuotations,
+      confirmedOrdersCount: confirmedOrders.length,
+      totalOrders: orders.length,
       totalRevenue: round2(totalRevenue),
       totalCollected: round2(totalCollected),
-      pendingPayments: round2(Math.max(0, totalRevenue - totalCollected)),
+      totalOutstanding: round2(totalOutstanding),
+      pendingPayments: round2(totalOutstanding),
+      recentActivities: recentActivities as unknown as ActivityLog[],
     };
   }
 
@@ -534,7 +561,7 @@ export class MongoERPRepository implements IERPRepository {
     return withTransaction(async (session) => {
       const prev = await QuotationModel.findOne({ id: quotationId }).session(session);
       if (!prev) throw new Error('NOT_FOUND:Target quotation not found.');
-      if (prev.status === 'Accepted' || prev.status === 'Superseded') {
+      if (prev.status === 'Accepted' || prev.status === 'Superseded' || prev.status === 'Rejected') {
         throw new Error(`Cannot revise a quotation in ${prev.status} state.`);
       }
 

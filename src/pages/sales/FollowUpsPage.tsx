@@ -23,7 +23,7 @@ export const FollowUpsPage: React.FC = () => {
   const { data, refresh, toast, can } = useERP();
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState('All');
+  const [filter, setFilter] = useState(() => searchParams.get('filter') || 'All');
   const [open, setOpen] = useState(false);
 
   const [entityType, setEntityType] = useState<'enquiry' | 'quotation'>('enquiry');

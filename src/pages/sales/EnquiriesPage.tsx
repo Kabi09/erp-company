@@ -183,13 +183,23 @@ export const EnquiriesPage: React.FC<{ qualifiedOnly?: boolean }> = ({ qualified
             View
           </Button>
           {r.status === 'Qualified' && can('sales', 'create') && (
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => navigate(`/sales/quotations?create=1&enquiryId=${r.id}`)}
-            >
-              Create Quotation
-            </Button>
+            data.quotations.some((q) => q.enquiryId === r.id) ? (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => navigate('/sales/quotations')}
+              >
+                View Quotation
+              </Button>
+            ) : (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => navigate(`/sales/quotations?create=1&enquiryId=${r.id}`)}
+              >
+                Create Quotation
+              </Button>
+            )
           )}
         </div>
       ),
@@ -255,9 +265,15 @@ export const EnquiriesPage: React.FC<{ qualifiedOnly?: boolean }> = ({ qualified
                   Details
                 </Button>
                 {r.status === 'Qualified' && can('sales', 'create') && (
-                  <Button size="sm" onClick={() => navigate(`/sales/quotations?create=1&enquiryId=${r.id}`)}>
-                    Quote
-                  </Button>
+                  data.quotations.some((q) => q.enquiryId === r.id) ? (
+                    <Button size="sm" variant="secondary" onClick={() => navigate('/sales/quotations')}>
+                      View Quote
+                    </Button>
+                  ) : (
+                    <Button size="sm" onClick={() => navigate(`/sales/quotations?create=1&enquiryId=${r.id}`)}>
+                      Quote
+                    </Button>
+                  )
                 )}
               </div>
             </div>
@@ -563,10 +579,17 @@ export const EnquiryDetailPage: React.FC = () => {
               </Button>
             )}
             {enquiry.status === 'Qualified' && can('sales', 'create') && (
-              <Button size="sm" onClick={() => navigate(`/sales/quotations?create=1&enquiryId=${enquiry.id}`)}>
-                <FileText className="w-4 h-4" />
-                Create Quotation
-              </Button>
+              quotations.length > 0 ? (
+                <Button variant="secondary" size="sm" onClick={() => navigate('/sales/quotations')}>
+                  <FileText className="w-4 h-4" />
+                  View Quotation
+                </Button>
+              ) : (
+                <Button size="sm" onClick={() => navigate(`/sales/quotations?create=1&enquiryId=${enquiry.id}`)}>
+                  <FileText className="w-4 h-4" />
+                  Create Quotation
+                </Button>
+              )
             )}
           </div>
         }

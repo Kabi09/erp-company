@@ -8,6 +8,7 @@ import path from 'node:path';
 import http from 'node:http';
 import { createApp } from '../../server';
 import { connectDatabase, disconnectDatabase } from '../config/database';
+import { CustomerModel, ProductModel } from '../models';
 import { dbStore } from '../db';
 import type { Customer, Enquiry, PaymentEntry, Product, ProductionOrder, Quotation, SalesOrder, SupplierPO } from '../../src/types/erp';
 
@@ -162,6 +163,10 @@ test('CRYO ERP 2.0 Comprehensive API Smoke, RBAC, and Full Lifecycle Test Suite'
   });
 
   await t.test('3. Complete End-to-End Linked Order Lifecycle', async () => {
+    // Clean up any test artifacts from previous runs
+    await CustomerModel.deleteMany({ $or: [{ name: 'Apex Bio-Thermal Labs' }, { gstin: '29AABCA1234F1Z5' }] });
+    await ProductModel.deleteMany({ code: 'CRYO-TEST-ULT-01' });
+
     // --- STEP 1: Create Isolated Customer & Product ---
     const custRes = await apiRequest('/sales/customers', {
       method: 'POST',

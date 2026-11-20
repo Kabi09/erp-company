@@ -1,33 +1,48 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowRight, Plus } from 'lucide-react';
+import { ArrowRight, FileText, Plus } from 'lucide-react';
 import { Button, PageHeader, StatCard, StatusBadge } from '../../components/ui';
 import { useERP } from '../../context/ERPContext';
+import { erpApi } from '../../services/api';
 import { calculatePaymentSummary, formatCurrency } from '../../utils/erpLogic';
 
 export const SalesDashboard: React.FC = () => {
   const { data, can } = useERP();
   const navigate = useNavigate();
+  const [summary, setSummary] = useState<any>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    erpApi.getSalesSummary().then((res) => {
+      if (isMounted) setSummary(res);
+    }).catch(() => {
+      // In-memory fallback is handled via ERPContext data
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [data]);
+
   if (!data) return null;
 
   const today = new Date().toISOString().slice(0, 10);
-  const newEnquiries = data.enquiries.filter((e) => e.status === 'New' || e.status === 'Contacted');
-  const qualifiedEnquiries = data.enquiries.filter((e) => e.status === 'Qualified');
-  const todaysFollowUps = data.followUps.filter(
+  const newEnquiriesCount = summary?.newEnquiries ?? data.enquiries.filter((e) => e.status === 'New' || e.status === 'Contacted').length;
+  const qualifiedEnquiriesCount = summary?.qualifiedEnquiries ?? data.enquiries.filter((e) => e.status === 'Qualified').length;
+  const todaysFollowUpsCount = summary?.todaysFollowUps ?? data.followUps.filter(
     (f) => f.status === 'Scheduled' && f.nextFollowUpDate && f.nextFollowUpDate <= today,
-  );
-  const pendingQuotations = data.quotations.filter(
+  ).length;
+  const pendingQuotationsCount = summary?.pendingQuotations ?? data.quotations.filter(
     (q) => q.status === 'Draft' || q.status === 'Sent' || q.status === 'Pending' || q.status === 'Negotiation',
-  );
-  const acceptedQuotations = data.quotations.filter((q) => q.status === 'Accepted');
+  ).length;
+  const acceptedQuotationsCount = summary?.acceptedQuotations ?? data.quotations.filter((q) => q.status === 'Accepted').length;
   const confirmedSOs = data.salesOrders.filter((s) => s.commercialStatus === 'Confirmed');
 
-  const totalOutstanding = confirmedSOs.reduce((sum, so) => {
-    const summary = calculatePaymentSummary(so.totalAmount, data.payments, { piId: so.piId, salesOrderId: so.id });
-    return sum + summary.outstandingBalance;
+  const totalOutstanding = summary?.totalOutstanding ?? confirmedSOs.reduce((sum, so) => {
+    const pay = calculatePaymentSummary(so.totalAmount, data.payments, { piId: so.piId, salesOrderId: so.id });
+    return sum + pay.outstandingBalance;
   }, 0);
 
-  const recentSalesActivity = data.activityLogs.filter((a) => a.department === 'sales').slice(0, 8);
+  const recentSalesActivity = summary?.recentActivities ?? data.activityLogs.filter((a) => a.department === 'sales').slice(0, 8);
 
   return (
     <div className="space-y-6">
@@ -39,6 +54,10 @@ export const SalesDashboard: React.FC = () => {
             <>
               <Button variant="secondary" size="sm" onClick={() => navigate('/sales/follow-ups?create=1')}>
                 Add Follow-up
+              </Button>
+              <Button variant="secondary" size="sm" onClick={() => navigate('/sales/quotations?create=1')}>
+                <FileText className="w-4 h-4" />
+                Create Quotation
               </Button>
               <Button variant="secondary" size="sm" onClick={() => navigate('/sales/payments?create=1')}>
                 Record Payment
@@ -56,35 +75,35 @@ export const SalesDashboard: React.FC = () => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           label="New / Active Enquiries"
-          value={newEnquiries.length}
-          hint={`${data.enquiries.length} total logged`}
-          onClick={() => navigate('/sales/enquiries')}
+          value={newEnquiriesCount}
+          hint={`${summary?.totalEnquiries ?? data.enquiries.length} total logged`}
+          onClick={() => navigate('/sales/enquiries?status=New')}
         />
         <StatCard
           label="Qualified Enquiries"
-          value={qualifiedEnquiries.length}
+          value={qualifiedEnquiriesCount}
           hint="Ready for quotation"
           tone="success"
           onClick={() => navigate('/sales/qualified')}
         />
         <StatCard
           label="Today / Due Follow-ups"
-          value={todaysFollowUps.length}
+          value={todaysFollowUpsCount}
           hint="Scheduled actions due"
-          tone={todaysFollowUps.length > 0 ? 'warning' : 'default'}
-          onClick={() => navigate('/sales/follow-ups')}
+          tone={todaysFollowUpsCount > 0 ? 'warning' : 'default'}
+          onClick={() => navigate('/sales/follow-ups?filter=Today')}
         />
         <StatCard
           label="Pending Quotations"
-          value={pendingQuotations.length}
-          hint={`${acceptedQuotations.length} accepted versions`}
-          onClick={() => navigate('/sales/quotations')}
+          value={pendingQuotationsCount}
+          hint={`${acceptedQuotationsCount} accepted versions`}
+          onClick={() => navigate('/sales/quotations?status=Pending')}
         />
         <StatCard
           label="Confirmed Sales Orders"
-          value={confirmedSOs.length}
+          value={summary?.confirmedOrdersCount ?? confirmedSOs.length}
           hint="Synced with Production"
-          onClick={() => navigate('/sales/sales-orders')}
+          onClick={() => navigate('/sales/sales-orders?status=Confirmed')}
         />
         <StatCard
           label="Outstanding Payments"
@@ -156,7 +175,7 @@ export const SalesDashboard: React.FC = () => {
             </button>
           </div>
           <div className="divide-y divide-slate-200 dark:divide-slate-800">
-            {recentSalesActivity.map((act) => (
+            {recentSalesActivity.map((act: any) => (
               <div key={act.id} className="px-4 py-3 flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <div className="text-sm font-medium text-slate-900 dark:text-slate-100">

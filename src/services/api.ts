@@ -223,6 +223,8 @@ export const erpApi = {
     request('/sales/enquiries', { method: 'POST', body: JSON.stringify(payload) }),
   updateEnquiry: (id: string, payload: any) =>
     request(`/sales/enquiries/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  updateEnquiryStatus: (id: string, status: string, rejectionReason?: string) =>
+    request(`/sales/enquiries/${id}/status`, { method: 'POST', body: JSON.stringify({ status, rejectionReason }) }),
   addFollowUp: (payload: any) =>
     request('/sales/follow-ups', { method: 'POST', body: JSON.stringify(payload) }),
   createFollowUp: (payload: any) =>
@@ -243,8 +245,11 @@ export const erpApi = {
     request('/sales/proforma-invoices', { method: 'POST', body: JSON.stringify(payload) }),
   createCustomerPO: (payload: any) =>
     request('/sales/customer-pos', { method: 'POST', body: JSON.stringify(payload) }),
-  resolveCustomerPODiscrepancy: (id: string, payload: any) =>
-    request(`/sales/customer-pos/${id}/resolve`, { method: 'POST', body: JSON.stringify(payload) }),
+  resolveCustomerPODiscrepancy: (id: string, payload?: any) =>
+    request(`/sales/customer-pos/${id}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify(typeof payload === 'string' ? { resolutionNotes: payload } : payload || {}),
+    }),
   createPayment: (payload: any) =>
     request('/sales/payments', { method: 'POST', body: JSON.stringify(payload) }),
   verifyPayment: (id: string, status?: string) =>

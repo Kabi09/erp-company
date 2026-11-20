@@ -89,10 +89,27 @@ salesRouter.post('/sales/customers', requireAuth, requirePerm('sales', 'create')
   try {
     const body = req.body;
     if (!body.name?.trim()) throw new Error('Customer / company name is required.');
+    const cleanName = body.name.trim();
+
+    const existingByName = await CustomerModel.findOne({
+      name: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+    });
+    if (existingByName) {
+      throw new Error(`Customer "${cleanName}" already exists.`);
+    }
+
+    if (body.gstin?.trim()) {
+      const cleanGstin = body.gstin.trim().toUpperCase();
+      const existingByGstin = await CustomerModel.findOne({ gstin: cleanGstin });
+      if (existingByGstin) {
+        throw new Error(`Customer with GSTIN "${cleanGstin}" already exists (${existingByGstin.name}).`);
+      }
+    }
+
     const now = new Date().toISOString();
     const c = {
       id: generateId('cust'),
-      name: body.name.trim(),
+      name: cleanName,
       contactPerson: body.contactPerson?.trim() || '',
       phone: body.phone?.trim() || '',
       email: body.email?.trim() || '',
@@ -219,30 +236,47 @@ salesRouter.post('/sales/enquiries', requireAuth, requirePerm('sales', 'create')
 
     if (body.isNewCustomer || !customerId) {
       if (!body.newCustomer?.name?.trim()) throw new Error('Customer / company name is required.');
-      const nc = {
-        id: generateId('cust'),
-        name: body.newCustomer.name.trim(),
-        contactPerson: body.newCustomer.contactPerson?.trim() || '',
-        phone: body.newCustomer.phone?.trim() || '',
-        email: body.newCustomer.email?.trim() || '',
-        billingAddress: body.newCustomer.address?.trim() || '',
-        shippingAddress: body.newCustomer.address?.trim() || '',
-        gstin: body.newCustomer.gstin?.trim() || '',
-        notes: '',
-        createdAt: now,
-        updatedAt: now,
-      };
-      await CustomerModel.create(nc);
-      customerId = nc.id;
-      customerSnapshot = {
-        name: nc.name,
-        contactPerson: nc.contactPerson,
-        phone: nc.phone,
-        email: nc.email,
-        billingAddress: nc.billingAddress,
-        shippingAddress: nc.shippingAddress,
-        gstin: nc.gstin,
-      };
+      const cleanName = body.newCustomer.name.trim();
+      const existingCust = await CustomerModel.findOne({
+        name: new RegExp(`^${cleanName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i'),
+      });
+      if (existingCust) {
+        customerId = existingCust.id;
+        customerSnapshot = {
+          name: existingCust.name,
+          contactPerson: existingCust.contactPerson,
+          phone: existingCust.phone,
+          email: existingCust.email,
+          billingAddress: existingCust.billingAddress,
+          shippingAddress: existingCust.shippingAddress,
+          gstin: existingCust.gstin,
+        };
+      } else {
+        const nc = {
+          id: generateId('cust'),
+          name: cleanName,
+          contactPerson: body.newCustomer.contactPerson?.trim() || '',
+          phone: body.newCustomer.phone?.trim() || '',
+          email: body.newCustomer.email?.trim() || '',
+          billingAddress: body.newCustomer.address?.trim() || '',
+          shippingAddress: body.newCustomer.address?.trim() || '',
+          gstin: body.newCustomer.gstin?.trim() || '',
+          notes: '',
+          createdAt: now,
+          updatedAt: now,
+        };
+        await CustomerModel.create(nc);
+        customerId = nc.id;
+        customerSnapshot = {
+          name: nc.name,
+          contactPerson: nc.contactPerson,
+          phone: nc.phone,
+          email: nc.email,
+          billingAddress: nc.billingAddress,
+          shippingAddress: nc.shippingAddress,
+          gstin: nc.gstin,
+        };
+      }
     } else {
       const existing = await CustomerModel.findOne({ id: customerId }).lean();
       if (!existing) throw new Error('Selected customer not found.');
@@ -457,6 +491,10 @@ salesRouter.post('/sales/quotations', requireAuth, requirePerm('sales', 'create'
     if (enq.status !== 'Qualified') {
       throw new Error('Quotations can only be created from Qualified enquiries.');
     }
+    const existingQt = await QuotationModel.findOne({ enquiryId: enq.id });
+    if (existingQt) {
+      throw new Error(`Quotation already exists for this enquiry (${existingQt.docNo}). Duplicate quotation creation blocked. Use revision instead.`);
+    }
     if (!Array.isArray(body.items) || body.items.length === 0) {
       throw new Error('At least one quotation line item is required.');
     }
@@ -532,6 +570,92 @@ salesRouter.post('/sales/quotations/:id/revise', requireAuth, requirePerm('sales
       name: req.user!.name,
     });
     res.status(201).json(revised);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+salesRouter.post(['/sales/quotations/:id/accept', '/sales/quotations/:id/accepted'], requireAuth, requirePerm('sales', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const qt = await QuotationModel.findOne({ id: req.params.id });
+    if (!qt) throw new Error('NOT_FOUND:Quotation not found.');
+    if (qt.status === 'Superseded') {
+      throw new Error('Superseded quotation versions cannot be accepted.');
+    }
+    if (qt.status === 'Accepted') {
+      return res.json(qt.toObject());
+    }
+    const alreadyAccepted = await QuotationModel.findOne({
+      baseDocNo: qt.baseDocNo,
+      id: { $ne: qt.id },
+      status: 'Accepted',
+    });
+    if (alreadyAccepted) {
+      throw new Error(`Another revision (${alreadyAccepted.docNo}) is already accepted.`);
+    }
+    qt.status = 'Accepted';
+    qt.acceptedAt = new Date().toISOString();
+    qt.acceptedBy = req.user!.name;
+    qt.updatedAt = new Date().toISOString();
+    await qt.save();
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'sales',
+      action: 'Accepted Quotation',
+      entityType: 'Quotation',
+      entityId: qt.id,
+      entityDocNo: qt.docNo,
+      details: `Accepted quotation ${qt.docNo}. Ready for Proforma Invoice generation.`,
+    });
+
+    res.json(qt.toObject());
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+salesRouter.post(['/sales/quotations/:id/reject', '/sales/quotations/:id/rejected'], requireAuth, requirePerm('sales', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const reason = (req.body.reason || req.body.rejectionReason || '').trim();
+    if (!reason) throw new Error('Rejection reason is required.');
+    const qt = await QuotationModel.findOne({ id: req.params.id });
+    if (!qt) throw new Error('NOT_FOUND:Quotation not found.');
+    if (qt.status === 'Superseded') {
+      throw new Error('Superseded quotation versions cannot be rejected.');
+    }
+    qt.status = 'Rejected';
+    qt.rejectionReason = reason;
+    qt.updatedAt = new Date().toISOString();
+    await qt.save();
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'sales',
+      action: 'Rejected Quotation',
+      entityType: 'Quotation',
+      entityId: qt.id,
+      entityDocNo: qt.docNo,
+      details: `Rejected quotation ${qt.docNo}. Reason: ${reason}`,
+    });
+
+    res.json(qt.toObject());
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+salesRouter.post('/sales/quotations/:id/sent', requireAuth, requirePerm('sales', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const qt = await QuotationModel.findOne({ id: req.params.id });
+    if (!qt) throw new Error('NOT_FOUND:Quotation not found.');
+    if (qt.status === 'Superseded') throw new Error('Superseded quotation versions cannot be modified.');
+    qt.status = 'Sent';
+    qt.updatedAt = new Date().toISOString();
+    await qt.save();
+    res.json(qt.toObject());
   } catch (err) {
     sendError(res, err);
   }
@@ -715,12 +839,13 @@ salesRouter.post('/sales/customer-pos', requireAuth, requirePerm('sales', 'creat
   }
 });
 
-salesRouter.post('/sales/customer-pos/:id/resolve-discrepancy', requireAuth, requirePerm('sales', 'edit'), async (req: AuthenticatedRequest, res) => {
+salesRouter.post(['/sales/customer-pos/:id/resolve', '/sales/customer-pos/:id/resolve-discrepancy'], requireAuth, requirePerm('sales', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
     const cpo = await CustomerPOModel.findOne({ id: req.params.id });
     if (!cpo) throw new Error('NOT_FOUND:Customer PO not found.');
     cpo.discrepancyResolved = true;
-    cpo.remarks = `${cpo.remarks ? cpo.remarks + ' | ' : ''}Discrepancy resolved by ${req.user!.name}: ${req.body.resolutionNotes || 'Confirmed aligned with PI'}`;
+    const notes = typeof req.body === 'string' ? req.body : req.body?.resolutionNotes || req.body?.notes || 'Confirmed aligned with PI';
+    cpo.remarks = `${cpo.remarks ? cpo.remarks + ' | ' : ''}Discrepancy resolved by ${req.user!.name}: ${notes}`;
     await cpo.save();
     res.json(cpo.toObject());
   } catch (err) {
@@ -836,7 +961,7 @@ salesRouter.post('/sales/payments/:id/verify', requireAuth, requirePerm('sales',
 
 // --- SALES ORDERS ---
 
-salesRouter.post('/sales/sales-orders', requireAuth, requirePerm('sales', 'create'), async (req: AuthenticatedRequest, res) => {
+salesRouter.post(['/sales/orders/confirm', '/sales/sales-orders'], requireAuth, requirePerm('sales', 'create'), async (req: AuthenticatedRequest, res) => {
   try {
     const body = req.body;
     const pi = await ProformaInvoiceModel.findOne({ id: body.piId });

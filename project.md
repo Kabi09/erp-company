@@ -137,11 +137,22 @@
     - Anti-enumeration authentication defenses and sliding rate-limiter against brute-force login attacks.
     - Security middleware suite: security headers (nosniff, frameguard, etc.), CORS, NoSQL injection sanitizer, and 2MB request body ceiling.
     - Route-level `React.lazy()` and `Suspense` code splitting, reducing client bundle from >644 kB to 355 kB.
-    - 28/28 automated tests passing across domain logic, MongoDB integration, full lifecycle, and security/concurrency/transaction suites.
-- **Known Issues & Technical Debt (Analyzed for Phase 5)**:
-  - *H-02 (Storage)*: Client-side base64 Data URL file attachments stored in database fields. Needs cloud object storage (S3/GCS/MinIO) with signed URLs in Phase 5.
-  - *H-04 (Documents)*: HTML/Print-based simulated PDF generation. Needs server-side binary PDF generation in Phase 5.
-- **Pending Work for Phase 5 (Production Hardening & Cloud Deploy)**:
+  - Phase 5 Sales Management Workflow, Business Logic & UI/UX Refinement:
+    - End-to-end commercial lifecycle verified: `Enquiry → Follow-up → Qualified Enquiry → Quotation (V1/V2/V3) → Accepted Quotation → Proforma Invoice → Customer PO → Payment Entry → Sales Order → Production`.
+    - Duplicate customer prevention on name and GSTIN; inline customer lookup/reuse in enquiries.
+    - Dynamic qualification gate automatically transitioning enquiries upon follow-up acceptance.
+    - Strict duplicate quotation conversion prevention ("View Quotation" vs "Create Quotation").
+    - Immutable quotation revision chain (`V1 → V2 → V3`) marking prior versions `Superseded`.
+    - Hardened Proforma Invoice conversion gate allowing PI creation exclusively from `Accepted` quotation versions.
+    - Customer PO discrepancy detection and resolution gate blocking Sales Order confirmation until cleared.
+    - Live payment summary widget with verified receipts tracking and strict overpayment blocking.
+    - Sales Order confirmation gate requiring Valid PI + Accepted Quote + Discrepancy-Free Customer PO + Verified Payment (or approved credit terms).
+    - Automatic production handoff notification and order synchronization (`/production/received-orders`).
+    - 36/36 automated tests passing across domain logic, MongoDB integration, full lifecycle, security, and sales workflow suites.
+- **Known Issues & Technical Debt (Analyzed for Phase 6)**:
+  - *H-02 (Storage)*: Client-side base64 Data URL file attachments stored in database fields. Needs cloud object storage (S3/GCS/MinIO) with signed URLs in Phase 6.
+  - *H-04 (Documents)*: HTML/Print-based simulated PDF generation. Needs server-side binary PDF generation in Phase 6.
+- **Pending Work for Phase 6 (Production Hardening & Cloud Deploy)**:
   - Cloud object storage for binary document attachments (S3/MinIO).
   - Server-side PDF generation service (Puppeteer/PDFKit).
   - Containerization (Dockerfile & Docker Compose) with MongoDB replica set orchestration.
@@ -182,3 +193,20 @@
   - Code-split client bundle with `React.lazy()` and `Suspense`, dropping monolithic bundle size by 45% (from >644 kB to 355 kB).
   - Created `server/tests/security-auth.test.ts`, achieving 28/28 passing tests across the entire test suite.
   - Authored comprehensive `PHASE_4_SECURITY.md` report.
+- **v2.4.0 (Phase 5 – Sales Management Workflow, Business Logic & UI/UX Refinement)**:
+  - Standardized complete commercial sales lifecycle from Customer Enquiry through Production Release.
+  - Implemented duplicate customer prevention on both name (case-insensitive) and GSTIN.
+  - Enforced enquiry qualification via customer follow-up outcome (`Accepted` auto-qualifies; `Rejected` records reason and cancels future actions).
+  - Enforced duplicate quotation prevention per enquiry with adaptive UI buttons ("View Quotation" vs "Create Quotation").
+  - Hardened immutable quotation revision chains (`V1 → V2 → V3`), marking previous revisions `Superseded`.
+  - Implemented quotation `/accept`, `/reject`, and `/sent` endpoints with full alias routing.
+  - Restriced Proforma Invoice generation exclusively to `Accepted` quotation versions and blocked duplicate PIs.
+  - Added Customer PO discrepancy detection and formal resolution gate (`/resolve`), blocking SO confirmation until resolved.
+  - Added payment overpayment protection enforcing $Amount \le \text{Outstanding Balance}$, with manager verification gate (`sales:approve`).
+  - Added live 4-card metric strip on Payment Entries displaying Verified Collections, Pending Verification, Revenue, and Net Outstanding Balance.
+  - Implemented strict Sales Order confirmation gate with automatic Production department notification and order synchronization.
+  - Maintained separation of fulfillment status from commercial payment balance across tracking views.
+  - Connected `SalesDashboard.tsx` to live `/api/sales/summary` with clickable StatCards and quick actions.
+  - Built comprehensive automated test suite `server/tests/sales-workflow.test.ts` covering all 7 scenarios in Section 30.
+  - Verified 36/36 passing tests across the entire test suite, clean `tsc --noEmit`, and clean production build.
+  - Authored comprehensive `PHASE_5_SALES_MANAGEMENT.md` report.

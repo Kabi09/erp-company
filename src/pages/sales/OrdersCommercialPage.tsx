@@ -13,6 +13,7 @@ import {
   Modal,
   PageHeader,
   Select,
+  StatCard,
   StatusBadge,
   Textarea,
   type ColumnDef,
@@ -592,6 +593,44 @@ export const PaymentsPage: React.FC = () => {
           )
         }
       />
+
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 my-4">
+        <StatCard
+          label="Verified Collections"
+          value={formatCurrency(
+            data.payments.filter((p) => p.status === 'Verified').reduce((s, p) => s + p.amount, 0),
+            data.company.currencySymbol,
+          )}
+          tone="success"
+        />
+        <StatCard
+          label="Pending Verification"
+          value={formatCurrency(
+            data.payments.filter((p) => p.status === 'Pending').reduce((s, p) => s + p.amount, 0),
+            data.company.currencySymbol,
+          )}
+          tone="warning"
+        />
+        <StatCard
+          label="Confirmed Revenue"
+          value={formatCurrency(
+            data.salesOrders.reduce((s, so) => s + (so.commercialStatus !== 'Cancelled' ? so.totalAmount : 0), 0),
+            data.company.currencySymbol,
+          )}
+        />
+        <StatCard
+          label="Outstanding Balance"
+          value={formatCurrency(
+            Math.max(
+              0,
+              data.salesOrders.reduce((s, so) => s + (so.commercialStatus !== 'Cancelled' ? so.totalAmount : 0), 0) -
+                data.payments.filter((p) => p.status === 'Verified').reduce((s, p) => s + p.amount, 0),
+            ),
+            data.company.currencySymbol,
+          )}
+          tone="warning"
+        />
+      </div>
       <FilterBar
         search={search}
         onSearchChange={setSearch}
