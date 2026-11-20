@@ -117,16 +117,38 @@
 
 ## 8. Completed Features, Known Issues & Pending Work
 - **Completed**:
-  - Full Express + JWT + bcrypt + RBAC backend (`server.ts`, `server/routes.ts`, `server/db.ts`, `server/auth.ts`, `server/seedData.ts`) with atomic file-backed persistence (`data/cryo-erp-db.json`).
+  - Full Express + JWT + bcrypt + RBAC backend with atomic file-backed persistence (`data/cryo-erp-db.json`).
+  - Phase 2 Backend Modularization into enterprise tiered architecture: `server/config/`, `server/middleware/`, `server/routes/` (`auth`, `sales`, `supply-chain`, `production`, `logistics`, `admin`), `server/repositories/`, `server/models/`, `server/validators/`, `server/services/`, and `server/tests/`.
+  - 100% preservation of all existing REST API contracts (`/api/*`), frontend components, routing, colors, and responsive layouts.
+  - Complete 28-step automated end-to-end integration test suite (`server/tests/api-lifecycle.test.ts`) covering Authentication, RBAC, and full 4-department linked order lifecycle.
   - Pure domain logic & 8/8 passing `node:test` unit tests (`src/utils/erpLogic.ts`, `src/utils/erpLogic.test.ts`).
-  - All 4 operational department workspaces (**Sales**, **Supply Chain**, **Production**, **Logistics & Delivery**), **Centralized Order Tracking**, **Notifications**, **User Profile**, and **Administration**.
-  - Light & dark modes, desktop collapsible sidebar, mobile bottom navigation bar with zero horizontal overflow (`390px` verified), and printable/downloadable PDF document previews.
-  - End-to-end browser verification across desktop (`1440×900`) and mobile (`390×844`), live reload persistence verification, and RBAC route + API enforcement (`HTTP 403` and Access Restricted UI guard verified for Sales Executive accessing Production).
-- **Known Issues**: None open.
-- **Pending Work**: Future optional MongoDB/Mongoose adapter swap behind `server/db.ts` (frontend `src/services/api.ts` is already REST-decoupled).
+  - Combined `npm test` running 12 test suites with 100% pass rate.
+  - Security hardening: Enforced 6-character password validation in `auth.routes.ts`, created `environment.ts` with explicit production warnings for unset `JWT_SECRET`.
+  - Vite 8 modernization: Replaced `__dirname` with `process.cwd()` in `vite.config.ts`, eliminating native build deprecation warnings.
+  - Complete MongoDB migration plan drafted across all 29 entity collections (`server/models/mongoSchemas.ts`, `server/migrations/migrationPlan.ts`, and root-level `PHASE_2_AUDIT.md`).
+- **Known Issues & Technical Debt (Analyzed for Phase 3/4)**:
+  - *C-01 (Architecture)*: Global bootstrap monolith (`GET /api/erp/bootstrap`) dumps entire dataset into client memory. Needs paginated REST APIs in Phase 3.
+  - *C-02 (Database)*: Synchronous disk writes and full-state cloning via `structuredClone` in JSON store. Will be replaced by MongoDB multi-document ACID transactions in Phase 3.
+  - *H-02 (Storage)*: Client-side base64 Data URL file attachments stored in database fields. Needs cloud object storage (S3/GCS/MinIO) with signed URLs in Phase 4.
+  - *H-04 (Documents)*: HTML/Print-based simulated PDF generation. Needs server-side binary PDF generation in Phase 4.
+  - *M-04 (Frontend Bundle)*: Monolithic >640KB client chunk. Needs route-level `React.lazy()` code splitting in Phase 4.
+- **Pending Work for Phase 3 (Database Migration)**:
+  - Implement Mongoose connections to MongoDB replica set.
+  - Replace `JsonERPRepository` with `MongoERPRepository` adhering to `IERPRepository` contracts.
+  - Execute automated data migration script using `MIGRATION_EXECUTION_SEQUENCE`.
+  - Introduce paginated endpoints for large collections (sales orders, stock transactions, activity logs).
 
 ---
 
 ## 9. Change History
 - **v2.0.0 (Initial Build)**: Implemented complete CRYO Enterprise ERP 2.0 full-stack architecture, 4 operational departments, Administration, Centralized Order Tracking, RBAC enforcement, persistent storage, and `project.md`.
 - **v2.0.1 (Verification & Polish)**: Resolved document numbers (`SO-0001`, `ENQ-0001`, `PROD-0001`) in top breadcrumbs, enforced single-line date formatting in Logistics delivery tables, improved mobile status filter wrapping (`FilterBar`) for zero clipping/overflow, and verified live persistence and RBAC in headless Chromium.
+- **v2.1.0 (Phase 2 – Project Audit, Stabilization & Architecture Preparation)**:
+  - Deep codebase audit across all 4 departments and admin modules against `CRYO_ERP_Workflow_a6216875.md`.
+  - Modularized backend into `server/config/`, `middleware/`, `routes/`, `repositories/`, `models/`, `validators/`, `services/`, and `tests/`.
+  - Added 28-step automated integration test suite (`api-lifecycle.test.ts`), verifying auth, RBAC, partial material issue, shortage procurement, GRN partial verification with rejection, rework return to QC, own-vehicle delivery, and separate fulfillment vs payment balance tracking.
+  - Fixed silent password length bypass in user profile update.
+  - Fixed Vite 8 `__dirname` configuration deprecation warning.
+  - Added `"test"` command in `package.json`.
+  - Prepared full MongoDB migration plan and Mongoose collection specifications for all 29 collections.
+  - Created detailed root-level technical audit document `PHASE_2_AUDIT.md`.

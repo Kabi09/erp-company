@@ -1,23 +1,24 @@
-import dotenv from 'dotenv';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import { env } from './server/config/environment';
 import { apiRouter } from './server/routes';
 
-dotenv.config();
-
-const PORT = Number(process.env.PORT) || 3000;
-const isProd = process.env.NODE_ENV === 'production';
-
-async function startServer() {
+export function createApp() {
   const app = express();
   app.use(express.json({ limit: '15mb' }));
 
   // Mount REST API
   app.use('/api', apiRouter);
 
-  if (!isProd) {
+  return app;
+}
+
+export async function startServer() {
+  const app = createApp();
+
+  if (!env.isProd) {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -36,12 +37,18 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`CRYO Enterprise ERP 2.0 server listening on http://0.0.0.0:${PORT}`);
+  const server = app.listen(env.port, '0.0.0.0', () => {
+    console.log(`CRYO Enterprise ERP 2.0 server listening on http://0.0.0.0:${env.port}`);
   });
+
+  return { app, server };
 }
 
-startServer().catch((err) => {
-  console.error('Failed to start CRYO ERP server:', err);
-  process.exit(1);
-});
+// Only auto-start when executed directly as entrypoint (not when imported in test suites)
+const isMainModule = process.argv[1] && (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js'));
+if (isMainModule && process.env.NODE_ENV !== 'test') {
+  startServer().catch((err) => {
+    console.error('Failed to start CRYO ERP server:', err);
+    process.exit(1);
+  });
+}
