@@ -51,6 +51,17 @@ const ProductionOrderSchema = new Schema<ProductionOrder>(
     qcRejectedQty: { type: Number, default: 0, min: 0 },
     dispatchedQty: { type: Number, default: 0, min: 0 },
     deliveredQty: { type: Number, default: 0, min: 0 },
+    planningHistory: [
+      {
+        previousStartDate: { type: String, required: true },
+        previousEndDate: { type: String, required: true },
+        newStartDate: { type: String, required: true },
+        newEndDate: { type: String, required: true },
+        reason: { type: String, required: true },
+        rescheduledBy: { type: String, required: true },
+        rescheduledAt: { type: String, required: true },
+      },
+    ],
     createdBy: { type: String, required: true },
   },
   { timestamps: true },

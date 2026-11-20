@@ -364,6 +364,9 @@ export const QualityCheckPage: React.FC = () => {
   const [poId, setPoId] = useState('');
   const [inspectionDate, setInspectionDate] = useState(new Date().toISOString().slice(0, 10));
   const [inspector, setInspector] = useState('');
+  const [inspectedQty, setInspectedQty] = useState(1);
+  const [acceptedQty, setAcceptedQty] = useState(1);
+  const [rejectedQty, setRejectedQty] = useState(0);
   const [checks, setChecks] = useState<QCCheckItem[]>(DEFAULT_QC_CHECKS);
   const [finalResult, setFinalResult] = useState<'Accepted' | 'Rejected'>('Accepted');
   const [rejectionReason, setRejectionReason] = useState('');
@@ -380,21 +383,27 @@ export const QualityCheckPage: React.FC = () => {
     [db],
   );
 
-  useEffect(() => {
-    if (searchParams.get('create') === '1') {
-      const targetId = searchParams.get('poId') || pendingQcOrders[0]?.id || '';
-      setPoId(targetId);
-      setChecks(DEFAULT_QC_CHECKS.map((c) => ({ ...c })));
-      setFinalResult('Accepted');
-      setModalOpen(true);
-      setSearchParams({}, { replace: true });
-    }
-  }, [searchParams, pendingQcOrders, setSearchParams]);
+  const selectedQcPo = useMemo(
+    () => (db ? db.productionOrders.find((p) => p.id === poId) : undefined),
+    [db, poId],
+  );
 
-  if (!db) return null;
+  const maxInspectable = useMemo(() => {
+    if (!selectedQcPo) return 1;
+    const total = selectedQcPo.completedManufacturingQty || selectedQcPo.quantity;
+    return Math.max(1, total - (selectedQcPo.qcAcceptedQty || 0));
+  }, [selectedQcPo]);
 
   const openInspection = (targetPoId?: string) => {
-    setPoId(targetPoId || pendingQcOrders[0]?.id || '');
+    const targetId = targetPoId || pendingQcOrders[0]?.id || '';
+    setPoId(targetId);
+    const targetPo = db?.productionOrders.find((p) => p.id === targetId);
+    const remaining = targetPo
+      ? Math.max(1, (targetPo.completedManufacturingQty || targetPo.quantity) - (targetPo.qcAcceptedQty || 0))
+      : 1;
+    setInspectedQty(remaining);
+    setAcceptedQty(remaining);
+    setRejectedQty(0);
     setChecks(DEFAULT_QC_CHECKS.map((c) => ({ ...c })));
     setFinalResult('Accepted');
     setRejectionReason('');
@@ -405,6 +414,16 @@ export const QualityCheckPage: React.FC = () => {
     setModalOpen(true);
   };
 
+  useEffect(() => {
+    if (searchParams.get('create') === '1') {
+      const targetId = searchParams.get('poId') || pendingQcOrders[0]?.id || '';
+      openInspection(targetId);
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, pendingQcOrders, setSearchParams]);
+
+  if (!db) return null;
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSaving(true);
@@ -413,23 +432,31 @@ export const QualityCheckPage: React.FC = () => {
         productionOrderId: poId,
         inspectionDate,
         inspector: inspector || undefined,
+        inspectedQty,
+        acceptedQty,
+        rejectedQty,
         checks,
-        finalResult,
-        rejectionReason: finalResult === 'Rejected' ? rejectionReason : undefined,
-        requiredCorrection: finalResult === 'Rejected' ? requiredCorrection : undefined,
-        expectedCompletionDate: finalResult === 'Rejected' ? expectedCompletionDate : undefined,
+        finalResult: rejectedQty > 0 ? 'Rejected' : 'Accepted',
+        rejectionReason: rejectedQty > 0 ? rejectionReason : undefined,
+        requiredCorrection: rejectedQty > 0 ? requiredCorrection : undefined,
+        expectedCompletionDate: rejectedQty > 0 ? expectedCompletionDate : undefined,
         remarks,
         reportName: reportName || undefined,
         reportDataUrl: reportDataUrl || undefined,
       });
       await refresh();
       setModalOpen(false);
-      toast(
-        finalResult === 'Accepted' ? 'success' : 'info',
-        finalResult === 'Accepted'
-          ? 'QC Accepted — Released to Logistics for Dispatch'
-          : 'QC Rejected — Rework Order generated automatically',
-      );
+      if (acceptedQty > 0 && rejectedQty > 0) {
+        toast(
+          'info',
+          'Partial Quality Inspection Recorded',
+          `${acceptedQty} unit(s) accepted & released to Logistics, ${rejectedQty} unit(s) sent to Rework.`,
+        );
+      } else if (acceptedQty > 0) {
+        toast('success', 'QC Accepted — Released to Logistics for Dispatch');
+      } else {
+        toast('info', 'QC Rejected — Rework Order generated automatically');
+      }
     } catch (err) {
       toast('error', 'QC recording failed', (err as Error).message);
     } finally {
@@ -613,16 +640,20 @@ export const QualityCheckPage: React.FC = () => {
             <Button
               type="submit"
               form="qc-form"
-              variant={finalResult === 'Accepted' ? 'success' : 'danger'}
+              variant={rejectedQty === 0 ? 'success' : 'danger'}
               loading={saving}
             >
-              {finalResult === 'Accepted' ? (
+              {rejectedQty === 0 ? (
                 <>
-                  <CheckCircle2 className="w-4 h-4" /> Accept & Release to Logistics
+                  <CheckCircle2 className="w-4 h-4" /> Accept & Release {acceptedQty} to Logistics
+                </>
+              ) : acceptedQty > 0 ? (
+                <>
+                  <ShieldAlert className="w-4 h-4" /> Release {acceptedQty} & Rework {rejectedQty}
                 </>
               ) : (
                 <>
-                  <ShieldAlert className="w-4 h-4" /> Reject & Create Rework Order
+                  <ShieldAlert className="w-4 h-4" /> Reject & Create Rework for {rejectedQty}
                 </>
               )}
             </Button>
@@ -633,7 +664,22 @@ export const QualityCheckPage: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
             <div className="sm:col-span-2">
               <Field label="Production Order (QC Pending)" required>
-                <Select value={poId} onChange={(e) => setPoId(e.target.value)} required>
+                <Select
+                  value={poId}
+                  onChange={(e) => {
+                    const nextId = e.target.value;
+                    setPoId(nextId);
+                    const targetPo = db.productionOrders.find((p) => p.id === nextId);
+                    const remaining = targetPo
+                      ? Math.max(1, (targetPo.completedManufacturingQty || targetPo.quantity) - (targetPo.qcAcceptedQty || 0))
+                      : 1;
+                    setInspectedQty(remaining);
+                    setAcceptedQty(remaining);
+                    setRejectedQty(0);
+                    setFinalResult('Accepted');
+                  }}
+                  required
+                >
                   <option value="">-- Select Production Order --</option>
                   {pendingQcOrders.map((po) => (
                     <option key={po.id} value={po.id}>
@@ -646,6 +692,83 @@ export const QualityCheckPage: React.FC = () => {
             <Field label="Inspection Date" required>
               <Input type="date" value={inspectionDate} onChange={(e) => setInspectionDate(e.target.value)} required />
             </Field>
+          </div>
+
+          {/* Batch & Partial Inspection Quantities */}
+          <div className="p-3.5 rounded-md bg-purple-50/50 dark:bg-purple-950/20 border border-purple-200 dark:border-purple-800/60 space-y-2.5">
+            <div className="flex items-center justify-between text-xs">
+              <span className="font-semibold text-purple-900 dark:text-purple-200">
+                Inspection Batch Breakdown (Partial Acceptance Supported)
+              </span>
+              <span className="font-mono text-slate-500">
+                Max Unaccepted: {maxInspectable} unit(s)
+              </span>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <Field label="Inspected Units" required>
+                <Input
+                  type="number"
+                  min={1}
+                  max={maxInspectable}
+                  value={inspectedQty}
+                  onChange={(e) => {
+                    const total = Math.min(maxInspectable, Math.max(1, Number(e.target.value) || 1));
+                    setInspectedQty(total);
+                    setAcceptedQty(total);
+                    setRejectedQty(0);
+                    setFinalResult('Accepted');
+                  }}
+                  required
+                />
+              </Field>
+              <Field label="Accepted Units" required>
+                <Input
+                  type="number"
+                  min={0}
+                  max={inspectedQty}
+                  value={acceptedQty}
+                  onChange={(e) => {
+                    const acc = Math.min(inspectedQty, Math.max(0, Number(e.target.value) || 0));
+                    setAcceptedQty(acc);
+                    const rej = Math.max(0, inspectedQty - acc);
+                    setRejectedQty(rej);
+                    setFinalResult(rej > 0 ? 'Rejected' : 'Accepted');
+                  }}
+                  required
+                />
+              </Field>
+              <Field label="Rejected Units" required>
+                <Input
+                  type="number"
+                  min={0}
+                  max={inspectedQty}
+                  value={rejectedQty}
+                  onChange={(e) => {
+                    const rej = Math.min(inspectedQty, Math.max(0, Number(e.target.value) || 0));
+                    setRejectedQty(rej);
+                    const acc = Math.max(0, inspectedQty - rej);
+                    setAcceptedQty(acc);
+                    setFinalResult(rej > 0 ? 'Rejected' : 'Accepted');
+                  }}
+                  required
+                />
+              </Field>
+            </div>
+            <div className="text-[11px] text-slate-600 dark:text-slate-400">
+              {rejectedQty === 0 ? (
+                <span className="text-emerald-700 dark:text-emerald-400 font-medium">
+                  ✓ All {acceptedQty} inspected unit(s) will be released to Logistics for dispatch.
+                </span>
+              ) : acceptedQty > 0 ? (
+                <span className="text-amber-700 dark:text-amber-400 font-medium">
+                  ⚠ Partial acceptance: {acceptedQty} unit(s) released to Logistics, while {rejectedQty} unit(s) create a Rework Order.
+                </span>
+              ) : (
+                <span className="text-red-700 dark:text-red-400 font-medium">
+                  ✕ All {rejectedQty} inspected unit(s) rejected; entire batch moves to Rework.
+                </span>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">

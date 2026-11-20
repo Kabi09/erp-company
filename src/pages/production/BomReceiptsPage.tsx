@@ -48,6 +48,11 @@ export const BomMaterialRequestsPage: React.FC = () => {
 
   const selectedPo = db.productionOrders.find((p) => p.id === selectedPoId);
 
+  const hasDuplicateMaterials = useMemo(
+    () => new Set(lines.map((l) => l.materialId)).size !== lines.length,
+    [lines],
+  );
+
   const loadForProductionOrder = (poId: string) => {
     setSelectedPoId(poId);
     const po = db.productionOrders.find((p) => p.id === poId);
@@ -333,16 +338,30 @@ export const BomMaterialRequestsPage: React.FC = () => {
             <Button variant="secondary" onClick={() => setModalOpen(false)}>
               Cancel
             </Button>
-            <Button variant="secondary" loading={saving} disabled={!selectedPoId || lines.length === 0} onClick={() => handleSaveBom(false)}>
+            <Button
+              variant="secondary"
+              loading={saving}
+              disabled={!selectedPoId || lines.length === 0 || hasDuplicateMaterials}
+              onClick={() => handleSaveBom(false)}
+            >
               Save Draft BOM
             </Button>
-            <Button loading={saving} disabled={!selectedPoId || lines.length === 0} onClick={() => handleSaveBom(true)}>
+            <Button
+              loading={saving}
+              disabled={!selectedPoId || lines.length === 0 || hasDuplicateMaterials}
+              onClick={() => handleSaveBom(true)}
+            >
               <Send className="w-4 h-4" /> Save & Send to Supply Chain
             </Button>
           </>
         }
       >
         <div className="space-y-4">
+          {hasDuplicateMaterials && (
+            <div className="p-3 rounded-md bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300 font-medium">
+              Duplicate raw material lines detected. Each material must appear only once in the BOM.
+            </div>
+          )}
           <Field label="Select Production Order" required>
             <Select value={selectedPoId} onChange={(e) => loadForProductionOrder(e.target.value)}>
               <option value="">-- Select Production Order --</option>
@@ -473,15 +492,42 @@ export const BomMaterialRequestsPage: React.FC = () => {
   );
 };
 
+interface AckReceiptLine {
+  materialId: string;
+  materialCode: string;
+  materialName: string;
+  unit: string;
+  issuedQty: number;
+  receivedQty: number;
+  discrepancyNotes?: string;
+}
+
 export const MaterialReceiptsPage: React.FC = () => {
   const { data: db, refresh, toast, can } = useERP();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [ackTarget, setAckTarget] = useState<MaterialIssue | null>(null);
+  const [ackLines, setAckLines] = useState<AckReceiptLine[]>([]);
   const [discrepancyNotes, setDiscrepancyNotes] = useState('');
   const [saving, setSaving] = useState(false);
 
   if (!db) return null;
+
+  const openAck = (m: MaterialIssue) => {
+    setAckTarget(m);
+    setDiscrepancyNotes('');
+    setAckLines(
+      m.items.map((it) => ({
+        materialId: it.materialId,
+        materialCode: it.materialCode,
+        materialName: it.materialName,
+        unit: it.unit,
+        issuedQty: it.issuedQty,
+        receivedQty: it.issuedQty,
+        discrepancyNotes: '',
+      })),
+    );
+  };
 
   const filteredIssues = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -501,10 +547,18 @@ export const MaterialReceiptsPage: React.FC = () => {
     if (!ackTarget) return;
     setSaving(true);
     try {
-      await erpApi.acknowledgeMaterialReceipt(ackTarget.id, discrepancyNotes);
+      await erpApi.acknowledgeMaterialReceipt(ackTarget.id, {
+        items: ackLines.map((l) => ({
+          materialId: l.materialId,
+          receivedQty: Number(l.receivedQty) || 0,
+          discrepancyNotes: l.discrepancyNotes?.trim() || undefined,
+        })),
+        discrepancyNotes,
+      });
       await refresh();
       setAckTarget(null);
       setDiscrepancyNotes('');
+      setAckLines([]);
       toast(
         'success',
         `Receipt confirmed for ${ackTarget.docNo}`,
@@ -585,13 +639,7 @@ export const MaterialReceiptsPage: React.FC = () => {
       align: 'right',
       render: (m) =>
         !m.receiptAcknowledged && can('production', 'edit') ? (
-          <Button
-            size="sm"
-            onClick={() => {
-              setAckTarget(m);
-              setDiscrepancyNotes('');
-            }}
-          >
+          <Button size="sm" onClick={() => openAck(m)}>
             <PackageCheck className="w-3.5 h-3.5" /> Confirm Receipt
           </Button>
         ) : (
@@ -686,7 +734,7 @@ export const MaterialReceiptsPage: React.FC = () => {
             </div>
             {!m.receiptAcknowledged && can('production', 'edit') && (
               <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
-                <Button size="sm" onClick={() => setAckTarget(m)}>
+                <Button size="sm" onClick={() => openAck(m)}>
                   Confirm Physical Receipt
                 </Button>
               </div>
@@ -699,8 +747,8 @@ export const MaterialReceiptsPage: React.FC = () => {
         open={Boolean(ackTarget)}
         onClose={() => setAckTarget(null)}
         title={`Confirm Physical Receipt — ${ackTarget?.docNo || ''}`}
-        subtitle={`Production Order ${ackTarget?.productionOrderDocNo || ''}`}
-        size="md"
+        subtitle={`Verify actual shop-floor counts received from Supply Chain (${ackTarget?.productionOrderDocNo || ''}).`}
+        size="lg"
         footer={
           <>
             <Button variant="secondary" onClick={() => setAckTarget(null)}>
@@ -714,24 +762,65 @@ export const MaterialReceiptsPage: React.FC = () => {
       >
         {ackTarget && (
           <div className="space-y-4">
-            <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-1.5 text-xs">
-              <div className="font-semibold text-slate-700 dark:text-slate-300">Materials in this Issue Voucher</div>
-              {ackTarget.items.map((it) => (
-                <div key={it.materialId} className="flex justify-between">
-                  <span>
-                    {it.materialCode} — {it.materialName}
-                  </span>
-                  <span className="font-mono font-semibold">
-                    {it.issuedQty} {it.unit}
-                  </span>
-                </div>
-              ))}
+            <div className="space-y-2">
+              <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                Material Line Verification (Line-Level Partial Receipt Supported)
+              </div>
+              {ackLines.map((line) => {
+                const isShort = line.receivedQty < line.issuedQty;
+                return (
+                  <div
+                    key={line.materialId}
+                    className="p-3 rounded-md bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-2 text-xs"
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">
+                        {line.materialCode} — {line.materialName}
+                      </span>
+                      <span className="font-mono text-slate-500">
+                        Issued: {line.issuedQty} {line.unit}
+                      </span>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
+                      <Field label={`Physical Received Qty (${line.unit})`}>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={line.issuedQty}
+                          step="any"
+                          value={line.receivedQty}
+                          onChange={(e) => {
+                            const val = Math.min(line.issuedQty, Math.max(0, Number(e.target.value) || 0));
+                            setAckLines((prev) =>
+                              prev.map((l) => (l.materialId === line.materialId ? { ...l, receivedQty: val } : l)),
+                            );
+                          }}
+                        />
+                      </Field>
+                      {isShort && (
+                        <Field label="Line Discrepancy Note">
+                          <Input
+                            placeholder="Damaged in transit / short package count"
+                            value={line.discrepancyNotes || ''}
+                            onChange={(e) => {
+                              const note = e.target.value;
+                              setAckLines((prev) =>
+                                prev.map((l) => (l.materialId === line.materialId ? { ...l, discrepancyNotes: note } : l)),
+                              );
+                            }}
+                          />
+                        </Field>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
             <Field label="Discrepancy / Handover Notes (optional)">
               <Textarea
                 value={discrepancyNotes}
                 onChange={(e) => setDiscrepancyNotes(e.target.value)}
-                placeholder="Note any packaging or count observations..."
+                placeholder="Overall receiving notes, packaging conditions, or floor handover comments..."
               />
             </Field>
           </div>

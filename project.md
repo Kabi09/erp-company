@@ -233,3 +233,27 @@
   - Authored comprehensive 12-scenario test suite `server/tests/supply-chain-workflow.test.ts` (13 subtests).
   - Achieved 49/49 passing automated tests (100% pass rate) across all 6 test suites, clean TypeScript check (`tsc --noEmit`), and clean production build.
   - Authored comprehensive technical report `PHASE_6_SUPPLY_CHAIN_MANAGEMENT.md`.
+- **v2.6.0 (Phase 7 – Production Management Workflow, Manufacturing Integrity & UI/UX Refinement)**:
+  - Implemented end-to-end industrial manufacturing lifecycle: `Confirmed SO → Received Sales Orders → Create Production Order & Duration Plan → BOM Preparation → Send Request to Supply Chain → Material Issue → Physical Material Receipt → Start Production → Daily Production Updates → Complete Manufacturing → Quality Check → Accept / Reject → Rework if rejected → Repeat Quality Check → Production Completed → Logistics Release`.
+  - Concurrency & Transaction Safety:
+    - Implemented `createProductionOrderTx` with transaction safety checking $quantity \le remainingSOAllocatableQty$ with atomic optimistic concurrency control (`__v`) on `SalesOrderModel` preventing parallel over-allocation.
+    - Added Duration Planning & Rescheduling audit history: `POST /api/production/orders/:id/reschedule` validates date boundaries, calculates duration, stores structured history in `planningHistory`, and logs activity.
+    - Enhanced `getProductionSummary()` computing all 10 metric fields: `receivedSalesOrders`, `planned`, `awaitingMaterials`, `readyToStart`, `inProduction`, `pendingQualityChecks`, `activeReworkOrders`, `completed`, `delayedOrders`, and `dailyUpdatesCount`.
+    - Enhanced `getPaginatedProductionOrders()` with multi-field search and filtering by `salesOrderId`, `customerId`, `priority`, and `employee`.
+  - Shop-Floor Verification & Lifecycle Gates:
+    - Line-level physical material receipt acknowledgement supporting partial deliveries with discrepancy notes; automatically recalculates MR receipt status and sets PO to `Ready to Start` only when all BOM items are fully received.
+    - Daily production updates capturing shift milestones, technician attribution, hours worked, and cumulative units completed; cumulative guard prevents progress overflow.
+    - Manufacturing completion gate requires at least 1 recorded daily update, assigns CRYO serial numbers, transitions order to `QC Pending`, and strictly blocks direct dispatch to Logistics.
+    - Comprehensive Quality Check supporting partial inspection outcomes ($\text{Accepted} + \text{Rejected} = \text{Inspected}$), automated `ReworkOrder` (`RW-XXXX`) creation for rejected units, immediate dispatch eligibility for accepted units, and multi-attempt inspection history tracking.
+    - Rework order lifecycle: corrective action completion transitions unit back to `QC Pending` for mandatory reinspection.
+    - Production material returns (`POST /api/production/material-returns`): condition-aware returns where `Usable` increments usable store stock while `Damaged`/`Unusable` logs quarantine/scrap without inflating usable inventory.
+  - UI/UX Refinement (Purple Accent System):
+    - `ProductionDashboard.tsx`: 10 interactive StatCards linked to filtered routes, Quick Operations row with one-click shortcuts, overdue delay alerts, Reschedule modal, and CSV export for planning & QC analytics.
+    - `ProductionOrdersPage.tsx`: Visual progress bar indicator (`calculateProductionProgress`), overdue warning badges (`isProductionOrderDelayed`), Reschedule modal with planning history table, Return Unused Materials modal with return ledger, and partial QC breakdown.
+    - `BomReceiptsPage.tsx`: Duplicate material line warning guard with disabled submit, line-level partial receipt input modal with discrepancy notes.
+    - `DailyQualityReworkPage.tsx`: Inspection batch breakdown supporting partial acceptance & rejection inputs (`inspectedQty`, `acceptedQty`, `rejectedQty`).
+  - Automated Testing & Quality:
+    - Authored dedicated test suite `server/tests/production-workflow.test.ts` covering Scenarios 1–17 (14 test cases).
+    - Achieved 65/65 passing automated tests (100% pass rate) across all 7 test suites running sequentially (`--test-concurrency=1`).
+    - Verified clean TypeScript compilation (`tsc --noEmit`) and Vite production build (`vite build`).
+    - Authored comprehensive technical report `PHASE_7_PRODUCTION_MANAGEMENT.md`.

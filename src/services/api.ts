@@ -294,22 +294,31 @@ export const erpApi = {
   // Production
   createProductionOrder: (payload: any) =>
     request('/production/orders', { method: 'POST', body: JSON.stringify(payload) }),
+  getProductionOrderDetail: (id: string) =>
+    request<any>(`/production/orders/${id}`),
+  rescheduleProductionOrder: (id: string, payload: { newStartDate: string; newEndDate: string; reason: string }) =>
+    request(`/production/orders/${id}/reschedule`, { method: 'POST', body: JSON.stringify(payload) }),
+  returnProductionMaterials: (payload: any) =>
+    request('/production/material-returns', { method: 'POST', body: JSON.stringify(payload) }),
   updateProductionOrderStatus: (id: string, status: string, notes?: string) =>
     request(`/production/orders/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, notes }) }),
   startProduction: (id: string, payload?: any) =>
     request(`/production/orders/${id}/start`, { method: 'POST', body: JSON.stringify(payload || {}) }),
   completeManufacturing: (id: string, payload?: any) =>
-    request(`/production/orders/${id}/complete`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+    request(`/production/orders/${id}/complete-manufacturing`, { method: 'POST', body: JSON.stringify(payload || {}) }),
   createBOM: (payload: any) =>
     request('/production/boms', { method: 'POST', body: JSON.stringify(payload) }),
   saveBOM: (payload: any) =>
     request('/production/boms', { method: 'POST', body: JSON.stringify(payload) }),
   createMaterialRequest: (payload: any) =>
     request('/production/material-requests', { method: 'POST', body: JSON.stringify(payload) }),
-  sendBOMRequest: (payload: any) =>
-    request('/production/material-requests', { method: 'POST', body: JSON.stringify(payload) }),
-  acknowledgeMaterialReceipt: (id: string, notes?: string) =>
-    request(`/production/material-receipts/${id}/acknowledge`, { method: 'POST', body: JSON.stringify({ notes }) }),
+  sendBOMRequest: (id: string) =>
+    request(`/production/boms/${id}/send-request`, { method: 'POST' }),
+  acknowledgeMaterialReceipt: (id: string, payload?: any) =>
+    request(`/production/material-receipts/${id}/acknowledge`, {
+      method: 'POST',
+      body: JSON.stringify(typeof payload === 'string' ? { discrepancyNotes: payload } : payload || {}),
+    }),
   addDailyUpdate: (payload: any) =>
     request('/production/daily-updates', { method: 'POST', body: JSON.stringify(payload) }),
   createDailyUpdate: (payload: any) =>

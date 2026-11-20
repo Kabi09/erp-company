@@ -29,8 +29,14 @@ export const generateId = (prefix: string) =>
 
 export function sendError(res: Response, err: unknown, defaultStatus = 400): void {
   const message = err instanceof Error ? err.message : 'Unexpected server error';
-  const status = message.startsWith('FORBIDDEN:') ? 403 : message.startsWith('NOT_FOUND:') ? 404 : defaultStatus;
-  res.status(status).json({ error: message.replace(/^(FORBIDDEN|NOT_FOUND):/, '').trim() });
+  const status = message.startsWith('FORBIDDEN:')
+    ? 403
+    : message.startsWith('NOT_FOUND:')
+      ? 404
+      : message.startsWith('CONCURRENCY_CONFLICT:')
+        ? 409
+        : defaultStatus;
+  res.status(status).json({ error: message.replace(/^(FORBIDDEN|NOT_FOUND|CONCURRENCY_CONFLICT):/, '').trim() });
 }
 
 export function syncSOFulfillment(draft: ERPDatabase, salesOrderId: string): void {

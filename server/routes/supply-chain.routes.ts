@@ -835,12 +835,16 @@ supplyChainRouter.post('/supply-chain/production-returns', requireAuth, requireP
     const mat = await MaterialModel.findOne({ id: materialId });
     if (!mat) throw new Error('NOT_FOUND:Material not found.');
 
-    // Atomic stock increment
-    const updatedMat = await MaterialModel.findOneAndUpdate(
-      { id: mat.id },
-      { $inc: { currentStock: numReturn } },
-      { returnDocument: 'after' },
-    );
+    const condition = (req.body.materialCondition || 'Usable') as 'Usable' | 'Damaged' | 'Unusable';
+    let balanceAfter = mat.currentStock;
+    if (condition === 'Usable') {
+      const updatedMat = await MaterialModel.findOneAndUpdate(
+        { id: mat.id },
+        { $inc: { currentStock: numReturn } },
+        { returnDocument: 'after' },
+      );
+      balanceAfter = updatedMat?.currentStock ?? balanceAfter;
+    }
 
     const now = new Date().toISOString();
     const prDocNo = await mongoERPRepository.getNextDocNo('PRT');
@@ -854,12 +858,14 @@ supplyChainRouter.post('/supply-chain/production-returns', requireAuth, requireP
       materialName: mat.name,
       unit: mat.unit,
       type: 'Production Return' as const,
-      quantityDelta: numReturn,
-      balanceAfter: updatedMat!.currentStock,
+      quantityDelta: condition === 'Usable' ? numReturn : 0,
+      balanceAfter,
       linkedDocType: 'MR',
       linkedDocId: mr.id,
       linkedDocNo: mr.docNo,
-      remarks: `Returned from ${mr.productionOrderDocNo}: ${reason.trim()}`,
+      remarks: condition === 'Usable'
+        ? `Returned from ${mr.productionOrderDocNo}: ${reason.trim()}`
+        : `Damaged/Unusable return from ${mr.productionOrderDocNo} (${condition}): ${reason.trim()}`,
       performedBy: req.user!.name,
       timestamp: now,
     };
@@ -886,7 +892,9 @@ supplyChainRouter.post('/supply-chain/production-returns', requireAuth, requireP
       materialName: mat.name,
       unit: mat.unit,
       returnQty: numReturn,
+      materialCondition: condition,
       reason: reason.trim(),
+      remarks: req.body.remarks?.trim() || '',
       returnedBy: req.user!.name,
       createdAt: now,
     };

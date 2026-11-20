@@ -1,9 +1,11 @@
 import { Router } from 'express';
-import type { BOMItem, MaterialRequestItem } from '../../src/types/erp';
+import type { BOMItem, MaterialRequestItem, QCCheckItem } from '../../src/types/erp';
 import {
   calculateDurationDays,
+  calculateProductionProgress,
   deriveMaterialRequestStatus,
   getRemainingSOAllocatableQty,
+  isProductionOrderDelayed,
   round2,
 } from '../../src/utils/erpLogic';
 import { requireAuth, requirePerm, type AuthenticatedRequest } from '../middleware/auth.middleware';
@@ -14,26 +16,28 @@ import {
   MaterialModel,
   MaterialRequestModel,
   ProductionOrderModel,
+  ProductionReturnModel,
   QualityCheckModel,
   ReworkOrderModel,
   SalesOrderModel,
+  StockTransactionModel,
 } from '../models';
 import { mongoERPRepository } from '../repositories/MongoERPRepository';
 import { generateId, sendError, syncSalesOrderFulfillmentMongo } from '../utils/routeUtils';
 
 export const productionRouter = Router();
 
-// --- Phase 3: Paginated Production Orders ---
+// --- Production Orders: List & Pagination ---
 productionRouter.get('/production/orders', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
   try {
-    const result = await mongoERPRepository.getPaginatedProductionOrders(req.query);
+    const result = await mongoERPRepository.getPaginatedProductionOrders(req.query as any);
     res.json(result);
   } catch (err) {
     sendError(res, err);
   }
 });
 
-// --- Phase 3: Production Dashboard Summary ---
+// --- Production Dashboard Summary ---
 productionRouter.get('/production/summary', requireAuth, requirePerm('production', 'view'), async (_req: AuthenticatedRequest, res) => {
   try {
     const summary = await mongoERPRepository.getProductionSummary();
@@ -43,80 +47,92 @@ productionRouter.get('/production/summary', requireAuth, requirePerm('production
   }
 });
 
+// --- Production Order Details (Centralized) ---
+productionRouter.get('/production/orders/:id', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const po = await ProductionOrderModel.findOne({ $or: [{ id: req.params.id }, { docNo: req.params.id }] }).lean();
+    if (!po) throw new Error('NOT_FOUND:Production order not found.');
+
+    const [bom, materialRequest, issues, dailyUpdates, qualityChecks, reworkOrders, returns, salesOrder] = await Promise.all([
+      BOMModel.findOne({ productionOrderId: po.id }).lean(),
+      MaterialRequestModel.findOne({ productionOrderId: po.id }).lean(),
+      MaterialIssueModel.find({ productionOrderId: po.id }).sort({ createdAt: -1 }).lean(),
+      DailyProductionUpdateModel.find({ productionOrderId: po.id }).sort({ workDate: -1, createdAt: -1 }).lean(),
+      QualityCheckModel.find({ productionOrderId: po.id }).sort({ attemptNumber: 1 }).lean(),
+      ReworkOrderModel.find({ productionOrderId: po.id }).sort({ createdAt: -1 }).lean(),
+      ProductionReturnModel.find({ productionOrderId: po.id }).sort({ createdAt: -1 }).lean(),
+      SalesOrderModel.findOne({ id: po.salesOrderId }).lean(),
+    ]);
+
+    const progress = calculateProductionProgress(po as any, dailyUpdates as any);
+    const delayed = isProductionOrderDelayed(po as any);
+
+    res.json({
+      order: po,
+      salesOrder: salesOrder
+        ? {
+            id: salesOrder.id,
+            docNo: salesOrder.docNo,
+            customerName: salesOrder.customerSnapshot.name,
+            customerPoNumber: salesOrder.customerPoNumber,
+            promisedDeliveryDate: salesOrder.promisedDeliveryDate,
+            commercialStatus: salesOrder.commercialStatus,
+            fulfillmentStatus: salesOrder.fulfillmentStatus,
+          }
+        : undefined,
+      bom,
+      materialRequest,
+      issues,
+      dailyUpdates,
+      qualityChecks,
+      reworkOrders,
+      returns,
+      progress,
+      delayed,
+      planningHistory: po.planningHistory || [],
+    });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// --- Create Production Order (Transaction-safe allocation) ---
 productionRouter.post('/production/orders', requireAuth, requirePerm('production', 'create'), async (req: AuthenticatedRequest, res) => {
   try {
-    const body = req.body;
-    const so = await SalesOrderModel.findOne({ id: body.salesOrderId });
-    if (!so) throw new Error('NOT_FOUND:Confirmed Sales Order not found.');
-    if (so.commercialStatus !== 'Confirmed') {
-      throw new Error('Cannot create production order for an unconfirmed Sales Order.');
-    }
-    const soItem = so.items.find((i) => i.productId === body.productId) || so.items[0];
-    if (!soItem) throw new Error('Sales order has no product items.');
-
-    const existingPOs = await ProductionOrderModel.find({ salesOrderId: so.id }).lean();
-    const remaining = getRemainingSOAllocatableQty(so.toObject() as any, soItem.productId, existingPOs as any);
-    const qty = Number(body.quantity);
-    if (!qty || qty <= 0) throw new Error('Production quantity must be greater than zero.');
-    if (qty > remaining) {
-      throw new Error(
-        `Cannot allocate ${qty} unit(s); only ${remaining} unit(s) remaining on ${so.docNo}.`,
-      );
-    }
-    const duration = calculateDurationDays(body.plannedStartDate, body.plannedEndDate);
-    if (duration <= 0) {
-      throw new Error('Planned completion date must be on or after planned start date.');
-    }
-
-    const now = new Date().toISOString();
-    const docNo = await mongoERPRepository.getNextDocNo('PROD');
-    const po = {
-      id: generateId('po'),
-      docNo,
-      salesOrderId: so.id,
-      salesOrderDocNo: so.docNo,
-      customerId: so.customerId,
-      customerName: so.customerSnapshot.name,
-      productId: soItem.productId,
-      productName: soItem.productName,
-      model: soItem.model,
-      specifications: soItem.specifications,
-      highlights: soItem.highlights,
-      quantity: qty,
-      plannedStartDate: body.plannedStartDate,
-      plannedEndDate: body.plannedEndDate,
-      plannedDurationDays: duration,
-      productionInCharge: body.productionInCharge?.trim() || req.user!.name,
-      assignedEmployees: Array.isArray(body.assignedEmployees) ? body.assignedEmployees : [],
-      priority: body.priority || so.priority,
-      instructions: body.instructions?.trim() || '',
-      status: 'Planned' as const,
-      completedManufacturingQty: 0,
-      serialNumbers: [],
-      qcAcceptedQty: 0,
-      qcRejectedQty: 0,
-      dispatchedQty: 0,
-      deliveredQty: 0,
-      createdBy: req.user!.name,
-      createdAt: now,
-      updatedAt: now,
-    };
-
-    await ProductionOrderModel.create(po);
-    await syncSalesOrderFulfillmentMongo(so.id);
-
-    await mongoERPRepository.addActivity({
-      actorId: req.user!.id,
-      actorName: req.user!.name,
-      department: 'production',
-      action: 'Created Production Order',
-      entityType: 'ProductionOrder',
-      entityId: po.id,
-      entityDocNo: po.docNo,
-      details: `Scheduled ${po.docNo} for ${qty}x ${po.productName} (${so.docNo}), duration ${duration} days.`,
-    });
-
+    const po = await mongoERPRepository.createProductionOrderTx(req.body, req.user!);
     res.status(201).json(po);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// --- Reschedule Production Order (Planning with reason) ---
+productionRouter.post('/production/orders/:id/reschedule', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const updated = await mongoERPRepository.rescheduleProductionOrder(req.params.id, req.body, req.user!);
+    res.json(updated);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// --- BOM Preparation & Material Request ---
+productionRouter.get('/production/boms', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const filter: Record<string, any> = {};
+    if (req.query.productionOrderId) filter.productionOrderId = req.query.productionOrderId;
+    const boms = await BOMModel.find(filter).sort({ createdAt: -1 }).lean();
+    res.json(boms);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+productionRouter.get('/production/boms/:id', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const bom = await BOMModel.findOne({ $or: [{ id: req.params.id }, { docNo: req.params.id }] }).lean();
+    if (!bom) throw new Error('NOT_FOUND:BOM not found.');
+    res.json(bom);
   } catch (err) {
     sendError(res, err);
   }
@@ -134,9 +150,33 @@ productionRouter.post('/production/boms', requireAuth, requirePerm('production',
     if (!Array.isArray(items) || items.length === 0) {
       throw new Error('Add at least one raw material to the BOM.');
     }
+
+    // Duplicate material line guard
+    const seenMaterialIds = new Set<string>();
+    for (const it of items) {
+      if (seenMaterialIds.has(it.materialId)) {
+        throw new Error('Duplicate material line detected in BOM. Each raw material must appear only once.');
+      }
+      seenMaterialIds.add(it.materialId);
+    }
+
     const existingBom = await BOMModel.findOne({ productionOrderId: po.id });
-    if (existingBom && existingBom.requestSent) {
+    if (existingBom && existingBom.requestSent && sendRequest) {
       throw new Error(`BOM ${existingBom.docNo} has already been submitted to Supply Chain.`);
+    }
+
+    // Check if MR items already have issued quantities: cannot reduce below issued
+    if (existingBom?.materialRequestId) {
+      const existingMr = await MaterialRequestModel.findOne({ id: existingBom.materialRequestId });
+      if (existingMr) {
+        for (const it of items) {
+          const mrLine = existingMr.items.find((m) => m.materialId === it.materialId);
+          const reqQty = round2(Number(it.qtyPerUnit) * po.quantity);
+          if (mrLine && mrLine.issuedQty > reqQty) {
+            throw new Error(`Cannot reduce required quantity for ${mrLine.materialName} to ${reqQty}; ${mrLine.issuedQty} units have already been issued.`);
+          }
+        }
+      }
     }
 
     const allMaterials = await MaterialModel.find().lean();
@@ -317,9 +357,25 @@ productionRouter.post('/production/boms/:id/send-request', requireAuth, requireP
   }
 });
 
+// --- Material Receipts: Query & Acknowledge ---
+productionRouter.get('/production/material-receipts', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const filter: Record<string, any> = {};
+    if (req.query.productionOrderId) filter.productionOrderId = req.query.productionOrderId;
+    if (req.query.unacknowledged === 'true') filter.receiptAcknowledged = false;
+    const issues = await MaterialIssueModel.find(filter).sort({ createdAt: -1 }).lean();
+    res.json(issues);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 productionRouter.post('/production/material-receipts/:issueId/acknowledge', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
-    const { discrepancyNotes } = req.body as { discrepancyNotes?: string };
+    const { discrepancyNotes, items: receivedItems } = (req.body || {}) as {
+      discrepancyNotes?: string;
+      items?: Array<{ materialId: string; receivedQty: number; discrepancyNotes?: string }>;
+    };
     const mi = await MaterialIssueModel.findOne({ id: req.params.issueId });
     if (!mi) throw new Error('NOT_FOUND:Material issue record not found.');
     if (mi.receiptAcknowledged) {
@@ -329,17 +385,35 @@ productionRouter.post('/production/material-receipts/:issueId/acknowledge', requ
     if (!mr) throw new Error('NOT_FOUND:Linked material request not found.');
 
     const now = new Date().toISOString();
+    let hasLineDiscrepancy = false;
+
     for (const ii of mi.items) {
-      ii.receivedQty = ii.issuedQty;
+      const clientLine = Array.isArray(receivedItems)
+        ? receivedItems.find((x) => x.materialId === ii.materialId)
+        : undefined;
+      const recQty = clientLine !== undefined ? Number(clientLine.receivedQty) : ii.issuedQty;
+
+      if (recQty < 0 || recQty > ii.issuedQty) {
+        throw new Error(`Received quantity for ${ii.materialName} must be between 0 and issued quantity (${ii.issuedQty}).`);
+      }
+      if (recQty < ii.issuedQty) {
+        hasLineDiscrepancy = true;
+      }
+      ii.receivedQty = recQty;
+
       const mrItem = mr.items.find((x) => x.materialId === ii.materialId);
       if (mrItem) {
-        mrItem.receivedQty = round2(Math.min(mrItem.issuedQty, mrItem.receivedQty + ii.receivedQty));
+        const prevRec = mrItem.receivedQty || 0;
+        mrItem.receivedQty = round2(prevRec + ii.receivedQty);
       }
     }
+
     mi.receiptAcknowledged = true;
     mi.acknowledgedBy = req.user!.name;
     mi.acknowledgedAt = now;
-    if (discrepancyNotes?.trim()) mi.receiptDiscrepancyNotes = discrepancyNotes.trim();
+    if (discrepancyNotes?.trim() || hasLineDiscrepancy) {
+      mi.receiptDiscrepancyNotes = discrepancyNotes?.trim() || 'Physical receipt discrepancy recorded on line item(s).';
+    }
     await mi.save();
 
     const derived = deriveMaterialRequestStatus(mr.toObject() as any);
@@ -349,7 +423,7 @@ productionRouter.post('/production/material-receipts/:issueId/acknowledge', requ
     await mr.save();
 
     const po = await ProductionOrderModel.findOne({ id: mi.productionOrderId });
-    if (po && po.status === 'Awaiting Materials' && mr.receiptStatus === 'Fully Received') {
+    if (po && (po.status === 'Awaiting Materials' || po.status === 'Planned') && mr.receiptStatus === 'Fully Received') {
       po.status = 'Ready to Start';
       po.updatedAt = now;
       await po.save();
@@ -380,6 +454,7 @@ productionRouter.post('/production/material-receipts/:issueId/acknowledge', requ
   }
 });
 
+// --- Start Production ---
 productionRouter.post('/production/orders/:id/start', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
     const body = req.body;
@@ -412,6 +487,19 @@ productionRouter.post('/production/orders/:id/start', requireAuth, requirePerm('
     });
 
     res.json(po.toObject());
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// --- Daily Production Updates ---
+productionRouter.get('/production/daily-updates', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const filter: Record<string, any> = {};
+    if (req.query.productionOrderId) filter.productionOrderId = req.query.productionOrderId;
+    if (req.query.workDate) filter.workDate = req.query.workDate;
+    const updates = await DailyProductionUpdateModel.find(filter).sort({ workDate: -1, createdAt: -1 }).lean();
+    res.json(updates);
   } catch (err) {
     sendError(res, err);
   }
@@ -469,7 +557,8 @@ productionRouter.post('/production/daily-updates', requireAuth, requirePerm('pro
   }
 });
 
-productionRouter.post('/production/orders/:id/complete-manufacturing', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
+// --- Complete Manufacturing ---
+const completeManufacturingHandler = async (req: AuthenticatedRequest, res: any) => {
   try {
     const body = req.body;
     const po = await ProductionOrderModel.findOne({ id: req.params.id });
@@ -526,6 +615,21 @@ productionRouter.post('/production/orders/:id/complete-manufacturing', requireAu
   } catch (err) {
     sendError(res, err);
   }
+};
+productionRouter.post('/production/orders/:id/complete-manufacturing', requireAuth, requirePerm('production', 'edit'), completeManufacturingHandler);
+productionRouter.post('/production/orders/:id/complete', requireAuth, requirePerm('production', 'edit'), completeManufacturingHandler);
+
+// --- Quality Check: Query & Record ---
+productionRouter.get('/production/quality-checks', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const filter: Record<string, any> = {};
+    if (req.query.productionOrderId) filter.productionOrderId = req.query.productionOrderId;
+    if (req.query.finalResult) filter.finalResult = req.query.finalResult;
+    const qcs = await QualityCheckModel.find(filter).sort({ createdAt: -1 }).lean();
+    res.json(qcs);
+  } catch (err) {
+    sendError(res, err);
+  }
 });
 
 productionRouter.post('/production/quality-checks', requireAuth, requirePerm('production', 'create'), async (req: AuthenticatedRequest, res) => {
@@ -536,13 +640,39 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
     if (po.status !== 'QC Pending') {
       throw new Error(`Order ${po.docNo} is not in QC Pending state (current: ${po.status}).`);
     }
-    const remainingToAccept = po.quantity - po.qcAcceptedQty;
+
+    const totalManufactured = po.completedManufacturingQty || po.quantity;
+    const remainingToAccept = totalManufactured - (po.qcAcceptedQty || 0);
     if (remainingToAccept <= 0) {
       throw new Error('All units on this production order have already passed QC.');
     }
 
-    const finalResult = body.finalResult === 'Accepted' ? 'Accepted' : 'Rejected';
-    if (finalResult === 'Rejected' && !body.rejectionReason?.trim()) {
+    const inspectedQty = Number(body.inspectedQty ?? remainingToAccept);
+    if (!inspectedQty || inspectedQty <= 0 || inspectedQty > remainingToAccept) {
+      throw new Error(`Inspected quantity must be between 1 and ${remainingToAccept}.`);
+    }
+
+    let acceptedQty: number;
+    let rejectedQty: number;
+    let finalResult: 'Accepted' | 'Rejected';
+
+    if (body.acceptedQty !== undefined || body.rejectedQty !== undefined) {
+      acceptedQty = Number(body.acceptedQty ?? 0);
+      rejectedQty = Number(body.rejectedQty ?? 0);
+      if (acceptedQty < 0 || rejectedQty < 0) {
+        throw new Error('Accepted and rejected quantities must be non-negative.');
+      }
+      if (round2(acceptedQty + rejectedQty) !== round2(inspectedQty)) {
+        throw new Error(`Accepted quantity (${acceptedQty}) + Rejected quantity (${rejectedQty}) must equal Inspected quantity (${inspectedQty}).`);
+      }
+      finalResult = rejectedQty > 0 ? 'Rejected' : 'Accepted';
+    } else {
+      finalResult = body.finalResult === 'Accepted' ? 'Accepted' : 'Rejected';
+      acceptedQty = finalResult === 'Accepted' ? inspectedQty : 0;
+      rejectedQty = finalResult === 'Rejected' ? inspectedQty : 0;
+    }
+
+    if (rejectedQty > 0 && !body.rejectionReason?.trim()) {
       throw new Error('Rejection reason is required when rejecting in Quality Check.');
     }
 
@@ -550,13 +680,11 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
     const now = new Date().toISOString();
     const qcId = generateId('qc');
     const qcDocNo = await mongoERPRepository.getNextDocNo('QC');
-    const acceptedQty = finalResult === 'Accepted' ? remainingToAccept : 0;
-    const rejectedQty = finalResult === 'Rejected' ? remainingToAccept : 0;
 
     let reworkId: string | undefined;
     let reworkDocNo: string | undefined;
 
-    if (finalResult === 'Rejected') {
+    if (rejectedQty > 0) {
       reworkId = generateId('rw');
       reworkDocNo = await mongoERPRepository.getNextDocNo('RW');
       const rw = {
@@ -567,7 +695,7 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
         qcId,
         qcDocNo,
         affectedQty: rejectedQty,
-        affectedSerialNumbers: po.serialNumbers,
+        affectedSerialNumbers: po.serialNumbers.slice(po.qcAcceptedQty, po.qcAcceptedQty + rejectedQty),
         rejectionReason: body.rejectionReason.trim(),
         requiredCorrection: body.requiredCorrection?.trim() || body.rejectionReason.trim(),
         assignedEmployee: body.assignedEmployee?.trim() || po.assignedEmployees[0] || po.productionInCharge,
@@ -582,28 +710,37 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
 
       po.status = 'Rework';
       po.qcRejectedQty = rejectedQty;
+      if (acceptedQty > 0) {
+        po.qcAcceptedQty = round2((po.qcAcceptedQty || 0) + acceptedQty);
+      }
       await po.save();
 
       await mongoERPRepository.addNotification({
         title: `QC Rejected: ${po.docNo} (${qcDocNo})`,
-        message: `Rework ${reworkDocNo} created — Reason: ${body.rejectionReason.trim()}`,
+        message: `Rework ${reworkDocNo} created for ${rejectedQty} unit(s) — Reason: ${body.rejectionReason.trim()}`,
         department: 'production',
         severity: 'error',
         link: '/production/rework',
       });
     } else {
-      po.qcAcceptedQty = round2(po.qcAcceptedQty + acceptedQty);
+      po.qcAcceptedQty = round2((po.qcAcceptedQty || 0) + acceptedQty);
       po.qcRejectedQty = 0;
-      po.status = 'Completed';
+      if (po.qcAcceptedQty >= po.quantity) {
+        po.status = 'Completed';
+      } else {
+        po.status = 'QC Pending';
+      }
       await po.save();
 
-      await mongoERPRepository.addNotification({
-        title: `Ready for Dispatch: ${po.docNo}`,
-        message: `${po.quantity}x ${po.productName} for ${po.customerName} passed QC (${qcDocNo}) and is ready for dispatch.`,
-        department: 'logistics',
-        severity: 'success',
-        link: '/logistics/ready',
-      });
+      if (po.status === 'Completed') {
+        await mongoERPRepository.addNotification({
+          title: `Ready for Dispatch: ${po.docNo}`,
+          message: `${po.quantity}x ${po.productName} for ${po.customerName} passed QC (${qcDocNo}) and is ready for dispatch.`,
+          department: 'logistics',
+          severity: 'success',
+          link: '/logistics/ready',
+        });
+      }
     }
 
     const qc = {
@@ -613,7 +750,7 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
       productionOrderId: po.id,
       productionOrderDocNo: po.docNo,
       productName: `${po.productName} (${po.model})`,
-      inspectedQty: remainingToAccept,
+      inspectedQty,
       acceptedQty,
       rejectedQty,
       serialNumbers: po.serialNumbers,
@@ -621,7 +758,7 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
       inspector: body.inspector?.trim() || req.user!.name,
       checks: Array.isArray(body.checks) ? body.checks : [],
       finalResult: finalResult as 'Accepted' | 'Rejected',
-      rejectionReason: finalResult === 'Rejected' ? body.rejectionReason.trim() : undefined,
+      rejectionReason: rejectedQty > 0 ? body.rejectionReason?.trim() : undefined,
       reworkId,
       reworkDocNo,
       remarks: body.remarks?.trim() || '',
@@ -631,9 +768,6 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
     };
 
     await QualityCheckModel.create(qc);
-
-    po.updatedAt = now;
-    await po.save();
     await syncSalesOrderFulfillmentMongo(po.salesOrderId);
 
     await mongoERPRepository.addActivity({
@@ -644,7 +778,7 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
       entityType: 'QualityCheck',
       entityId: qc.id,
       entityDocNo: qc.docNo,
-      details: `${qc.docNo} (Attempt #${qc.attemptNumber}) for ${po.docNo}: ${finalResult}.`,
+      details: `${qc.docNo} (Attempt #${qc.attemptNumber}) for ${po.docNo}: ${finalResult} (Accepted: ${acceptedQty}, Rejected: ${rejectedQty}).`,
     });
 
     res.status(201).json(qc);
@@ -653,9 +787,22 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
   }
 });
 
+// --- Rework Orders: Query & Complete ---
+productionRouter.get('/production/rework', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const filter: Record<string, any> = {};
+    if (req.query.productionOrderId) filter.productionOrderId = req.query.productionOrderId;
+    if (req.query.status) filter.status = req.query.status;
+    const reworks = await ReworkOrderModel.find(filter).sort({ createdAt: -1 }).lean();
+    res.json(reworks);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 productionRouter.post('/production/rework/:id/complete', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
-    const { completedWork, remarks, assignedEmployee } = req.body as {
+    const { completedWork, remarks, assignedEmployee } = (req.body || {}) as {
       completedWork: string;
       remarks?: string;
       assignedEmployee?: string;
@@ -703,6 +850,110 @@ productionRouter.post('/production/rework/:id/complete', requireAuth, requirePer
     });
 
     res.json(rw.toObject());
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// --- Production Material Returns (Alias for store returns) ---
+productionRouter.post('/production/material-returns', requireAuth, requirePerm('production', 'create'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { materialRequestId, materialId, returnQty, reason } = req.body || {};
+    if (!materialRequestId || !materialId || !returnQty || Number(returnQty) <= 0 || !reason?.trim()) {
+      throw new Error('materialRequestId, materialId, positive returnQty, and reason are required.');
+    }
+    const mr = await MaterialRequestModel.findOne({ id: materialRequestId });
+    if (!mr) throw new Error('NOT_FOUND:Material Request not found.');
+    const mrItem = mr.items.find((i) => i.materialId === materialId);
+    if (!mrItem) throw new Error('Material not found on this Material Request.');
+
+    const alreadyReturned = mrItem.returnedQty || 0;
+    const netReceived = round2(mrItem.receivedQty - alreadyReturned);
+    const numReturn = round2(Number(returnQty));
+    if (numReturn > netReceived) {
+      throw new Error(`Cannot return ${numReturn} ${mrItem.unit}; only ${netReceived} net received units available to return.`);
+    }
+
+    const mat = await MaterialModel.findOne({ id: materialId });
+    if (!mat) throw new Error('NOT_FOUND:Material not found.');
+
+    const condition = (req.body.materialCondition || 'Usable') as 'Usable' | 'Damaged' | 'Unusable';
+    let balanceAfter = mat.currentStock;
+    if (condition === 'Usable') {
+      const updatedMat = await MaterialModel.findOneAndUpdate(
+        { id: mat.id },
+        { $inc: { currentStock: numReturn } },
+        { returnDocument: 'after' },
+      );
+      balanceAfter = updatedMat?.currentStock ?? balanceAfter;
+    }
+
+    const now = new Date().toISOString();
+    const prDocNo = await mongoERPRepository.getNextDocNo('PRT');
+    const prId = generateId('prt');
+
+    // Immutable Stock Ledger entry
+    const stockTx = {
+      id: generateId('st'),
+      materialId: mat.id,
+      materialCode: mat.code,
+      materialName: mat.name,
+      unit: mat.unit,
+      type: 'Production Return' as const,
+      quantityDelta: condition === 'Usable' ? numReturn : 0,
+      balanceAfter,
+      linkedDocType: 'MR',
+      linkedDocId: mr.id,
+      linkedDocNo: mr.docNo,
+      remarks: condition === 'Usable'
+        ? `Returned from ${mr.productionOrderDocNo}: ${reason.trim()}`
+        : `Damaged/Unusable return from ${mr.productionOrderDocNo} (${condition}): ${reason.trim()}`,
+      performedBy: req.user!.name,
+      timestamp: now,
+    };
+    await StockTransactionModel.create(stockTx);
+
+    // Update Material Request line item
+    mrItem.returnedQty = round2(alreadyReturned + numReturn);
+    const derived = deriveMaterialRequestStatus(mr as any);
+    mr.status = derived.status;
+    mr.receiptStatus = derived.receiptStatus;
+    mr.updatedAt = now;
+    await mr.save();
+
+    // Create ProductionReturn record
+    const prDoc = {
+      id: prId,
+      docNo: prDocNo,
+      materialRequestId: mr.id,
+      materialRequestDocNo: mr.docNo,
+      productionOrderId: mr.productionOrderId,
+      productionOrderDocNo: mr.productionOrderDocNo,
+      materialId: mat.id,
+      materialCode: mat.code,
+      materialName: mat.name,
+      unit: mat.unit,
+      returnQty: numReturn,
+      materialCondition: condition,
+      reason: reason.trim(),
+      remarks: req.body.remarks?.trim() || '',
+      returnedBy: req.user!.name,
+      createdAt: now,
+    };
+    await ProductionReturnModel.create(prDoc);
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'production',
+      action: 'Returned Production Materials',
+      entityType: 'ProductionReturn',
+      entityId: prDoc.id,
+      entityDocNo: prDoc.docNo,
+      details: `Returned ${numReturn} ${mat.unit} of ${mat.name} (${condition}) from ${mr.productionOrderDocNo} back to store.`,
+    });
+
+    res.status(201).json(prDoc);
   } catch (err) {
     sendError(res, err);
   }

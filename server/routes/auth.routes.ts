@@ -31,6 +31,7 @@ import {
   PaymentEntryModel,
   ProductModel,
   ProductionOrderModel,
+  ProductionReturnModel,
   ProformaInvoiceModel,
   QualityCheckModel,
   QuotationModel,
@@ -445,6 +446,7 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
     let dailyUpdates: any[] = [];
     let qualityChecks: any[] = [];
     let reworkOrders: any[] = [];
+    let productionReturns: any[] = [];
     let deliveryOrders: any[] = [];
     let deliveryIssues: any[] = [];
 
@@ -462,7 +464,7 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
           SalesOrderModel.find().sort({ createdAt: -1 }).lean(),
         ]);
     } else if (dept === 'supply_chain') {
-      [materials, suppliers, materialRequests, materialIssues, supplierPOs, grns, supplierReturns, stockTransactions] =
+      [materials, suppliers, materialRequests, materialIssues, supplierPOs, grns, supplierReturns, productionReturns, stockTransactions] =
         await Promise.all([
           MaterialModel.find().lean(),
           SupplierModel.find().lean(),
@@ -471,10 +473,11 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
           SupplierPOModel.find().sort({ createdAt: -1 }).lean(),
           GRNModel.find().sort({ createdAt: -1 }).lean(),
           SupplierReturnModel.find().sort({ createdAt: -1 }).lean(),
+          ProductionReturnModel.find().sort({ createdAt: -1 }).lean(),
           StockTransactionModel.find().sort({ timestamp: -1 }).limit(200).lean(),
         ]);
     } else if (dept === 'production') {
-      [productionOrders, boms, materialRequests, dailyUpdates, qualityChecks, reworkOrders, salesOrders] =
+      [productionOrders, boms, materialRequests, dailyUpdates, qualityChecks, reworkOrders, productionReturns, salesOrders] =
         await Promise.all([
           ProductionOrderModel.find().sort({ createdAt: -1 }).lean(),
           BOMModel.find().sort({ createdAt: -1 }).lean(),
@@ -482,6 +485,7 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
           DailyProductionUpdateModel.find().sort({ createdAt: -1 }).lean(),
           QualityCheckModel.find().sort({ createdAt: -1 }).lean(),
           ReworkOrderModel.find().sort({ createdAt: -1 }).lean(),
+          ProductionReturnModel.find().sort({ createdAt: -1 }).lean(),
           SalesOrderModel.find({}, { items: 1, docNo: 1, customerSnapshot: 1, promisedDeliveryDate: 1, fulfillmentStatus: 1 }).lean(),
         ]);
     } else if (dept === 'logistics') {
@@ -530,6 +534,7 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
       dailyUpdates,
       qualityChecks,
       reworkOrders,
+      productionReturns,
       deliveryOrders,
       deliveryIssues,
       notifications,

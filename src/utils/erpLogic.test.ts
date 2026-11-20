@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   calculateDurationDays,
   calculatePaymentSummary,
+  calculateProductionProgress,
   calculateQuotationTotals,
   computeMaterialStockMap,
   deriveMaterialRequestStatus,
@@ -10,6 +11,7 @@ import {
   formatDocNo,
   getAvailableDispatchQty,
   getRemainingSOAllocatableQty,
+  isProductionOrderDelayed,
   validateMaterialIssueLine,
 } from './erpLogic';
 import type { DeliveryOrder, PaymentEntry, ProductionOrder, SalesOrder, StockTransaction } from '../types/erp';
@@ -228,4 +230,28 @@ test('deriveSalesOrderFulfillment and allocation quantities follow production & 
     status: 'Delivered',
   } as DeliveryOrder;
   assert.equal(deriveSalesOrderFulfillment(so, [prod], [del1, del2]), 'Delivered');
+});
+
+test('calculateProductionProgress derives quantity and stage progress correctly', () => {
+  const poPlanned = { id: 'p1', quantity: 10, completedManufacturingQty: 0, status: 'Planned' } as ProductionOrder;
+  assert.equal(calculateProductionProgress(poPlanned).percent, 0);
+
+  const poActive = { id: 'p2', quantity: 10, completedManufacturingQty: 4, status: 'In Progress' } as ProductionOrder;
+  const activeProg = calculateProductionProgress(poActive);
+  assert.equal(activeProg.percent, 40);
+  assert.equal(activeProg.method, 'quantity');
+
+  const poCompleted = { id: 'p3', quantity: 10, completedManufacturingQty: 10, status: 'Completed' } as ProductionOrder;
+  assert.equal(calculateProductionProgress(poCompleted).percent, 100);
+});
+
+test('isProductionOrderDelayed detects overdue orders', () => {
+  const po1 = { status: 'In Progress', plannedEndDate: '2026-11-01' } as ProductionOrder;
+  assert.equal(isProductionOrderDelayed(po1, '2026-11-20'), true);
+
+  const po2 = { status: 'In Progress', plannedEndDate: '2026-11-30' } as ProductionOrder;
+  assert.equal(isProductionOrderDelayed(po2, '2026-11-20'), false);
+
+  const po3 = { status: 'Completed', plannedEndDate: '2026-11-01' } as ProductionOrder;
+  assert.equal(isProductionOrderDelayed(po3, '2026-11-20'), false);
 });

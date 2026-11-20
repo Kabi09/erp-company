@@ -563,7 +563,9 @@ export interface ProductionReturn {
   materialName: string;
   unit: string;
   returnQty: number;
+  materialCondition?: 'Usable' | 'Damaged' | 'Unusable';
   reason: string;
+  remarks?: string;
   returnedBy: string;
   createdAt: string;
 }
@@ -632,6 +634,15 @@ export interface ProductionOrder {
   qcRejectedQty: number;
   dispatchedQty: number;
   deliveredQty: number;
+  planningHistory?: Array<{
+    previousStartDate: string;
+    previousEndDate: string;
+    newStartDate: string;
+    newEndDate: string;
+    reason: string;
+    rescheduledBy: string;
+    rescheduledAt: string;
+  }>;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -860,6 +871,7 @@ export interface ERPDatabase {
   dailyUpdates: DailyProductionUpdate[];
   qualityChecks: QualityCheck[];
   reworkOrders: ReworkOrder[];
+  productionReturns?: ProductionReturn[];
   deliveryOrders: DeliveryOrder[];
   deliveryIssues: DeliveryIssue[];
 }

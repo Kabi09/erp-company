@@ -22,6 +22,7 @@ import type {
   PaymentEntry,
   Product,
   ProductionOrder,
+  ProductionReturn,
   ProformaInvoice,
   QualityCheck,
   Quotation,
@@ -35,10 +36,12 @@ import type {
   SupplierReturn,
 } from '../../src/types/erp';
 import {
+  calculateDurationDays,
   calculatePaymentSummary,
   calculateQuotationTotals,
   computeMaterialStockMap,
   deriveMaterialRequestStatus,
+  getRemainingSOAllocatableQty,
   normalizeQuotationItems,
   round2,
   validateMaterialIssueLine,
@@ -65,6 +68,7 @@ import {
   PaymentEntryModel,
   ProductModel,
   ProductionOrderModel,
+  ProductionReturnModel,
   ProformaInvoiceModel,
   QualityCheckModel,
   QuotationModel,
@@ -165,6 +169,7 @@ export class MongoERPRepository implements IERPRepository {
       dailyUpdates,
       qualityChecks,
       reworkOrders,
+      productionReturns,
       deliveryOrders,
       deliveryIssues,
       notifications,
@@ -196,6 +201,7 @@ export class MongoERPRepository implements IERPRepository {
       DailyProductionUpdateModel.find().sort({ createdAt: -1 }).lean(),
       QualityCheckModel.find().sort({ createdAt: -1 }).lean(),
       ReworkOrderModel.find().sort({ createdAt: -1 }).lean(),
+      ProductionReturnModel.find().sort({ createdAt: -1 }).lean(),
       DeliveryOrderModel.find().sort({ createdAt: -1 }).lean(),
       DeliveryIssueModel.find().sort({ createdAt: -1 }).lean(),
       NotificationModel.find().sort({ createdAt: -1 }).lean(),
@@ -255,6 +261,7 @@ export class MongoERPRepository implements IERPRepository {
       dailyUpdates: dailyUpdates as unknown as DailyProductionUpdate[],
       qualityChecks: qualityChecks as unknown as QualityCheck[],
       reworkOrders: reworkOrders as unknown as ReworkOrder[],
+      productionReturns: productionReturns as unknown as ProductionReturn[],
       deliveryOrders: deliveryOrders as unknown as DeliveryOrder[],
       deliveryIssues: deliveryIssues as unknown as DeliveryIssue[],
       notifications: notifications as unknown as NotificationItem[],
@@ -469,14 +476,26 @@ export class MongoERPRepository implements IERPRepository {
     return this.paginate<GRN>(GRNModel, filter, query);
   }
 
-  public async getPaginatedProductionOrders(query: PaginationQuery): Promise<PaginatedResult<ProductionOrder>> {
+  public async getPaginatedProductionOrders(query: PaginationQuery & { salesOrderId?: string; customerId?: string; priority?: string; employee?: string }): Promise<PaginatedResult<ProductionOrder>> {
     const filter: Record<string, any> = {};
-    if (query.status) {
+    if (query.status && query.status !== 'All') {
       filter.status = query.status;
+    }
+    if (query.salesOrderId) {
+      filter.salesOrderId = query.salesOrderId;
+    }
+    if (query.customerId) {
+      filter.customerId = query.customerId;
+    }
+    if (query.priority) {
+      filter.priority = query.priority;
+    }
+    if (query.employee) {
+      filter.$or = [{ productionInCharge: query.employee }, { assignedEmployees: query.employee }];
     }
     if (query.search?.trim()) {
       const s = new RegExp(query.search.trim(), 'i');
-      filter.$or = [{ docNo: s }, { salesOrderDocNo: s }, { productName: s }];
+      filter.$or = [{ docNo: s }, { salesOrderDocNo: s }, { productName: s }, { customerName: s }, { model: s }];
     }
     return this.paginate<ProductionOrder>(ProductionOrderModel, filter, query);
   }
@@ -581,22 +600,191 @@ export class MongoERPRepository implements IERPRepository {
   }
 
   public async getProductionSummary() {
-    const [orders, dailyCount, pendingQC, activeRework] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10);
+    const [orders, dailyCount, activeRework, pendingQC, confirmedSOs] = await Promise.all([
       ProductionOrderModel.find().lean(),
       DailyProductionUpdateModel.countDocuments(),
-      QualityCheckModel.countDocuments({ finalResult: 'Rejected' as any }),
       ReworkOrderModel.countDocuments({ status: { $in: ['Open', 'In Progress'] } as any }),
+      ProductionOrderModel.countDocuments({ status: 'QC Pending' }),
+      SalesOrderModel.find({ commercialStatus: 'Confirmed' }).lean(),
     ]);
+
+    let receivedSalesOrders = 0;
+    for (const so of confirmedSOs) {
+      const hasUnallocated = so.items.some(
+        (it) => getRemainingSOAllocatableQty(so as any, it.productId, orders as any) > 0,
+      );
+      if (hasUnallocated) receivedSalesOrders++;
+    }
 
     return {
       totalProductionOrders: orders.length,
+      receivedSalesOrders,
       planned: orders.filter((o) => o.status === 'Planned').length,
+      awaitingMaterials: orders.filter((o) => o.status === 'Awaiting Materials').length,
+      readyToStart: orders.filter((o) => o.status === 'Ready to Start').length,
       inProduction: orders.filter((o) => o.status === 'In Progress').length,
-      completed: orders.filter((o) => o.status === 'Completed').length,
-      dailyUpdatesCount: dailyCount,
       pendingQualityChecks: pendingQC,
-      activeReworkOrders: activeRework,
+      activeReworkOrders: activeRework || orders.filter((o) => o.status === 'Rework').length,
+      completed: orders.filter((o) => o.status === 'Completed').length,
+      delayedOrders: orders.filter((o) => o.status !== 'Completed' && o.plannedEndDate < today).length,
+      dailyUpdatesCount: dailyCount,
     };
+  }
+
+  /**
+   * Concurrency-safe and transaction-safe Production Order allocation
+   */
+  public async createProductionOrderTx(
+    params: {
+      salesOrderId: string;
+      productId: string;
+      quantity: number;
+      plannedStartDate: string;
+      plannedEndDate: string;
+      productionInCharge?: string;
+      assignedEmployees?: string[];
+      priority?: 'Normal' | 'High' | 'Urgent';
+      instructions?: string;
+    },
+    actor: { id: string; name: string },
+  ): Promise<ProductionOrder> {
+    return withTransaction(async (session) => {
+      const so = await SalesOrderModel.findOne({ id: params.salesOrderId }).session(session);
+      if (!so) throw new Error('NOT_FOUND:Confirmed Sales Order not found.');
+      if (so.commercialStatus !== 'Confirmed') {
+        throw new Error('Cannot create production order for an unconfirmed Sales Order.');
+      }
+      const soItem = so.items.find((i) => i.productId === params.productId) || so.items[0];
+      if (!soItem) throw new Error('Sales order has no product items.');
+
+      const existingPOs = await ProductionOrderModel.find({ salesOrderId: so.id }).session(session).lean();
+      const remaining = getRemainingSOAllocatableQty(so.toObject() as any, soItem.productId, existingPOs as any);
+      const qty = Number(params.quantity);
+      if (!qty || qty <= 0) throw new Error('Production quantity must be greater than zero.');
+      if (qty > remaining) {
+        throw new Error(`Cannot allocate ${qty} unit(s); only ${remaining} unit(s) remaining on ${so.docNo}.`);
+      }
+
+      const duration = calculateDurationDays(params.plannedStartDate, params.plannedEndDate);
+      if (duration <= 0) {
+        throw new Error('Planned completion date must be on or after planned start date.');
+      }
+
+      // Optimistic concurrency guard on SalesOrder: update __v to prevent concurrent overallocation
+      const updatedSO = await SalesOrderModel.findOneAndUpdate(
+        { id: so.id, __v: so.__v },
+        { $inc: { __v: 1 } },
+        { session, returnDocument: 'after' },
+      );
+      if (!updatedSO) {
+        throw new Error('CONCURRENCY_CONFLICT: Sales Order was modified concurrently. Please retry.');
+      }
+
+      const now = new Date().toISOString();
+      const docNo = await this.getNextDocNo('PROD', session || undefined);
+      const po: ProductionOrder = {
+        id: generateId('po'),
+        docNo,
+        salesOrderId: so.id,
+        salesOrderDocNo: so.docNo,
+        customerId: so.customerId,
+        customerName: so.customerSnapshot.name,
+        productId: soItem.productId,
+        productName: soItem.productName,
+        model: soItem.model,
+        specifications: soItem.specifications,
+        highlights: soItem.highlights,
+        quantity: qty,
+        plannedStartDate: params.plannedStartDate,
+        plannedEndDate: params.plannedEndDate,
+        plannedDurationDays: duration,
+        productionInCharge: params.productionInCharge?.trim() || actor.name,
+        assignedEmployees: Array.isArray(params.assignedEmployees) ? params.assignedEmployees : [],
+        priority: params.priority || so.priority,
+        instructions: params.instructions?.trim() || '',
+        status: 'Planned',
+        completedManufacturingQty: 0,
+        serialNumbers: [],
+        qcAcceptedQty: 0,
+        qcRejectedQty: 0,
+        dispatchedQty: 0,
+        deliveredQty: 0,
+        planningHistory: [],
+        createdBy: actor.name,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      await ProductionOrderModel.create([po], { session: session || undefined });
+      await syncSalesOrderFulfillmentMongo(so.id, session || undefined);
+
+      await this.addActivity(
+        {
+          actorId: actor.id,
+          actorName: actor.name,
+          department: 'production',
+          action: 'Created Production Order',
+          entityType: 'ProductionOrder',
+          entityId: po.id,
+          entityDocNo: po.docNo,
+          details: `Scheduled ${po.docNo} for ${qty}x ${po.productName} (${so.docNo}), duration ${duration} days.`,
+        },
+        session || undefined,
+      );
+
+      return po;
+    });
+  }
+
+  /**
+   * Reschedule Production Order planned schedule with mandatory audit reason
+   */
+  public async rescheduleProductionOrder(
+    productionOrderId: string,
+    params: { newStartDate: string; newEndDate: string; reason: string },
+    actor: { id: string; name: string },
+  ): Promise<ProductionOrder> {
+    const po = await ProductionOrderModel.findOne({ id: productionOrderId });
+    if (!po) throw new Error('NOT_FOUND:Production order not found.');
+    if (!params.reason?.trim()) {
+      throw new Error('Rescheduling reason is required.');
+    }
+    const duration = calculateDurationDays(params.newStartDate, params.newEndDate);
+    if (duration <= 0) {
+      throw new Error('New planned completion date must be on or after new planned start date.');
+    }
+
+    const now = new Date().toISOString();
+    if (!po.planningHistory) po.planningHistory = [];
+    po.planningHistory.push({
+      previousStartDate: po.plannedStartDate,
+      previousEndDate: po.plannedEndDate,
+      newStartDate: params.newStartDate,
+      newEndDate: params.newEndDate,
+      reason: params.reason.trim(),
+      rescheduledBy: actor.name,
+      rescheduledAt: now,
+    });
+
+    po.plannedStartDate = params.newStartDate;
+    po.plannedEndDate = params.newEndDate;
+    po.plannedDurationDays = duration;
+    po.updatedAt = now;
+    await po.save();
+
+    await this.addActivity({
+      actorId: actor.id,
+      actorName: actor.name,
+      department: 'production',
+      action: 'Rescheduled Production Order',
+      entityType: 'ProductionOrder',
+      entityId: po.id,
+      entityDocNo: po.docNo,
+      details: `Rescheduled ${po.docNo} from ${po.planningHistory[po.planningHistory.length - 1].previousEndDate} to ${params.newEndDate}. Reason: ${params.reason.trim()}`,
+    });
+
+    return po.toObject() as unknown as ProductionOrder;
   }
 
   public async getLogisticsSummary() {

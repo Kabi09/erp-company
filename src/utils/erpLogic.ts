@@ -1,4 +1,5 @@
 import type {
+  DailyProductionUpdate,
   DeliveryOrder,
   MaterialRequest,
   PaymentEntry,
@@ -307,4 +308,53 @@ export function calculateMaterialShortage(
   const issuableQty = round2(Math.min(pendingQty, usable));
   const shortageQty = round2(Math.max(0, pendingQty - usable - openIncoming));
   return { pendingQty, issuableQty, shortageQty };
+}
+
+/**
+ * Calculate manufacturing progress based on actual production records (completed quantity or completed stages).
+ */
+export function calculateProductionProgress(
+  po: ProductionOrder,
+  dailyUpdates?: DailyProductionUpdate[],
+): { percent: number; method: 'quantity' | 'stage'; label: string } {
+  if (po.status === 'Completed') {
+    return { percent: 100, method: 'quantity', label: '100% (Completed)' };
+  }
+  if (po.completedManufacturingQty > 0 && po.quantity > 0) {
+    const p = Math.min(100, Math.round((po.completedManufacturingQty / po.quantity) * 100));
+    return { percent: p, method: 'quantity', label: `${p}% (${po.completedManufacturingQty}/${po.quantity} Units)` };
+  }
+  if (dailyUpdates && dailyUpdates.length > 0) {
+    const matchingUpdates = dailyUpdates.filter((u) => u.productionOrderId === po.id);
+    const maxUnits = matchingUpdates.reduce((max, u) => Math.max(max, u.completedQty || 0), 0);
+    if (maxUnits > 0 && po.quantity > 0) {
+      const p = Math.min(100, Math.round((maxUnits / po.quantity) * 100));
+      return { percent: p, method: 'quantity', label: `${p}% (${maxUnits}/${po.quantity} Units)` };
+    }
+    const completedStages = new Set(
+      matchingUpdates.filter((u) => u.stageStatus === 'Completed').map((u) => u.stage),
+    ).size;
+    if (completedStages > 0) {
+      const p = Math.min(95, completedStages * 25);
+      return { percent: p, method: 'stage', label: `${p}% (${completedStages} stage(s) completed)` };
+    }
+  }
+  if (po.status === 'QC Pending' || po.status === 'Rework') {
+    return { percent: 100, method: 'quantity', label: '100% (Mfg Finished - In QC/Rework)' };
+  }
+  if (po.status === 'In Progress') {
+    return { percent: 10, method: 'stage', label: '10% (In Production)' };
+  }
+  return { percent: 0, method: 'stage', label: '0% (Not Started)' };
+}
+
+/**
+ * Derived check whether a production order is delayed against reference date (defaults to today).
+ */
+export function isProductionOrderDelayed(
+  po: ProductionOrder,
+  referenceDate = new Date().toISOString().slice(0, 10),
+): boolean {
+  if (po.status === 'Completed') return false;
+  return Boolean(po.plannedEndDate && po.plannedEndDate < referenceDate);
 }
