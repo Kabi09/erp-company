@@ -149,13 +149,23 @@
     - Sales Order confirmation gate requiring Valid PI + Accepted Quote + Discrepancy-Free Customer PO + Verified Payment (or approved credit terms).
     - Automatic production handoff notification and order synchronization (`/production/received-orders`).
     - 36/36 automated tests passing across domain logic, MongoDB integration, full lifecycle, security, and sales workflow suites.
-- **Known Issues & Technical Debt (Analyzed for Phase 6)**:
-  - *H-02 (Storage)*: Client-side base64 Data URL file attachments stored in database fields. Needs cloud object storage (S3/GCS/MinIO) with signed URLs in Phase 6.
-  - *H-04 (Documents)*: HTML/Print-based simulated PDF generation. Needs server-side binary PDF generation in Phase 6.
-- **Pending Work for Phase 6 (Production Hardening & Cloud Deploy)**:
-  - Cloud object storage for binary document attachments (S3/MinIO).
-  - Server-side PDF generation service (Puppeteer/PDFKit).
-  - Containerization (Dockerfile & Docker Compose) with MongoDB replica set orchestration.
+  - Phase 6 Supply Chain Management Workflow, Inventory Integrity & UI/UX Refinement:
+    - Supported dual purchasing lifecycles: Workflow A (Production Request-Based Shortage PO) and Workflow B (Normal Routine Stock PO).
+    - Eliminated concurrent material issuance race conditions; implemented atomic conditional decrements (`{ currentStock: { $gte: issueQty } }`) and optimistic concurrency control (`__v`) preventing over-issuance under parallel requests.
+    - Built auditor-grade Stock Reconciliation utility (`GET /api/supply-chain/stock-reconciliation` & `POST /api/supply-chain/stock-reconciliation/reconcile`) detecting and correcting discrepancies between `currentStock` and transaction ledger.
+    - Implemented Production Material Returns workflow (`POST /api/supply-chain/production-returns`), validating return quantities and crediting inventory and ledger atomically.
+    - Enhanced GRN verification with mandatory two-step inspection (`Accepted + Rejected = Received`), automated rejection return notes (`SRT-XXXX`), and replacement GRN inward support.
+    - Added unit-quantity validation enforcing discrete whole-integer quantities vs continuous decimal quantities.
+    - Connected Dashboard StatCards to active filter routes, added interactive Stock Audit modal, and built CSV exports for issues, ledger history, and reports.
+    - Built comprehensive 12-scenario automated test suite `server/tests/supply-chain-workflow.test.ts`.
+    - Achieved 49/49 passing automated tests across all 6 test suites with zero TypeScript errors and clean production build.
+- **Known Issues & Technical Debt (Analyzed for Phase 7)**:
+  - *H-02 (Storage)*: Client-side base64 Data URL file attachments stored in database fields. Needs cloud object storage (S3/GCS/MinIO) with signed URLs in future hardening.
+  - *H-04 (Documents)*: HTML/Print-based simulated PDF generation. Needs server-side binary PDF generation in future hardening.
+- **Pending Work for Phase 7 (Production Management Workflow & Shop Floor Execution)**:
+  - Production order lifecycle hardening, stage transitions, and floor issue tracking.
+  - Duration plan calculations, daily production logs, and rework loop back to QC.
+  - Final Quality Check gate with dispatch release authorization to Logistics.
 
 ---
 
@@ -210,3 +220,16 @@
   - Built comprehensive automated test suite `server/tests/sales-workflow.test.ts` covering all 7 scenarios in Section 30.
   - Verified 36/36 passing tests across the entire test suite, clean `tsc --noEmit`, and clean production build.
   - Authored comprehensive `PHASE_5_SALES_MANAGEMENT.md` report.
+- **v2.5.0 (Phase 6 – Supply Chain Management Workflow, Inventory Integrity & UI/UX Refinement)**:
+  - Implemented and verified dual purchasing workflows: Workflow A (Production Request-Based Shortage PO) with live pending, issuable, and open PO shortage calculations; and Workflow B (Normal Routine Stock PO) allowing direct inventory replenishment without MR or Production linkage.
+  - Fixed concurrency race conditions in material issuance by replacing global table recalculation with atomic conditional decrements (`{ currentStock: { $gte: issueQty } }`), compensation rollback for standalone MongoDB, and optimistic concurrency control (`__v`) preventing parallel over-issuance.
+  - Enforced strict inventory ledger consistency: `MaterialModel.currentStock` strictly mirrors the net delta of immutable `StockTransaction` records.
+  - Added Stock Reconciliation audit tool (`GET /api/supply-chain/stock-reconciliation`) and authorized alignment utility (`POST /api/supply-chain/stock-reconciliation/reconcile`) with interactive UI modal.
+  - Enforced two-stage material status separation: `issueStatus` (`Pending` → `Partially Issued` → `Fully Issued`) and `physicalReceiptStatus` (`Awaiting Physical Receipt` → `Partially Received` → `Fully Received`), synchronized with Production order readiness (`Waiting for Materials` → `Partially Issued` → `Awaiting Material Receipt` → `Ready to Start Production`).
+  - Hardened GRN inwarding with mandatory two-step inspection enforcing $\text{Accepted} + \text{Rejected} = \text{Received}$, mandatory rejection reasons, automated Supplier Return (`SRT-XXXX`) generation, and replacement GRN delivery inward without PO ordered-limit blocks.
+  - Added Production Material Return workflow (`POST /api/supply-chain/production-returns`), enabling shop floor to return unused materials to stores with validation ($\text{ReturnQty} \le \text{NetReceived}$) and atomic ledger crediting.
+  - Enforced discrete whole-unit quantities (`Nos`, `Sets`, `Rolls`, `Pcs`, `Pieces`, `Boxes`, `Units`) vs continuous fractional quantities (`Kg`, `Meter`, `Liter`, `Sheets`) across frontend and backend.
+  - Updated UI: Amber accent system preserved, connected Dashboard StatCards to active filter routes, added Shortage Breakdown modal, Edit Material modal with read-only stock protection, and CSV exports for issues, stock history, and reports.
+  - Authored comprehensive 12-scenario test suite `server/tests/supply-chain-workflow.test.ts` (13 subtests).
+  - Achieved 49/49 passing automated tests (100% pass rate) across all 6 test suites, clean TypeScript check (`tsc --noEmit`), and clean production build.
+  - Authored comprehensive technical report `PHASE_6_SUPPLY_CHAIN_MANAGEMENT.md`.

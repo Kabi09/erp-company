@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { PackageCheck, ShoppingCart } from 'lucide-react';
+import { Download, Eye, PackageCheck, ShoppingCart } from 'lucide-react';
 import {
   Button,
   DataTable,
@@ -29,7 +29,23 @@ export const MaterialRequestsPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // Shortage breakdown drawer/modal state
+  const [shortageDetail, setShortageDetail] = useState<any>(null);
+  const [loadingShortage, setLoadingShortage] = useState(false);
+
   if (!data) return null;
+
+  const openShortageModal = async (mr: MaterialRequest) => {
+    setLoadingShortage(true);
+    try {
+      const res = await erpApi.getMaterialRequestShortage(mr.id);
+      setShortageDetail(res);
+    } catch (error: any) {
+      toast('error', 'Failed to calculate live shortage', error.message);
+    } finally {
+      setLoadingShortage(false);
+    }
+  };
 
   const openIssueModal = (mr: MaterialRequest) => {
     const initial: Record<string, number> = {};
@@ -135,6 +151,10 @@ export const MaterialRequestsPage: React.FC = () => {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap shrink-0">
+                    <Button variant="ghost" size="sm" onClick={() => openShortageModal(mr)}>
+                      <Eye className="w-3.5 h-3.5" />
+                      Shortage Breakdown
+                    </Button>
                     {mr.status !== 'Fully Issued' && canIssueAny && can('supply_chain', 'create') && (
                       <Button size="sm" onClick={() => openIssueModal(mr)}>
                         <PackageCheck className="w-4 h-4" />
@@ -196,6 +216,71 @@ export const MaterialRequestsPage: React.FC = () => {
         </div>
       )}
 
+      {/* Shortage Breakdown Modal */}
+      <Modal
+        open={Boolean(shortageDetail)}
+        onClose={() => setShortageDetail(null)}
+        title={`Shortage & Fulfillment Analysis — ${shortageDetail?.materialRequestDocNo || ''}`}
+        subtitle={`${shortageDetail?.productName || ''} · Live computation accounting for stock and open Supplier POs.`}
+        size="lg"
+        footer={
+          <div className="flex justify-between items-center w-full">
+            <span className="text-xs text-slate-500 font-mono">Status: {shortageDetail?.status}</span>
+            <div className="flex gap-2">
+              <Button variant="secondary" onClick={() => setShortageDetail(null)}>Close</Button>
+              {can('supply_chain', 'create') && (
+                <Button
+                  onClick={() => {
+                    const mrId = shortageDetail.materialRequestId;
+                    setShortageDetail(null);
+                    navigate(`/supply-chain/purchase-orders?create=1&mrId=${mrId}`);
+                  }}
+                >
+                  <ShoppingCart className="w-4 h-4" />
+                  Create Shortage PO
+                </Button>
+              )}
+            </div>
+          </div>
+        }
+      >
+        {shortageDetail && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="bg-slate-50 dark:bg-slate-900/70 border-b border-slate-200 dark:border-slate-800 text-slate-500">
+                  <th className="px-3 py-2">Material</th>
+                  <th className="px-3 py-2 text-right">Required</th>
+                  <th className="px-3 py-2 text-right">Issued</th>
+                  <th className="px-3 py-2 text-right">Pending</th>
+                  <th className="px-3 py-2 text-right">Stock</th>
+                  <th className="px-3 py-2 text-right">Open POs</th>
+                  <th className="px-3 py-2 text-right font-semibold">Shortage</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                {shortageDetail.items.map((it: any) => (
+                  <tr key={it.materialId}>
+                    <td className="px-3 py-2.5 font-medium">
+                      <span className="font-mono text-slate-500 mr-1.5">{it.materialCode}</span>
+                      {it.materialName}
+                    </td>
+                    <td className="px-3 py-2.5 text-right font-mono">{it.requiredQty} {it.unit}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-emerald-600">{it.issuedQty}</td>
+                    <td className="px-3 py-2.5 text-right font-mono">{it.pendingQty}</td>
+                    <td className="px-3 py-2.5 text-right font-mono font-semibold">{it.currentStock}</td>
+                    <td className="px-3 py-2.5 text-right font-mono text-amber-600">{it.openPoQty || '—'}</td>
+                    <td className={`px-3 py-2.5 text-right font-mono font-bold ${it.shortageQty > 0 ? 'text-red-600' : 'text-slate-400'}`}>
+                      {it.shortageQty > 0 ? it.shortageQty : '0'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </Modal>
+
       {/* Issue Materials Modal */}
       <Modal
         open={Boolean(issuingMR)}
@@ -234,6 +319,7 @@ export const MaterialRequestsPage: React.FC = () => {
                         type="number"
                         min={0}
                         max={maxIssuable}
+                        step={['nos', 'sets', 'rolls', 'pcs', 'pieces', 'boxes'].includes(item.unit.toLowerCase()) ? '1' : '0.01'}
                         disabled={maxIssuable <= 0}
                         value={issueQtys[item.materialId] ?? 0}
                         onChange={(e) =>
@@ -274,6 +360,27 @@ export const MaterialIssuesPage: React.FC = () => {
     );
   });
 
+  const exportCSV = () => {
+    const headers = ['Issue DocNo', 'Material Request', 'Production Order', 'Issue Date', 'Issued By', 'Items', 'Receipt Acknowledged'];
+    const rows = filtered.map((mi) => [
+      mi.docNo,
+      mi.materialRequestDocNo,
+      mi.productionOrderDocNo,
+      mi.issueDate,
+      `"${mi.issuedBy}"`,
+      `"${mi.items.map((i) => `${i.materialName}: ${i.issuedQty} ${i.unit}`).join('; ')}"`,
+      mi.receiptAcknowledged ? 'Acknowledged' : 'Pending',
+    ]);
+    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Material_Issues_${new Date().toISOString().slice(0, 10)}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   const columns: ColumnDef<MaterialIssue>[] = [
     { key: 'docNo', header: 'Issue ID', render: (r) => <span className="font-mono font-semibold text-xs">{r.docNo}</span> },
     {
@@ -308,7 +415,16 @@ export const MaterialIssuesPage: React.FC = () => {
 
   return (
     <div>
-      <PageHeader title="Material Issues" subtitle="History of all partial and full material issues posted from store to Production." />
+      <PageHeader
+        title="Material Issues"
+        subtitle="History of all partial and full material issues posted from store to Production."
+        actions={
+          <Button variant="secondary" size="sm" onClick={exportCSV}>
+            <Download className="w-4 h-4" />
+            Export CSV
+          </Button>
+        }
+      />
       <FilterBar search={search} onSearchChange={setSearch} searchPlaceholder="Search MI number, MR, or production order..." />
       <DataTable
         rows={filtered}

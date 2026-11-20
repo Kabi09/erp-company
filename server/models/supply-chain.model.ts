@@ -4,6 +4,7 @@ import type {
   Material,
   MaterialIssue,
   MaterialRequest,
+  ProductionReturn,
   StockTransaction,
   Supplier,
   SupplierPO,
@@ -69,6 +70,7 @@ const MaterialRequestSchema = new Schema<MaterialRequest>(
         requiredQty: { type: Number, required: true, min: 0.01 },
         issuedQty: { type: Number, default: 0, min: 0 },
         receivedQty: { type: Number, default: 0, min: 0 },
+        returnedQty: { type: Number, default: 0, min: 0 },
       },
     ],
     status: {
@@ -274,3 +276,25 @@ const StockTransactionSchema = new Schema<StockTransaction>(
 StockTransactionSchema.index({ materialId: 1, timestamp: 1 });
 StockTransactionSchema.index({ linkedDocType: 1, linkedDocId: 1 });
 export const StockTransactionModel: Model<StockTransaction> = model<StockTransaction>('StockTransaction', StockTransactionSchema);
+
+// --- PRODUCTION RETURN MODEL ---
+const ProductionReturnSchema = new Schema<ProductionReturn>(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    docNo: { type: String, required: true, unique: true, index: true },
+    materialRequestId: { type: String, required: true, index: true },
+    materialRequestDocNo: { type: String, required: true },
+    productionOrderId: { type: String, required: true, index: true },
+    productionOrderDocNo: { type: String, required: true },
+    materialId: { type: String, required: true, index: true },
+    materialCode: { type: String, required: true },
+    materialName: { type: String, required: true },
+    unit: { type: String, required: true },
+    returnQty: { type: Number, required: true, min: 0.01 },
+    reason: { type: String, required: true },
+    returnedBy: { type: String, required: true },
+  },
+  { timestamps: true },
+);
+ProductionReturnSchema.index({ materialRequestId: 1, materialId: 1 });
+export const ProductionReturnModel: Model<ProductionReturn> = model<ProductionReturn>('ProductionReturn', ProductionReturnSchema);

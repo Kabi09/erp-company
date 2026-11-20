@@ -267,3 +267,44 @@ export function normalizeQuotationItems(
     lineTotal: round2(Math.max(0, item.quantity) * Math.max(0, item.unitPrice)),
   }));
 }
+
+const DISCRETE_UNITS = new Set(['nos', 'sets', 'rolls', 'pcs', 'pieces', 'boxes', 'units']);
+
+/**
+ * Validate that discrete units (Nos, Sets, Rolls, Pcs) use whole integer quantities,
+ * while continuous units (Kg, Meter, Liter, Sheets) permit decimals.
+ */
+export function validateMaterialUnitQuantity(unit: string, qty: number): { valid: boolean; error?: string } {
+  if (typeof qty !== 'number' || isNaN(qty) || qty < 0) {
+    return { valid: false, error: 'Quantity must be a non-negative number.' };
+  }
+  const normalizedUnit = (unit || '').trim().toLowerCase();
+  if (DISCRETE_UNITS.has(normalizedUnit)) {
+    if (!Number.isInteger(qty)) {
+      return { valid: false, error: `Quantity for discrete unit '${unit}' must be a whole integer (no decimals).` };
+    }
+  }
+  return { valid: true };
+}
+
+/**
+ * Compute shortage and issuable breakdown for a Material Request line,
+ * taking into account available stock and open incoming Supplier PO commitments.
+ */
+export function calculateMaterialShortage(
+  requiredQty: number,
+  issuedQty: number,
+  availableStock: number,
+  openPoQty: number = 0,
+): {
+  pendingQty: number;
+  issuableQty: number;
+  shortageQty: number;
+} {
+  const pendingQty = round2(Math.max(0, requiredQty - issuedQty));
+  const usable = round2(Math.max(0, availableStock));
+  const openIncoming = round2(Math.max(0, openPoQty));
+  const issuableQty = round2(Math.min(pendingQty, usable));
+  const shortageQty = round2(Math.max(0, pendingQty - usable - openIncoming));
+  return { pendingQty, issuableQty, shortageQty };
+}

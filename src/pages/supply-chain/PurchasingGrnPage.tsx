@@ -289,7 +289,8 @@ export const SupplierPOsPage: React.FC = () => {
                   <Field label="Qty" required>
                     <Input
                       type="number"
-                      min={1}
+                      step="any"
+                      min={0.01}
                       value={line.orderedQty}
                       onChange={(e) => setLines((p) => p.map((x, i) => (i === idx ? { ...x, orderedQty: Number(e.target.value) } : x)))}
                       required
@@ -630,6 +631,7 @@ export const GRNAndVerificationPage: React.FC<{ mode: 'grn' | 'verification' }> 
                       <div className="w-28">
                         <Input
                           type="number"
+                          step="any"
                           min={0}
                           max={supplierReturnId ? grnQtys[item.materialId] : remaining}
                           value={grnQtys[item.materialId] ?? 0}
@@ -676,6 +678,7 @@ export const GRNAndVerificationPage: React.FC<{ mode: 'grn' | 'verification' }> 
                     <Field label="Accepted Qty (Adds to Stock)" required>
                       <Input
                         type="number"
+                        step="any"
                         min={0}
                         max={item.receivedQty}
                         value={cur.acceptedQty}
@@ -691,6 +694,7 @@ export const GRNAndVerificationPage: React.FC<{ mode: 'grn' | 'verification' }> 
                     <Field label="Rejected Qty (Supplier Return)" required>
                       <Input
                         type="number"
+                        step="any"
                         min={0}
                         max={item.receivedQty}
                         value={cur.rejectedQty}
@@ -896,7 +900,7 @@ export const SupplierReturnsPage: React.FC = () => {
             </Field>
           )}
           <Field label="Return Quantity" required>
-            <Input type="number" min={1} value={returnQty} onChange={(e) => setReturnQty(Number(e.target.value))} required />
+            <Input type="number" min={0.01} step="any" value={returnQty} onChange={(e) => setReturnQty(Number(e.target.value))} required />
           </Field>
           <Field label="Return Reason" required>
             <Input value={reason} onChange={(e) => setReason(e.target.value)} required />

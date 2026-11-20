@@ -402,6 +402,7 @@ export interface MaterialRequestItem {
   requiredQty: number;
   issuedQty: number;
   receivedQty: number;
+  returnedQty?: number;
 }
 
 export interface MaterialRequest {
@@ -547,6 +548,23 @@ export interface SupplierReturn {
   attachmentName?: string;
   remarks: string;
   createdBy: string;
+  createdAt: string;
+}
+
+export interface ProductionReturn {
+  id: string;
+  docNo: string;
+  materialRequestId: string;
+  materialRequestDocNo: string;
+  productionOrderId: string;
+  productionOrderDocNo: string;
+  materialId: string;
+  materialCode: string;
+  materialName: string;
+  unit: string;
+  returnQty: number;
+  reason: string;
+  returnedBy: string;
   createdAt: string;
 }
 
@@ -809,6 +827,8 @@ export interface DocCounters {
   RW: number;
   DEL: number;
   EMP?: number;
+  MAT?: number;
+  PRT?: number;
 }
 
 export interface ERPDatabase {

@@ -282,6 +282,14 @@ export const erpApi = {
     request(`/supply-chain/grns/${id}/verify`, { method: 'POST', body: JSON.stringify(payload) }),
   createSupplierReturn: (payload: any) =>
     request('/supply-chain/supplier-returns', { method: 'POST', body: JSON.stringify(payload) }),
+  getMaterialRequestShortage: (id: string) =>
+    request(`/supply-chain/material-requests/${id}/shortage`),
+  createProductionReturn: (payload: any) =>
+    request('/supply-chain/production-returns', { method: 'POST', body: JSON.stringify(payload) }),
+  getStockReconciliation: () =>
+    request('/supply-chain/stock-reconciliation'),
+  reconcileStock: () =>
+    request('/supply-chain/stock-reconciliation/reconcile', { method: 'POST' }),
 
   // Production
   createProductionOrder: (payload: any) =>

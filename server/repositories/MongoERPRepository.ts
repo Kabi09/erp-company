@@ -287,6 +287,72 @@ export class MongoERPRepository implements IERPRepository {
     return stockMap;
   }
 
+  /**
+   * Compare MaterialModel.currentStock against immutable transaction ledger.
+   * If fix is true, updates currentStock to match ledger balance and logs an activity.
+   */
+  public async getStockReconciliationReport(fix = false, actorName = 'System') {
+    const stockMap = await this.computeStockMap();
+    const materials = await MaterialModel.find().sort({ code: 1 }).lean();
+    const discrepancies: Array<{
+      materialId: string;
+      materialCode: string;
+      materialName: string;
+      unit: string;
+      currentStock: number;
+      ledgerBalance: number;
+      discrepancy: number;
+      status: 'MATCHED' | 'DISCREPANCY';
+    }> = [];
+
+    let reconciledCount = 0;
+    for (const mat of materials) {
+      const ledgerBal = round2(stockMap[mat.id] ?? 0);
+      const curStock = round2(mat.currentStock ?? 0);
+      const diff = round2(curStock - ledgerBal);
+      const hasDiscrepancy = Math.abs(diff) > 0.001;
+
+      discrepancies.push({
+        materialId: mat.id,
+        materialCode: mat.code,
+        materialName: mat.name,
+        unit: mat.unit,
+        currentStock: curStock,
+        ledgerBalance: ledgerBal,
+        discrepancy: diff,
+        status: hasDiscrepancy ? 'DISCREPANCY' : 'MATCHED',
+      });
+
+      if (hasDiscrepancy && fix) {
+        await MaterialModel.updateOne({ id: mat.id }, { $set: { currentStock: ledgerBal } });
+        reconciledCount++;
+      }
+    }
+
+    if (fix && reconciledCount > 0) {
+      await this.addActivity({
+        actorId: 'system',
+        actorName,
+        department: 'supply_chain',
+        action: 'Reconciled Stock Balances',
+        entityType: 'Material',
+        entityId: 'all',
+        entityDocNo: 'RECON',
+        details: `Reconciled ${reconciledCount} material(s) where currentStock diverged from transaction ledger.`,
+      });
+    }
+
+    const discrepanciesCount = discrepancies.filter((d) => d.status === 'DISCREPANCY').length;
+
+    return {
+      matched: discrepanciesCount === 0,
+      totalMaterials: materials.length,
+      discrepanciesCount,
+      reconciledCount: fix ? reconciledCount : 0,
+      materials: discrepancies,
+    };
+  }
+
   // --- PAGINATION HELPER ---
   private async paginate<T>(
     model: Model<any>,
@@ -656,59 +722,93 @@ export class MongoERPRepository implements IERPRepository {
         throw new Error(`Material request ${mr.docNo} is already ${mr.status}.`);
       }
 
-      const stockMap = await this.syncMaterialStock();
       const validLines = (rawItems || []).filter((i) => Number(i.issuingQty) > 0);
       if (validLines.length === 0) {
         throw new Error('Enter a positive issuing quantity for at least one material.');
       }
 
-      // Atomic conditional decrement to eliminate race conditions under concurrent requests
+      // Step 1: Pre-validate all lines against Material Request pending requirements
       for (const line of validLines) {
         const issueQty = Number(line.issuingQty);
         const mrItem = mr.items.find((x) => x.materialId === line.materialId);
         if (!mrItem) throw new Error(`Material ${line.materialId} is not on ${mr.docNo}.`);
-
-        const updated = await MaterialModel.findOneAndUpdate(
-          { id: line.materialId, currentStock: { $gte: issueQty } },
-          { $inc: { currentStock: -issueQty } },
-          { session: session || undefined, returnDocument: 'after' },
-        );
-        if (!updated) {
-          const currentMat = await MaterialModel.findOne({ id: line.materialId }).session(session || null);
+        const pending = round2(mrItem.requiredQty - mrItem.issuedQty);
+        if (issueQty > pending) {
           throw new Error(
-            `INSUFFICIENT_STOCK: Available stock exhausted or below requested quantity (${issueQty}) for ${mrItem.materialName}. Current stock is ${currentMat?.currentStock ?? 0}.`,
+            `EXCESS_ISSUE: Cannot issue ${issueQty} for ${mrItem.materialName}. Only ${pending} remaining to issue.`,
           );
         }
       }
 
+      // Step 2: Atomic conditional decrements on MaterialModel with compensation rollback for standalone MongoDB
+      const decremented: Array<{ materialId: string; qty: number; balanceAfter: number }> = [];
+      try {
+        for (const line of validLines) {
+          const issueQty = Number(line.issuingQty);
+          const mrItem = mr.items.find((x) => x.materialId === line.materialId)!;
+
+          const updated = await MaterialModel.findOneAndUpdate(
+            { id: line.materialId, currentStock: { $gte: issueQty } },
+            { $inc: { currentStock: -issueQty } },
+            { session: session || undefined, returnDocument: 'after' },
+          );
+          if (!updated) {
+            const currentMat = await MaterialModel.findOne({ id: line.materialId }).session(session || null);
+            throw new Error(
+              `INSUFFICIENT_STOCK: Available stock exhausted or below requested quantity (${issueQty}) for ${mrItem.materialName}. Current stock is ${currentMat?.currentStock ?? 0}.`,
+            );
+          }
+          decremented.push({ materialId: line.materialId, qty: issueQty, balanceAfter: updated.currentStock ?? 0 });
+        }
+      } catch (err) {
+        // Compensate any already-decremented lines if transaction session wasn't active (standalone MongoDB)
+        if (!session) {
+          for (const d of decremented) {
+            await MaterialModel.updateOne({ id: d.materialId }, { $inc: { currentStock: d.qty } });
+          }
+        }
+        throw err;
+      }
+
+      // Step 3: Construct issue items and update mr.items
       const issueItems: MaterialIssueItem[] = [];
-      for (const line of validLines) {
-        const mrItem = mr.items.find((x) => x.materialId === line.materialId);
-        if (!mrItem) throw new Error(`Material ${line.materialId} is not on ${mr.docNo}.`);
-        const available = stockMap[mrItem.materialId] || 0;
-        const check = validateMaterialIssueLine({
-          requiredQty: mrItem.requiredQty,
-          alreadyIssuedQty: mrItem.issuedQty,
-          availableStock: available,
-          issuingQty: Number(line.issuingQty),
-        });
-        if (!check.valid) throw new Error(`${mrItem.materialName}: ${check.error}`);
-        stockMap[mrItem.materialId] = check.stockAfter;
-        mrItem.issuedQty = round2(mrItem.issuedQty + Number(line.issuingQty));
+      const stockTxDocs: StockTransaction[] = [];
+      const now = new Date().toISOString();
+      const miDocNo = await this.getNextDocNo('MI', session || undefined);
+      const miId = generateId('mi');
+
+      for (const d of decremented) {
+        const mrItem = mr.items.find((x) => x.materialId === d.materialId)!;
+        mrItem.issuedQty = round2(mrItem.issuedQty + d.qty);
         issueItems.push({
           materialId: mrItem.materialId,
           materialCode: mrItem.materialCode,
           materialName: mrItem.materialName,
           unit: mrItem.unit,
-          issuedQty: Number(line.issuingQty),
+          issuedQty: d.qty,
           receivedQty: 0,
+        });
+
+        stockTxDocs.push({
+          id: generateId('stx'),
+          materialId: mrItem.materialId,
+          materialCode: mrItem.materialCode,
+          materialName: mrItem.materialName,
+          unit: mrItem.unit,
+          type: 'Material Issue',
+          quantityDelta: -d.qty,
+          balanceAfter: d.balanceAfter,
+          linkedDocType: 'MI',
+          linkedDocId: miId,
+          linkedDocNo: miDocNo,
+          remarks: `Issued to ${mr.productionOrderDocNo}`,
+          performedBy: actor.name,
+          timestamp: now,
         });
       }
 
-      const now = new Date().toISOString();
-      const miDocNo = await this.getNextDocNo('MI', session || undefined);
       const mi: MaterialIssue = {
-        id: generateId('mi'),
+        id: miId,
         docNo: miDocNo,
         materialRequestId: mr.id,
         materialRequestDocNo: mr.docNo,
@@ -722,34 +822,40 @@ export class MongoERPRepository implements IERPRepository {
         createdAt: now,
       };
 
-      const stockTxDocs: StockTransaction[] = [];
-      const runningMap = { ...stockMap };
-      for (const ii of issueItems) {
-        const bal = round2((runningMap[ii.materialId] || 0) - ii.issuedQty);
-        runningMap[ii.materialId] = bal;
-        stockTxDocs.push({
-          id: generateId('stx'),
-          materialId: ii.materialId,
-          materialCode: ii.materialCode,
-          materialName: ii.materialName,
-          unit: ii.unit,
-          type: 'Material Issue',
-          quantityDelta: -ii.issuedQty,
-          balanceAfter: bal,
-          linkedDocType: 'MI',
-          linkedDocId: mi.id,
-          linkedDocNo: mi.docNo,
-          remarks: `Issued to ${mr.productionOrderDocNo}`,
-          performedBy: actor.name,
-          timestamp: now,
-        });
-      }
-
       const derivedStatus = deriveMaterialRequestStatus(mr as any);
       mr.status = derivedStatus.status;
       mr.receiptStatus = derivedStatus.receiptStatus;
       mr.updatedAt = now;
-      await mr.save({ session: session || undefined });
+
+      // Optimistic concurrency control on MaterialRequestModel
+      const mrVersion = (mr as any).__v;
+      let saveQuery: any = { id: mr.id };
+      if (typeof mrVersion === 'number') {
+        saveQuery.__v = mrVersion;
+      }
+      const updatedMR = await MaterialRequestModel.findOneAndUpdate(
+        saveQuery,
+        {
+          $set: {
+            items: mr.items,
+            status: mr.status,
+            receiptStatus: mr.receiptStatus,
+            updatedAt: now,
+          },
+          $inc: { __v: 1 },
+        },
+        { session: session || undefined, returnDocument: 'after' },
+      );
+
+      if (!updatedMR) {
+        // Rollback stock if standalone
+        if (!session) {
+          for (const d of decremented) {
+            await MaterialModel.updateOne({ id: d.materialId }, { $inc: { currentStock: d.qty } });
+          }
+        }
+        throw new Error('CONCURRENT_MODIFICATION: Material request was updated concurrently. Please retry.');
+      }
 
       await MaterialIssueModel.create([mi], { session: session || undefined });
       if (stockTxDocs.length > 0) {
