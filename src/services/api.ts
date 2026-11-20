@@ -1,4 +1,16 @@
-import type { AuthUser, ERPDatabase } from '../types/erp';
+import type {
+  AuthUser,
+  DeliveryOrder,
+  Enquiry,
+  ERPDatabase,
+  GRN,
+  Material,
+  MaterialRequest,
+  ProductionOrder,
+  Quotation,
+  SalesOrder,
+  SupplierPO,
+} from '../types/erp';
 
 const TOKEN_KEY = 'cryo_erp_jwt_token';
 
@@ -12,6 +24,36 @@ export function setAuthToken(token: string | null): void {
   } else {
     localStorage.removeItem(TOKEN_KEY);
   }
+}
+
+export interface PaginationParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  category?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface PaginatedResponse<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+function toQueryString(params?: Record<string, any>): string {
+  if (!params) return '';
+  const searchParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== null && value !== '') {
+      searchParams.append(key, String(value));
+    }
+  }
+  const str = searchParams.toString();
+  return str ? `?${str}` : '';
 }
 
 export interface ERPBootstrapPayload extends ERPDatabase {
@@ -180,4 +222,40 @@ export const erpApi = {
     request('/admin/company', { method: 'PUT', body: JSON.stringify(payload) }),
   resetDemoData: (mode: 'seed' | 'clean') =>
     request('/admin/reset-demo', { method: 'POST', body: JSON.stringify({ mode }) }),
+
+  // Phase 3: Paginated Queries
+  getEnquiries: (params?: PaginationParams) =>
+    request<PaginatedResponse<Enquiry>>(`/sales/enquiries${toQueryString(params)}`),
+  getQuotations: (params?: PaginationParams) =>
+    request<PaginatedResponse<Quotation>>(`/sales/quotations${toQueryString(params)}`),
+  getSalesOrders: (params?: PaginationParams) =>
+    request<PaginatedResponse<SalesOrder>>(`/sales/orders${toQueryString(params)}`),
+  getMaterials: (params?: PaginationParams) =>
+    request<PaginatedResponse<Material>>(`/supply-chain/materials${toQueryString(params)}`),
+  getMaterialRequests: (params?: PaginationParams) =>
+    request<PaginatedResponse<MaterialRequest>>(`/supply-chain/material-requests${toQueryString(params)}`),
+  getSupplierPOs: (params?: PaginationParams) =>
+    request<PaginatedResponse<SupplierPO>>(`/supply-chain/purchase-orders${toQueryString(params)}`),
+  getGRNs: (params?: PaginationParams) =>
+    request<PaginatedResponse<GRN>>(`/supply-chain/grns${toQueryString(params)}`),
+  getProductionOrders: (params?: PaginationParams) =>
+    request<PaginatedResponse<ProductionOrder>>(`/production/orders${toQueryString(params)}`),
+  getDeliveryOrders: (params?: PaginationParams) =>
+    request<PaginatedResponse<DeliveryOrder>>(`/logistics/delivery-orders${toQueryString(params)}`),
+
+  // Phase 3: Lightweight Dropdown Options
+  getCustomerOptions: () =>
+    request<Array<{ id: string; name: string; contactPerson: string; phone: string; gstin: string }>>('/sales/customers/options'),
+  getProductOptions: () =>
+    request<Array<{ id: string; name: string; model: string; category: string; sellingPrice: number }>>('/sales/products/options'),
+  getMaterialOptions: () =>
+    request<Array<{ id: string; code: string; name: string; unit: string; minStock: number }>>('/supply-chain/materials/options'),
+  getSupplierOptions: () =>
+    request<Array<{ id: string; name: string; contactPerson: string; phone: string; email: string }>>('/supply-chain/suppliers/options'),
+
+  // Phase 3: Dashboard Summaries
+  getSalesSummary: () => request<any>('/sales/summary'),
+  getSupplyChainSummary: () => request<any>('/supply-chain/summary'),
+  getProductionSummary: () => request<any>('/production/summary'),
+  getLogisticsSummary: () => request<any>('/logistics/summary'),
 };

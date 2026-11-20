@@ -38,18 +38,44 @@ import type {
   SupplierReturn,
 } from '../../src/types/erp';
 
+export interface PaginationQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: string;
+  category?: string;
+  department?: string;
+  sortBy?: string;
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface PaginatedResult<T> {
+  items: T[];
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface DropdownOption {
+  id: string;
+  label: string;
+  subLabel?: string;
+  data?: Record<string, any>;
+}
+
 export interface IERPRepository {
   // Snapshot / State
-  getState(): ERPDatabase;
-  mutate<T>(fn: (draft: ERPDatabase) => T): T;
-  resetDemoData(clearOperationalOnly?: boolean): ERPDatabase;
+  getState(): ERPDatabase | Promise<ERPDatabase>;
+  mutate?<T>(fn: (draft: ERPDatabase) => T): T | Promise<T>;
+  resetDemoData?(clearOperationalOnly?: boolean): ERPDatabase | Promise<ERPDatabase>;
 
   // Document Numbering
-  getNextDocNo(key: keyof DocCounters): string;
+  getNextDocNo(key: keyof DocCounters): string | Promise<string>;
 
   // Activities & Notifications
-  addActivity(params: Omit<ActivityLog, 'id' | 'timestamp'>): void;
-  addNotification(params: Omit<NotificationItem, 'id' | 'readBy' | 'createdAt'>): void;
+  addActivity(params: Omit<ActivityLog, 'id' | 'timestamp'>): void | Promise<ActivityLog>;
+  addNotification(params: Omit<NotificationItem, 'id' | 'readBy' | 'createdAt'>): void | Promise<NotificationItem>;
 }
 
 export interface IEmployeeRepository {

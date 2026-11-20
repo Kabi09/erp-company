@@ -2,21 +2,20 @@ import type { NextFunction, Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import type { AuthUser, PermissionAction, PermissionModule } from '../../src/types/erp';
 import { env } from '../config/environment';
-import { dbStore } from '../db';
+import { EmployeeModel, RoleModel } from '../models';
 
 export interface AuthenticatedRequest extends Request {
   user?: AuthUser;
 }
 
 export function signToken(employeeId: string): string {
-  return jwt.sign({ sub: employeeId }, env.jwtSecret, { expiresIn: env.tokenTtl as any });
+  return jwt.sign({ sub: employeeId }, env.jwtSecret, { expiresIn: env.jwtExpiresIn as any });
 }
 
-export function resolveAuthUser(employeeDbId: string): AuthUser | null {
-  const state = dbStore.getState();
-  const emp = state.employees.find((e) => e.id === employeeDbId);
+export async function resolveAuthUser(employeeDbId: string): Promise<AuthUser | null> {
+  const emp = await EmployeeModel.findOne({ id: employeeDbId }).lean();
   if (!emp || emp.status !== 'Active') return null;
-  const role = state.roles.find((r) => r.id === emp.roleId);
+  const role = await RoleModel.findOne({ id: emp.roleId }).lean();
   if (!role) return null;
   return {
     id: emp.id,
@@ -32,7 +31,7 @@ export function resolveAuthUser(employeeDbId: string): AuthUser | null {
   };
 }
 
-export function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): void {
+export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
   const header = req.headers.authorization;
   if (!header || !header.startsWith('Bearer ')) {
     res.status(401).json({ error: 'Authentication required. Please sign in.' });
@@ -41,7 +40,7 @@ export function requireAuth(req: AuthenticatedRequest, res: Response, next: Next
   const token = header.slice(7);
   try {
     const decoded = jwt.verify(token, env.jwtSecret) as { sub: string };
-    const user = resolveAuthUser(decoded.sub);
+    const user = await resolveAuthUser(decoded.sub);
     if (!user) {
       res.status(401).json({ error: 'Session expired or account deactivated.' });
       return;

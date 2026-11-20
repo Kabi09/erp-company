@@ -2,6 +2,7 @@ import express from 'express';
 import fs from 'fs';
 import path from 'path';
 import { createServer as createViteServer } from 'vite';
+import { connectDatabase } from './server/config/database';
 import { env } from './server/config/environment';
 import { apiRouter } from './server/routes';
 
@@ -16,6 +17,9 @@ export function createApp() {
 }
 
 export async function startServer() {
+  // Connect to MongoDB before accepting HTTP traffic
+  await connectDatabase();
+
   const app = createApp();
 
   if (!env.isProd) {

@@ -11,8 +11,8 @@
 - **Frontend**: React 19 + TypeScript + Vite + React Router v7 + Tailwind CSS v4 (`@custom-variant dark` light & dark modes) + Lucide Icons.
 - **Backend**: Express.js (`server.ts`, running on port 3000 with Vite middleware in development and static `dist/` serving in production).
 - **Authentication & Authorization**: JWT Bearer tokens (`jsonwebtoken`), bcrypt password hashing (`bcryptjs`), and module-by-action Role-Based Access Control (RBAC) enforced on both Express API middleware (`server/auth.ts`) and React route guards (`src/App.tsx`).
-- **Persistence**: Atomic file-backed persistent JSON database (`data/cryo-erp-db.json` via temp-file-and-rename writes in `server/db.ts`), preserving all state across browser reloads and server restarts while maintaining a clean REST API abstraction (`src/services/api.ts`) for direct MongoDB/MERN migration.
-- **Pure Business Logic & Unit Tests**: Decoupled deterministic calculators and validators in `src/utils/erpLogic.ts`, verified by `node:test` (`src/utils/erpLogic.test.ts`).
+- **Persistence**: Production-ready MongoDB + Mongoose 9 persistence layer with connection pooling, graceful shutdown, replica set/Atlas auto-detection, and atomic document numbering via `$inc` on `DocCounterModel`. Historical JSON snapshot preserved in `data/cryo-erp-db.json` and timestamped backups in `data/backups/`. Normal operations execute 100% on MongoDB without JSON fallback.
+- **Pure Business Logic & Unit Tests**: Decoupled deterministic calculators and validators in `src/utils/erpLogic.ts`, verified by `node:test` (`src/utils/erpLogic.test.ts`, `server/tests/mongo-integration.test.ts`, and `server/tests/api-lifecycle.test.ts`).
 
 ---
 
@@ -117,26 +117,27 @@
 
 ## 8. Completed Features, Known Issues & Pending Work
 - **Completed**:
-  - Full Express + JWT + bcrypt + RBAC backend with atomic file-backed persistence (`data/cryo-erp-db.json`).
+  - Full Express + JWT + bcrypt + RBAC backend with complete MongoDB + Mongoose persistence.
   - Phase 2 Backend Modularization into enterprise tiered architecture: `server/config/`, `server/middleware/`, `server/routes/` (`auth`, `sales`, `supply-chain`, `production`, `logistics`, `admin`), `server/repositories/`, `server/models/`, `server/validators/`, `server/services/`, and `server/tests/`.
-  - 100% preservation of all existing REST API contracts (`/api/*`), frontend components, routing, colors, and responsive layouts.
-  - Complete 28-step automated end-to-end integration test suite (`server/tests/api-lifecycle.test.ts`) covering Authentication, RBAC, and full 4-department linked order lifecycle.
-  - Pure domain logic & 8/8 passing `node:test` unit tests (`src/utils/erpLogic.ts`, `src/utils/erpLogic.test.ts`).
-  - Combined `npm test` running 12 test suites with 100% pass rate.
-  - Security hardening: Enforced 6-character password validation in `auth.routes.ts`, created `environment.ts` with explicit production warnings for unset `JWT_SECRET`.
-  - Vite 8 modernization: Replaced `__dirname` with `process.cwd()` in `vite.config.ts`, eliminating native build deprecation warnings.
-  - Complete MongoDB migration plan drafted across all 29 entity collections (`server/models/mongoSchemas.ts`, `server/migrations/migrationPlan.ts`, and root-level `PHASE_2_AUDIT.md`).
-- **Known Issues & Technical Debt (Analyzed for Phase 3/4)**:
-  - *C-01 (Architecture)*: Global bootstrap monolith (`GET /api/erp/bootstrap`) dumps entire dataset into client memory. Needs paginated REST APIs in Phase 3.
-  - *C-02 (Database)*: Synchronous disk writes and full-state cloning via `structuredClone` in JSON store. Will be replaced by MongoDB multi-document ACID transactions in Phase 3.
+  - Phase 3 MongoDB Migration & Optimization:
+    - 29 Concrete Mongoose Models + `DocCounterModel` across `server/models/`.
+    - Executable JSON-to-MongoDB migration script (`server/migrations/migrateJsonToMongo.ts`) with 100% record match across 30 collections and automated backup in `data/backups/`.
+    - `MongoERPRepository` implementing `IERPRepository` with atomic `$inc` document numbering, ACID transaction wrappers, ledger-derived stock computation, and parallel state reconstruction.
+    - Department REST API integration: all 6 route files converted to direct MongoDB persistence.
+    - Paginated REST APIs for 9 key collections (`/sales/enquiries`, `/sales/quotations`, `/sales/orders`, `/supply-chain/materials`, `/supply-chain/material-requests`, `/supply-chain/purchase-orders`, `/supply-chain/grns`, `/production/orders`, `/logistics/delivery-orders`).
+    - Lightweight dropdown options endpoints (`/options`) with minimal projection.
+    - Department dashboard summary endpoints (`/summary`).
+    - Frontend API service (`src/services/api.ts`) updated with paginated and options querying.
+    - 20/20 automated tests passing across domain logic, MongoDB integration, and 28-step full lifecycle suite.
+- **Known Issues & Technical Debt (Analyzed for Phase 4)**:
   - *H-02 (Storage)*: Client-side base64 Data URL file attachments stored in database fields. Needs cloud object storage (S3/GCS/MinIO) with signed URLs in Phase 4.
   - *H-04 (Documents)*: HTML/Print-based simulated PDF generation. Needs server-side binary PDF generation in Phase 4.
   - *M-04 (Frontend Bundle)*: Monolithic >640KB client chunk. Needs route-level `React.lazy()` code splitting in Phase 4.
-- **Pending Work for Phase 3 (Database Migration)**:
-  - Implement Mongoose connections to MongoDB replica set.
-  - Replace `JsonERPRepository` with `MongoERPRepository` adhering to `IERPRepository` contracts.
-  - Execute automated data migration script using `MIGRATION_EXECUTION_SEQUENCE`.
-  - Introduce paginated endpoints for large collections (sales orders, stock transactions, activity logs).
+- **Pending Work for Phase 4 (Production Hardening & Cloud Deploy)**:
+  - Cloud object storage for binary document attachments.
+  - Server-side PDF generation service.
+  - Route-level lazy loading and bundle optimization.
+  - Containerization (Dockerfile & Docker Compose) with MongoDB replica set automation.
 
 ---
 
@@ -152,3 +153,13 @@
   - Added `"test"` command in `package.json`.
   - Prepared full MongoDB migration plan and Mongoose collection specifications for all 29 collections.
   - Created detailed root-level technical audit document `PHASE_2_AUDIT.md`.
+- **v2.2.0 (Phase 3 – MongoDB Migration, Database Integration & API Optimization)**:
+  - Configured MongoDB connection manager (`server/config/database.ts`) with connection pooling, replica set / Atlas auto-detection, and graceful shutdown.
+  - Implemented concrete Mongoose models for all 29 entity collections + document counters in `server/models/`.
+  - Built `MongoERPRepository.ts` with atomic document numbering via MongoDB `$inc`, parallel snapshot queries, ledger stock computation, and transaction abstractions.
+  - Successfully migrated all 30 collections from JSON to MongoDB (100% record match verified).
+  - Integrated all 6 department routers with MongoDB, removing normal runtime JSON dependency.
+  - Added paginated endpoints for 9 entities, lightweight dropdown options, and dashboard summary endpoints.
+  - Updated frontend API services (`src/services/api.ts`).
+  - Added `server/tests/mongo-integration.test.ts` and verified 20/20 test suites passing.
+  - Authored comprehensive `PHASE_3_MIGRATION.md` report.

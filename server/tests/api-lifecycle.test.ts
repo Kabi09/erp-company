@@ -7,6 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
 import { createApp } from '../../server';
+import { connectDatabase, disconnectDatabase } from '../config/database';
 import { dbStore } from '../db';
 import type { Customer, Enquiry, PaymentEntry, Product, ProductionOrder, Quotation, SalesOrder, SupplierPO } from '../../src/types/erp';
 
@@ -16,8 +17,8 @@ let baseUrl = '';
 const dbBackupPath = path.resolve(process.cwd(), 'data', 'cryo-erp-db.json.bak');
 const dbFilePath = path.resolve(process.cwd(), 'data', 'cryo-erp-db.json');
 
-
 async function startTestServer(): Promise<void> {
+  await connectDatabase();
   const app = createApp();
   await new Promise<void>((resolve) => {
     server = app.listen(0, '127.0.0.1', () => {
@@ -32,6 +33,7 @@ async function stopTestServer(): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
   });
+  await disconnectDatabase();
 }
 
 async function apiRequest<T = any>(
