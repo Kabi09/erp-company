@@ -4,11 +4,11 @@ R&D projects run independently of customer Sales Orders and manufacturing Produc
 
 ## Project workflow
 
-1. From **R&D Projects**, select **New R&D project**. Enter the project name, type, assigned employee, priority and start date. An existing product can fill the model name and category. The system assigns an `RND` reference.
+1. From **R&D Projects**, select **New R&D project**. Enter the project name and assigned employee, and confirm the start date. Select an existing product to fill the product name and category, or enter details for a new product. Target date and description are optional. Open **Project type and priority** to change the defaults of **New Development** and **Normal**. The system assigns an `RND` reference.
 2. Use **Specifications** to add, edit or remove name/value rows with optional units and remarks. Drawings and documents use the ERP attachment store.
 3. Use **BOM / Materials** to select materials and quantities from Material Master. Units come from the selected material. Saving the BOM keeps a revision in history. **Request materials** sends only the balance above quantities already requested. Existing requests establish the lower bound for subsequent BOM edits.
 4. Supply Chain handles partial issues, shortage purchases, GRNs and verification. Each request and issue references its R&D project. Record physical receipt and prototype usage in the project. The shared store ledger records the issue once. Consuming received material does not decrement store inventory again.
-5. Use **Daily Work Updates** for dated progress notes, multiple stages, custom stages, highlights and issues. Planning and research updates can start before receipt of materials.
+5. Use **Daily Work Updates** for dated progress notes. Select the applicable stages, use **Add custom stage** for another stage, and use **Add Highlight** for each separate highlight. Issues are optional. Planning and research updates can start before receipt of materials.
 6. In **Testing & Inspection**, add test rows, expected and actual results, required flags, outcomes and remarks. Save a draft while working and submit a test attempt when ready. Each submission preserves earlier results and attachments. After a failed test, add work updates and submit a retest with the same test name.
 7. Select **Mark Successfully Completed** on Overview. Record the completion date, summary and optional attachment. Mandatory named tests must have a passing latest outcome and a draft must be finalized. A project without applicable tests can finish directly. If Administration has enabled an R&D completion workflow with the Submit trigger, completion goes to the existing approval inbox. Rejection, withdrawal and changes requested return the project to work.
 
@@ -30,4 +30,4 @@ The `ResearchProject` Mongoose collection stores project details, assignment, re
 
 Action names are `specs`, `bom`, `request`, `receive`, `use`, `update`, `draft`, `test` and `complete`. Create accepts a unique client-generated ID. Later actions require the current project revision. Material requests, receipts, usage and configured approval transitions require a transaction-capable MongoDB connection.
 
-The automated integration suite checks retesting and compares Production Order count and Product Master state before and after completion. See [the project implementation record](project.md) for test results and verification limits.
+The automated integration suite checks retesting and compares Production Order count and Product Master state before and after completion. See the [Service and R&D verification report](SERVICE_RD_UI_VERIFICATION.md) for test results and browser coverage.

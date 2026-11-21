@@ -40,6 +40,12 @@ export function viewRecord(u: AuthUser, dept: Workspace, r: WorkRecord) {
     revision: r.revision,
     employeeId: r.employeeId,
     assetId: r.assetId,
+    ...(dept === 'service' && can(u, 'service_jobs')
+      ? {
+          location:
+            [...r.entries].reverse().find((e) => e.action === 'assign')?.data.location || r.details.location,
+        }
+      : {}),
     details: (
       dept === 'service' ? can(u, 'service_jobs') || can(u, 'service_requests') : can(u, 'rnd_projects')
     )

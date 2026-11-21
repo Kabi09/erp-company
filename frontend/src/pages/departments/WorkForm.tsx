@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Button, Field, Input, Select, Textarea, ErrorBanner } from '../../components/ui';
 import type { FormField, Values } from '../../../../shared/departmentForms';
+import { serviceCreate, projectCreate } from '../../../../shared/departmentForms';
 import { erpApi } from '../../services/api';
 
 export type Options = Record<string, Values[]>;
@@ -44,6 +45,23 @@ function Choice({
   const label = (x: Values) =>
     optionLabel(x) +
     (items.some((y) => y.id !== x.id && optionLabel(y) === optionLabel(x)) ? ' (' + x.id + ')' : '');
+  if (items.length <= 20) {
+    return (
+      <Select
+        id={id}
+        value={selected?.id || ''}
+        required={f.required}
+        onChange={(e) => onChange(e.target.value)}
+      >
+        <option value="">{items.length ? 'Select ' + f.label.toLowerCase() : 'No matching options'}</option>
+        {items.map((item) => (
+          <option key={item.id} value={item.id}>
+            {label(item)}
+          </option>
+        ))}
+      </Select>
+    );
+  }
   return (
     <>
       <Input
@@ -85,9 +103,19 @@ function Fields({
     const next = { ...data, [key]: v };
     if (key === 'customerId') {
       next.assetId = '';
+      next.customerName = '';
+      next.serial = '';
       const c = options.customers?.find((x) => x.id === v);
       next.contact = c?.contactPerson || '';
       next.phone = c?.phone || '';
+    }
+    if (key === 'assetId' && !v) {
+      const customer = options.customers?.find((x) => x.id === data.customerId);
+      Object.assign(next, {
+        serial: '',
+        contact: customer?.contactPerson || '',
+        phone: customer?.phone || '',
+      });
     }
     if (key === 'assetId' && v) {
       const u = options.assets?.find((x) => x.id === v);
@@ -99,9 +127,15 @@ function Fields({
           serial: u.serial || '',
         });
     }
+    if (key === 'productId' && !v) Object.assign(next, { productName: '', category: '' });
     if (key === 'productId' && v) {
       const p = options.products?.find((x) => x.id === v);
       if (p) Object.assign(next, { productName: p.name, category: p.category });
+    }
+    if (key === 'employeeId' && 'direction' in data) {
+      const account = options.accounts?.find((x) => x.id === v);
+      next.direction = account?.toReturn ? 'Advance returned' : 'Reimbursement paid';
+      next.amount = account?.toReturn || account?.toReimburse || '';
     }
     if (key === 'requestId') next.materialId = '';
     set(next);
@@ -123,7 +157,7 @@ function Fields({
           return (
             <fieldset
               key={id}
-              className="sm:col-span-2 space-y-2 border-t border-slate-200 dark:border-slate-700 pt-3"
+              className="min-w-0 sm:col-span-2 space-y-2 border-t border-slate-200 dark:border-slate-700 pt-3"
             >
               <legend className="text-sm font-semibold">{f.label}</legend>
               {f.options && (
@@ -142,55 +176,60 @@ function Fields({
                   ))}
                 </div>
               )}
-              {values.map((row, i) => (
-                <div key={i} className="rounded border border-slate-200 dark:border-slate-700 p-3 space-y-2">
-                  {f.kind === 'rows' ? (
-                    <Fields
-                      fields={f.fields!}
-                      data={row}
-                      options={options}
-                      prefix={id + i}
-                      set={(updated) =>
-                        change(
-                          f.key,
-                          values.map((x, j) => (i === j ? updated : x)),
-                        )
-                      }
-                    />
-                  ) : (
-                    <Input
-                      aria-label={f.label + ' ' + (i + 1)}
-                      value={row}
-                      onChange={(e) =>
-                        change(
-                          f.key,
-                          values.map((x, j) => (i === j ? e.target.value : x)),
-                        )
-                      }
-                    />
-                  )}
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    onClick={() =>
-                      change(
-                        f.key,
-                        values.filter((_, j) => i !== j),
-                      )
-                    }
+              {values.map((row, i) =>
+                f.options?.includes(row) ? null : (
+                  <div
+                    key={i}
+                    className="rounded border border-slate-200 dark:border-slate-700 p-3 space-y-2"
                   >
-                    Remove
-                  </Button>
-                </div>
-              ))}
+                    {f.kind === 'rows' ? (
+                      <Fields
+                        fields={f.fields!}
+                        data={row}
+                        options={options}
+                        prefix={id + i}
+                        set={(updated) =>
+                          change(
+                            f.key,
+                            values.map((x, j) => (i === j ? updated : x)),
+                          )
+                        }
+                      />
+                    ) : (
+                      <Input
+                        aria-label={f.label + ' ' + (i + 1)}
+                        value={row}
+                        onChange={(e) =>
+                          change(
+                            f.key,
+                            values.map((x, j) => (i === j ? e.target.value : x)),
+                          )
+                        }
+                      />
+                    )}
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        change(
+                          f.key,
+                          values.filter((_, j) => i !== j),
+                        )
+                      }
+                    >
+                      Remove
+                    </Button>
+                  </div>
+                ),
+              )}
               <Button
                 type="button"
                 size="sm"
                 variant="secondary"
                 onClick={() => change(f.key, [...values, f.kind === 'rows' ? defaults(f.fields!) : ''])}
               >
-                Add {f.label}
+                {f.options ? 'Add custom stage' : 'Add ' + f.label}
               </Button>
             </fieldset>
           );
@@ -208,7 +247,14 @@ function Fields({
           <Field key={id} label={f.label} required={f.required} htmlFor={id}>
             {f.kind === 'choice' ? (
               <Choice
-                key={id + (f.source === 'assets' ? data.customerId || '' : '')}
+                key={
+                  id +
+                  (f.source === 'assets'
+                    ? data.customerId || ''
+                    : f.source === 'lines'
+                      ? data.requestId || ''
+                      : '')
+                }
                 id={id}
                 f={f}
                 value={v}
@@ -217,9 +263,11 @@ function Fields({
               />
             ) : f.kind === 'select' ? (
               <Select id={id} value={v} required={f.required} onChange={(e) => change(f.key, e.target.value)}>
-                {f.options!.map((o) => (
-                  <option key={o}>{o}</option>
-                ))}
+                {f
+                  .options!.filter((o) => f.key !== 'direction' || !data.employeeId || o === data.direction)
+                  .map((o) => (
+                    <option key={o}>{o}</option>
+                  ))}
               </Select>
             ) : f.kind === 'long' ? (
               <Textarea id={id} value={v} onChange={(e) => change(f.key, e.target.value)} />
@@ -265,12 +313,60 @@ export default function WorkForm({
   onSave: (d: Values) => Promise<void>;
 }) {
   const [data, set] = useState(() => defaults(fields, initial)),
+    [manual, setManual] = useState(false),
     [busy, setBusy] = useState(false),
     [error, setError] = useState('');
+  const isRequest = fields === serviceCreate;
+  const isProject = fields === projectCreate;
   const unit = options.assets?.find((x) => x.id === data.assetId);
+  const customer = options.customers?.find((x) => x.id === data.customerId);
+  const visibleFields = fields
+    .filter((f) => {
+      if (isRequest && ['productName', 'serial', 'customerName'].includes(f.key))
+        return manual && (f.key !== 'customerName' || !customer);
+      if (isRequest && f.key === 'assetId') return !manual;
+      if (isRequest && ['contact', 'phone'].includes(f.key))
+        return (
+          manual ||
+          (Boolean(unit) && !(unit?.[f.key] || customer?.[f.key === 'contact' ? 'contactPerson' : 'phone']))
+        );
+      if (isProject && f.key === 'productName' && data.productId) return false;
+      if (f.key === 'start' && data.basis === 'Delivery Date') return false;
+      return !(isProject && ['priority', 'type'].includes(f.key));
+    })
+    .map((f) =>
+      isRequest &&
+      ((f.key === 'assetId' && !manual) || (manual && ['productName', 'customerName'].includes(f.key)))
+        ? { ...f, required: true }
+        : f,
+    );
+  const known = isRequest
+    ? [
+        ['Customer', unit?.customerName || customer?.name],
+        ['Contact', unit?.contact || customer?.contactPerson],
+        ['Phone', unit?.phone || customer?.phone],
+        ['Email', unit?.email || customer?.email],
+        ['Address', unit?.address || customer?.shippingAddress || customer?.billingAddress],
+        ...(unit
+          ? [
+              ['Product', unit.productName],
+              ['Model', unit.model],
+              ['Serial number', unit.serial],
+              ['Sales order', unit.salesOrder],
+              ['Production order', unit.productionOrder],
+              ['Warranty', unit.warranty?.status],
+              [
+                'Warranty period',
+                unit.warranty?.duration ? unit.warranty.duration + ' ' + unit.warranty.unit : '',
+              ],
+              ['Warranty expiry', unit.warranty?.end],
+            ]
+          : []),
+      ]
+    : [];
   return (
     <form
-      className="space-y-4"
+      className="space-y-4 dark:[color-scheme:dark]"
       onSubmit={async (e) => {
         e.preventDefault();
         if (busy) return;
@@ -294,8 +390,51 @@ export default function WorkForm({
         }
       }}
     >
-      <Fields fields={fields} data={data} set={set} options={options} prefix={'edit-' + module} />
-      {unit && (
+      {isRequest && (
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={manual}
+            onChange={(e) => {
+              setManual(e.target.checked);
+              set({
+                ...data,
+                assetId: '',
+                customerName: '',
+                productName: '',
+                serial: '',
+                phone: customer?.phone || '',
+                contact: customer?.contactPerson || '',
+              });
+            }}
+          />
+          Equipment is missing from the delivered register
+        </label>
+      )}
+      <Fields fields={visibleFields} data={data} set={set} options={options} prefix={'edit-' + module} />
+      {isProject && (
+        <details>
+          <summary className="cursor-pointer text-sm font-medium">Project type and priority</summary>
+          <Fields
+            fields={fields.filter((f) => ['type', 'priority'].includes(f.key))}
+            data={data}
+            set={set}
+            options={options}
+            prefix="project-options"
+          />
+        </details>
+      )}
+      {isRequest && (customer || unit) && (
+        <dl className="grid gap-2 rounded-lg border border-slate-200 dark:border-slate-700 p-3 sm:grid-cols-2">
+          {known.map(([label, value]) => (
+            <div key={label} className="min-w-0">
+              <dt className="text-xs text-slate-500">{label}</dt>
+              <dd className="break-words text-sm">{value || 'Not recorded'}</dd>
+            </div>
+          ))}
+        </dl>
+      )}
+      {!isRequest && unit && (
         <p className="text-sm">
           {[
             unit.productName,

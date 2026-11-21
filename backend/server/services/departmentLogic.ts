@@ -67,8 +67,9 @@ export function account(entries: WorkEntry[], employeeId: string) {
   const approved = new Set(
     own.filter((e) => e.action === 'verify' && e.data.decision === 'Approved').map((e) => e.data.entryId),
   );
-  const eligible = own
-    .filter((e) => approved.has(e.id) && e.action === 'expense' && e.data.paidBy === 'Technician')
+  const verified = own.filter((e) => approved.has(e.id) && e.action === 'expense');
+  const eligible = verified
+    .filter((e) => e.data.paidBy === 'Technician')
     .reduce((s, e) => s + e.data.amount, 0);
   const settlements = own.filter((e) => e.action === 'settle');
   const reimbursed = settlements
@@ -80,6 +81,8 @@ export function account(entries: WorkEntry[], employeeId: string) {
   const balance = money(advances + reimbursed - returned - eligible);
   return {
     advances: money(advances),
+    verifiedExpenses: money(verified.reduce((sum, e) => sum + e.data.amount, 0)),
+    alreadySettled: money(reimbursed + returned),
     eligible: money(eligible),
     reimbursed: money(reimbursed),
     returned: money(returned),

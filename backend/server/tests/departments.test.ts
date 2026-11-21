@@ -58,6 +58,8 @@ test('Service and R&D integrated department workflows', async (t) => {
     ['tech', 'service', 'role-service-technician'],
     ['other', 'service', 'role-service-technician'],
     ['engineer', 'rnd', 'role-rd-engineer'],
+    ['service-manager', 'service', 'role-service-manager'],
+    ['rd-manager', 'rnd', 'role-rd-manager'],
   ] as const;
   for (const [id, department, roleId] of emps)
     await EmployeeModel.create({
@@ -188,6 +190,29 @@ test('Service and R&D integrated department workflows', async (t) => {
       await act(job, 'claim', { decision: 'Claim Approved' });
     },
   );
+  await t.test(
+    'Historical shipment retains its customer and leaves an unconfirmed serial blank',
+    async () => {
+      const lot = (await call('/service/delivered-products')).find((u) => u.deliveryId === 'partial');
+      const created = await call(
+        '/service/jobs',
+        {
+          ...request,
+          id: randomUUID(),
+          assetId: lot.id,
+          customerId: lot.customerId,
+          serial: 'Obsolete value',
+        },
+        'service-manager',
+        201,
+      );
+      const { details } = await call('/service/jobs/' + created.id, undefined, 'service-manager');
+      assert.equal(details.customerName, 'Lab');
+      assert.equal(details.serial, '');
+      assert.equal(details.identifiable, false);
+      assert.equal(details.address, 'Lab site');
+    },
+  );
   const assign = { employeeId: 'tech', date: today, time: '09:00', location: 'Customer Site' };
   await t.test(
     'Active Service employee assignment and schedule enforce object ownership and live overrides',
@@ -197,6 +222,13 @@ test('Service and R&D integrated department workflows', async (t) => {
       await call(job, undefined, 'tech');
       await call(job, undefined, 'other', 404);
       assert.equal((await call('/service/jobs', undefined, 'other')).length, 0);
+      await EmployeeModel.updateOne(
+        { id: 'other' },
+        { $set: { permissionOverrides: { service_team: { view: 'allow' } } } },
+      );
+      await call(job, undefined, 'other');
+      await EmployeeModel.updateOne({ id: 'other' }, { $unset: { permissionOverrides: 1 } });
+      await call(job, undefined, 'other', 404);
       await EmployeeModel.updateOne(
         { id: 'tech' },
         { $set: { permissionOverrides: { service_jobs: { edit: 'deny' } } } },
@@ -255,6 +287,8 @@ test('Service and R&D integrated department workflows', async (t) => {
         await act(job, 'verify', { entryId: entry.id, decision: 'Approved' });
       }
       const a = (await call(job)).accounts[0];
+      assert.equal(a.verifiedExpenses, 1600);
+      assert.equal(a.alreadySettled, 0);
       assert.equal(a.eligible, 1400);
       assert.equal(a.toReturn, 600);
       await act(job, 'settle', {
@@ -263,7 +297,9 @@ test('Service and R&D integrated department workflows', async (t) => {
         amount: 600,
         reference: 'SET-1',
       });
-      assert.equal((await call(job)).accounts[0].toReturn, 0);
+      const settled = (await call(job)).accounts[0];
+      assert.equal(settled.alreadySettled, 600);
+      assert.equal(settled.toReturn, 0);
       await act(
         job,
         'settle',
@@ -307,16 +343,17 @@ test('Service and R&D integrated department workflows', async (t) => {
     productId: 'prototype-master',
     id: pId,
     name: 'Prototype',
-    type: 'New Development',
     employeeId: 'engineer',
     start: today,
-    priority: 'Normal',
   };
   await t.test(
     'Independent R&D project, editable specifications, BOM and planning updates before material receipt',
     async () => {
       await call('/rnd/projects', projectForm, 'tech', 403);
-      await call('/rnd/projects', projectForm, 'admin', 201);
+      await call('/rnd/projects', projectForm, 'rd-manager', 201);
+      const { details } = await call(project, undefined, 'rd-manager');
+      assert.equal(details.type, 'New Development');
+      assert.equal(details.priority, 'Normal');
       await act(project, 'specs', { items: [{ name: 'Capacity', value: '500', unit: 'L' }] }, 'engineer');
       await act(project, 'bom', { items: [{ materialId: 'part', quantity: 2 }] }, 'engineer');
       await act(
@@ -355,19 +392,23 @@ test('Service and R&D integrated department workflows', async (t) => {
         const mr = (await call(base)).requests[0];
         assert.equal(mr.sourceType, owner);
         assert.ok(!mr.productionOrderId);
-        const issue = { items: [{ materialId: 'part', issuingQty: 1 }], version: mr.__v };
+        const issue = {
+          items: [{ materialId: 'part', issuingQty: owner === 'service' ? 2 : 1 }],
+          version: mr.__v,
+        };
         await call('/supply-chain/material-requests/' + mr.id + '/issue', issue, 'tech', 403);
         await call('/supply-chain/material-requests/' + mr.id + '/issue', issue, 'admin', 201);
         await call('/supply-chain/material-requests/' + mr.id + '/issue', issue, 'admin', 409);
         const line = { requestId: mr.id, materialId: 'part', quantity: 1 };
-        await act(base, 'receive', line);
+        await act(base, 'receive', { ...line, quantity: issue.items[0].issuingQty });
         await act(base, 'receive', line, 'admin', 400);
+        if (owner === 'service') await act(base, 'use', line);
         await act(base, owner === 'service' ? 'return' : 'use', line);
         if (owner === 'rnd') await act(base, 'request', {}, 'admin', 400);
         const row = await MaterialRequestModel.findOne({ id: mr.id });
         assert.equal(row.status, 'Partially Issued');
       }
-      assert.equal((await MaterialModel.findOne({ id: 'part' })).currentStock, 9);
+      assert.equal((await MaterialModel.findOne({ id: 'part' })).currentStock, 8);
     },
   );
   await t.test(
@@ -394,6 +435,17 @@ test('Service and R&D integrated department workflows', async (t) => {
     await call('/service/jobs', { ...request, id: wId, location: 'CRYO Workshop' }, 'admin', 201);
     await act(ws, 'receiveUnit', { date: today, condition: 'Scratched', serial: 'SN-X' });
     await act(ws, 'assign', { ...assign, location: 'CRYO Workshop' });
+    await EmployeeModel.updateOne(
+      { id: 'tech' },
+      { $set: { permissionOverrides: { service_schedule: { view: 'deny' } } } },
+    );
+    const assigned = await call(ws, undefined, 'tech');
+    assert.equal(assigned.location, 'CRYO Workshop');
+    assert.equal(
+      assigned.entries.some((e) => e.action === 'assign'),
+      false,
+    );
+    await EmployeeModel.updateOne({ id: 'tech' }, { $unset: { permissionOverrides: 1 } });
     const final = { summary: 'Fixed', condition: 'Working', inspection: 'Pass' };
     await act(ws, 'complete', final, 'admin', 400);
     await act(ws, 'returnUnit', { date: today, recipient: 'Client' });
@@ -413,7 +465,7 @@ test('Service and R&D integrated department workflows', async (t) => {
       test.items[0].result = 'Pass';
       await act(project, 'test', test);
       await act(project, 'complete', final, 'engineer', 403);
-      await act(project, 'complete', final);
+      await act(project, 'complete', final, 'rd-manager');
       assert.equal((await call(project)).status, 'Successfully Completed');
       assert.equal((await call(project)).entries.filter((e) => e.action === 'test').length, 2);
       assert.equal(await ProductionOrderModel.countDocuments(), before);

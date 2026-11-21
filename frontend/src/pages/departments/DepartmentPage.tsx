@@ -44,7 +44,20 @@ function Facts({ values, names = {} }: { values: Values; names?: Record<string, 
   return (
     <dl className="grid gap-x-6 gap-y-2 sm:grid-cols-2">
       {Object.entries(values)
-        .filter(([k]) => !['_id', '__v', 'id', 'assetId', 'identifiable'].includes(k))
+        .filter(
+          ([k]) =>
+            ![
+              '_id',
+              '__v',
+              'id',
+              'assetId',
+              'identifiable',
+              'deliveryId',
+              'reviewedBy',
+              'createdAt',
+              'updatedAt',
+            ].includes(k),
+        )
         .map(([k, v]) => {
           if (k === 'attachment' && !v) return null;
           return (
@@ -176,6 +189,7 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
     ),
   );
   const viewPath = home || report ? (service ? '/service/jobs' : '/rnd/projects') : item.path;
+  const canOpen = !(home || report) || can(service ? 'service_jobs' : 'rnd_projects');
   const go = (r: Row) => viewPath + '/' + encodeURIComponent(r.id);
   const matches = (r: Row) =>
     !query ||
@@ -196,6 +210,10 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
   const openVisit =
     entries.filter((e) => e.action === 'checkIn').length >
     entries.filter((e) => e.action === 'checkOut').length;
+  const location = r?.location || latest('assign')?.data.location || r?.details?.location;
+  const custody = [...entries]
+    .reverse()
+    .find((e) => ['receiveUnit', 'returnUnit'].includes(e.action))?.action;
   const available = (key: string) => {
     const op = ops[key];
     if (!r || !can(op.module, op.permission)) return false;
@@ -207,9 +225,16 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
       return false;
     if (key === 'checkIn' || key === 'checkOut')
       return r.employeeId === user?.id && (key === 'checkIn' ? !openVisit : openVisit);
+    if (service && ['assign', 'complete'].includes(key) && openVisit) return false;
+    if (service && ['complete', 'advance', 'expense'].includes(key) && !r.employeeId) return false;
+    if (service && key === 'complete' && location === 'CRYO Workshop' && custody !== 'returnUnit')
+      return false;
     if (key === 'link') return !r.details.identifiable;
     if (['receiveUnit', 'returnUnit'].includes(key))
-      return (latest('assign')?.data.location || r.details.location) === 'CRYO Workshop';
+      return (
+        location === 'CRYO Workshop' &&
+        (key === 'receiveUnit' ? custody !== 'receiveUnit' : custody === 'receiveUnit')
+      );
     return true;
   };
   const tabs = Array.from(
@@ -227,7 +252,11 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
   const pending = (action: string, done: string) =>
     entries
       .filter(
-        (e) => e.action === action && !entries.some((x) => x.action === done && x.data.entryId === e.id),
+        (e) =>
+          e.action === action &&
+          e.actor !== user?.id &&
+          e.employeeId !== user?.id &&
+          !entries.some((x) => x.action === done && x.data.entryId === e.id),
       )
       .map((e) => ({
         id: e.id,
@@ -237,16 +266,38 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
       }));
   const formOptions = {
     ...options,
-    requests: r?.requests || [],
+    assets:
+      form === 'link'
+        ? options.assets?.filter(
+            (u) => u.identifiable && (!r?.details?.customerId || r.details.customerId === u.customerId),
+          )
+        : options.assets,
+    requests: (r?.requests || [])
+      .map((m) => ({
+        ...m,
+        items: m.items.filter((i) =>
+          form === 'receive'
+            ? i.issuedQty > i.receivedQty
+            : !['return', 'use'].includes(form) || i.receivedQty > (i.usedQty || 0) + (i.returnedQty || 0),
+        ),
+      }))
+      .filter((m) => m.items.length),
     usedParts: (r?.requests || []).flatMap((m) =>
       m.items
         .filter((i) => i.usedQty > 0)
         .map((i) => ({
           id: m.id + '/' + i.materialId,
-          label: m.docNo + ' ? ' + i.materialName + ' ? ' + i.coverage,
+          label: [m.docNo, i.materialName, i.coverage].filter(Boolean).join(' · '),
         })),
     ),
-    accounts: (r?.accounts || []).map((a) => ({ id: a.employeeId, name: names[a.employeeId] })),
+    accounts: (r?.accounts || [])
+      .filter((a) => a.toReturn || a.toReimburse)
+      .map((a) => ({
+        id: a.employeeId,
+        name: names[a.employeeId],
+        toReturn: a.toReturn,
+        toReimburse: a.toReimburse,
+      })),
     advances: pending('advance', 'payAdvance'),
     expenses: pending('expense', 'verify'),
   };
@@ -257,7 +308,8 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
   const initial = termsForm
     ? r?.warranty
     : ['specs', 'bom', 'draft', 'test', 'charges', 'assign'].includes(form)
-      ? sourceEntry?.data
+      ? sourceEntry?.data ||
+        (form === 'assign' ? { location, date: r?.details?.preferred || undefined } : undefined)
       : undefined;
   const modal = (newForm || termsForm || operation) && (
     <Modal
@@ -270,7 +322,15 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
         id={newForm ? newId : r?.id || ''}
         module={newForm ? creatingModule : termsForm ? 'service_warranty' : operation.module}
         fields={
-          newForm ? (service ? serviceCreate : projectCreate) : termsForm ? warrantyFields : operation.fields
+          newForm
+            ? service
+              ? serviceCreate
+              : projectCreate
+            : termsForm
+              ? warrantyFields
+              : operation.fields
+                  .filter((f) => f.key !== 'acknowledgement' || location === 'Customer Site')
+                  .map((f) => (f.key === 'acknowledgement' ? { ...f, required: true } : f))
         }
         options={formOptions}
         initial={initial}
@@ -293,7 +353,7 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
     </Modal>
   );
   if (id && r && asset) {
-    const { id: unitId, history, warranty, terms, ...facts } = r;
+    const { id: unitId, customerId, history, warranty, terms, ...facts } = r;
     return (
       <div className="space-y-4">
         <Link className={linkClass} to={item.path}>
@@ -311,11 +371,20 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
           }
         />
         <section className={panel}>
-          <Facts values={facts} />
+          <Facts
+            values={{
+              ...facts,
+              serial: r.serial || 'Not recorded',
+              manufacturingDate: r.manufacturingDate || 'Not recorded',
+              deliveryDate: r.deliveryDate || 'Not recorded',
+              salesOrder: r.salesOrder || 'Not recorded',
+              productionOrder: r.productionOrder || 'Not recorded',
+            }}
+          />
         </section>
         <section className={panel}>
           <h2 className="font-semibold mb-3">Warranty</h2>
-          <Facts values={warranty} />
+          <Facts values={{ ...warranty, duration: warranty.duration ?? 'Not recorded' }} />
         </section>
         <section className={panel}>
           <h2 className="font-semibold mb-3">Service history</h2>
@@ -339,7 +408,29 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
     );
   }
   if (id && r) {
-    const actions = Object.keys(ops).filter((k) => ops[k].tab === tab && available(k));
+    const actions = Object.keys(ops).filter((k) => {
+      if (ops[k].tab !== tab || !available(k)) return false;
+      if (k === 'verify') return formOptions.expenses.length > 0;
+      if (k === 'payAdvance') return formOptions.advances.length > 0;
+      if (k === 'settle') return formOptions.accounts.length > 0;
+      if (k === 'payment') return r.billing?.outstanding > 0;
+      if (k === 'receive') return r.requests?.some((m) => m.items.some((i) => i.issuedQty > i.receivedQty));
+      if (k === 'return' || k === 'use')
+        return r.requests?.some((m) =>
+          m.items.some((i) => i.receivedQty > (i.usedQty || 0) + (i.returnedQty || 0)),
+        );
+      if (k === 'request')
+        return latest('bom')?.data.items?.some(
+          (i) =>
+            i.quantity >
+            (r.requests || [])
+              .filter((m) => m.status !== 'Cancelled')
+              .flatMap((m) => m.items)
+              .filter((l) => l.materialId === i.materialId)
+              .reduce((s, l) => s + l.requiredQty, 0),
+        );
+      return true;
+    });
     const history = entries.filter((e) => tab === 'History' || ops[e.action]?.tab === tab);
     return (
       <div className="space-y-4">
@@ -377,7 +468,14 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
         )}
         {tab === 'Overview' && (
           <div className={panel}>
-            <Facts values={{ ...r.details, assignedTo: names[r.employeeId] || 'Unassigned' }} names={names} />
+            <Facts
+              values={{
+                ...r.details,
+                ...(location ? { location } : {}),
+                assignedTo: names[r.employeeId] || 'Unassigned',
+              }}
+              names={names}
+            />
           </div>
         )}
         {tab === 'Expenses' &&
@@ -386,11 +484,11 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
               <h2 className="font-semibold mb-3">{names[a.employeeId] || 'Technician account'} · INR</h2>
               <Facts
                 values={{
-                  advancePaid: a.advances,
-                  eligibleExpenses: a.eligible,
-                  reimbursed: a.reimbursed,
-                  advanceReturned: a.returned,
-                  toReimburse: a.toReimburse,
+                  advanceReceived: a.advances,
+                  totalVerifiedExpenses: a.verifiedExpenses,
+                  technicianPaidExpenses: a.eligible,
+                  amountAlreadySettled: a.alreadySettled,
+                  reimbursementDue: a.toReimburse,
                   advanceToReturn: a.toReturn,
                 }}
               />
@@ -472,11 +570,14 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
         {
           key: 'docNo',
           header: 'Reference',
-          render: (r: Row) => (
-            <Link className={linkClass} to={go(r)}>
-              {r.docNo}
-            </Link>
-          ),
+          render: (r: Row) =>
+            !canOpen ? (
+              r.docNo
+            ) : (
+              <Link className={linkClass} to={go(r)}>
+                {r.docNo}
+              </Link>
+            ),
         },
         { key: 'name', header: service ? 'Customer / equipment' : 'Project', render: (r: Row) => r.name },
         {
@@ -558,17 +659,23 @@ export default function DepartmentPage({ item }: { item: NavItem }) {
             ? 'Equipment appears after delivery confirmation.'
             : 'Records you have access to will appear here.'
         }
-        renderMobileCard={(r) => (
-          <Link to={go(r)} className="block p-3">
-            <strong>{asset ? r.productName : r.docNo}</strong>
-            <div>
-              {asset
-                ? [r.customerName, r.serial, r.warranty.status].filter(Boolean).join(' · ')
-                : r.name + ' · ' + r.status}
+        renderMobileCard={(r) =>
+          !canOpen ? (
+            <div className="p-3">
+              {r.docNo} · {r.name} · {r.status}
             </div>
-            {schedule && r.schedule?.date}
-          </Link>
-        )}
+          ) : (
+            <Link to={go(r)} className="block p-3">
+              <strong>{asset ? r.productName : r.docNo}</strong>
+              <div>
+                {asset
+                  ? [r.customerName, r.serial, r.warranty.status].filter(Boolean).join(' · ')
+                  : r.name + ' · ' + r.status}
+              </div>
+              {schedule && [r.schedule?.date, r.schedule?.time].join(' ')}
+            </Link>
+          )
+        }
       />
       {modal}
     </div>

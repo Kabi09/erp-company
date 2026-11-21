@@ -151,7 +151,9 @@ for (const dept of ['service', 'rnd'] as const) {
           ? MaterialModel.find({ active: true }).select('id name code unit').lean()
           : [],
         service && can(user, main, 'create')
-          ? CustomerModel.find().select('id name contactPerson phone').lean()
+          ? CustomerModel.find()
+              .select('id name contactPerson phone email shippingAddress billingAddress')
+              .lean()
           : [],
         !service && can(user, main, 'create')
           ? ProductModel.find({ status: 'Active' }).select('id name category').lean()
@@ -255,7 +257,10 @@ for (const dept of ['service', 'rnd'] as const) {
       const id = validateId(req.body.id),
         user = req.user!;
       ensure(!(await model.exists({ id })), 'CONCURRENCY_CONFLICT: Request already recorded.');
-      const d = clean(service ? serviceCreate : projectCreate, req.body);
+      const d = clean(
+        service ? serviceCreate : projectCreate,
+        service ? req.body : { type: 'New Development', priority: 'Normal', ...req.body },
+      );
       if (service) {
         const unit = d.assetId ? await findUnit(d.assetId) : undefined;
         ensure(
@@ -263,18 +268,20 @@ for (const dept of ['service', 'rnd'] as const) {
           'Delivered product does not match the selected customer.',
         );
         const c = d.customerId ? await CustomerModel.findOne({ id: d.customerId }).lean() : undefined;
-        ensure(!d.customerId || c, 'Customer missing.');
+        ensure(!d.customerId || c || unit?.customerId === d.customerId, 'Customer missing.');
         Object.assign(d, {
           customerName: unit?.customerName || c?.name || d.customerName,
           productName: unit?.productName || d.productName,
-          serial: unit?.serial || d.serial,
+          serial: unit ? unit.serial : d.serial,
+          model: unit?.model,
+          email: unit?.email || c?.email,
           phone: d.phone || unit?.phone || c?.phone,
           contact: d.contact || unit?.contact || c?.contactPerson,
           customerId: unit?.customerId || d.customerId,
           deliveryOrder: unit?.deliveryOrder,
           salesOrder: unit?.salesOrder,
           productionOrder: unit?.productionOrder,
-          address: unit?.address || c?.shippingAddress,
+          address: unit?.address || c?.shippingAddress || c?.billingAddress,
           warranty: unit?.warranty,
           identifiable: unit?.identifiable,
         });
@@ -386,9 +393,13 @@ for (const dept of ['service', 'rnd'] as const) {
               customerName: u.customerName,
               productName: u.productName,
               serial: u.serial,
+              model: u.model,
+              email: u.email || details.email,
+              contact: u.contact || details.contact,
+              phone: u.phone || details.phone,
               identifiable: true,
               assetId,
-              address: u.address,
+              address: u.address || details.address,
               deliveryOrder: u.deliveryOrder,
               salesOrder: u.salesOrder,
               productionOrder: u.productionOrder,

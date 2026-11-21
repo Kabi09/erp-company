@@ -668,3 +668,23 @@ Modified 38 existing files.
 | Browser and responsive visual verification | Incomplete. The browser access host was unavailable. Windows computer-use stopped because it could not verify the current browser URL. Interactive submissions and viewport layout remain unverified in a browser. |
 
 The final regression fixture used a fresh test-only MongoDB database. It imported the repository JSON, initialized the existing approval workflows, and reconciled the fixture’s material stock cache to its stock ledger before running the suite. The original JSON import alone did not initialize those two prerequisites. New department material movements and configured R&D completion approvals require a replica set. Historical unit dates, serials and warranty terms remain unknown when the source records cannot establish them. No production migration, deployment, Git commit or push was performed.
+
+## Service and R&D refinement
+
+The existing job detail response now includes verified expenses across both payers and the total amount settled per technician. Reimbursement calculations still use technician-paid expenses only. Service options include customer contact and address data. Linked delivery snapshots retain their recorded serial and can identify historical customers whose master record is unavailable. Project creation accepts omitted type and priority with the existing form defaults.
+
+Service request creation now starts with delivered equipment selection. An explicit manual-entry option handles missing equipment, and changing the customer or unit clears old serial and contact values. Known details appear with labels. Small choice lists use native selects, larger lists retain searchable suggestions. R&D project type and priority are collapsed, and predefined work stages and custom stage inputs are displayed separately.
+
+Service detail uses the latest scheduled location for custody and completion. The UI offers valid visit, receipt, usage and settlement choices and hides processed verification entries. Dashboard/report-only roles can view summaries without links to denied detail routes. Summary amounts distinguish total verified, technician-paid and settled expenses; the mobile schedule includes visit time.
+
+- Equipment verification offers identifiable units for the job customer. Settlement selection fills the outstanding direction and amount while allowing partial payment. Native controls now follow the form theme.
+
+- Extended API regressions for historic shipment serials, project defaults, employee Allow/Deny/Inherit, location visibility, and a partial store issue followed by both use and return.
+
+- Added rendered form tests for native and searchable selectors, the default service form, selected products and optional R&D fields.
+
+- The first technician assignment now carries forward the requested service location and preferred date. Rescheduling continues to use the previous assignment.
+
+- Shared delivered-unit detail keeps date, order, serial and warranty-duration labels visible when a historical delivery lacks those values.
+
+Final verification on an isolated replica set passed 148 backend tests and 13 frontend tests. Both workspace TypeScript checks and builds passed. Chrome exercised both department workflows, the shared delivered register, store issue and return, receipt/PDF/CSV downloads and 84 responsive cases across six widths and both themes. See [the verification report](SERVICE_RD_UI_VERIFICATION.md) for the tested paths, modified files and remaining device coverage.
