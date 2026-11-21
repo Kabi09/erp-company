@@ -31,7 +31,8 @@ const toIsoDate = (val: any) => {
 // GET /api/documents/:type/:id/pdf - Generate actual binary PDF document
 documentRouter.get('/documents/:type/:id/pdf', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
-    const { type, id } = req.params;
+    const type = String(req.params.type || '');
+    const id = String(req.params.id || '');
     const user = req.user!;
     const isSuperAdmin = user.department === 'admin';
 

@@ -121,7 +121,7 @@ productionRouter.post('/production/orders', requireAuth, requirePerm('production
 // --- Reschedule Production Order (Planning with reason) ---
 productionRouter.post('/production/orders/:id/reschedule', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
-    const updated = await mongoERPRepository.rescheduleProductionOrder(req.params.id, req.body, req.user!);
+    const updated = await mongoERPRepository.rescheduleProductionOrder(req.params.id as string, req.body, req.user!);
     res.json(updated);
   } catch (err) {
     sendError(res, err);
@@ -525,7 +525,7 @@ productionRouter.post(
 // --- Start Production ---
 productionRouter.post('/production/orders/:id/start', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
-    const body = req.body;
+    const body = req.body || {};
     const po = await ProductionOrderModel.findOne({ id: req.params.id });
     if (!po) throw new Error('NOT_FOUND:Production order not found.');
     if (po.status !== 'Ready to Start') {

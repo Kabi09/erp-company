@@ -6,6 +6,7 @@ import {
   Calendar,
   CheckCircle2,
   Play,
+  Plus,
   RotateCcw,
   ShieldCheck,
   Undo2,
@@ -34,7 +35,7 @@ import type { ProductionOrder } from '../../types/erp';
 export const ProductionOrdersListPage: React.FC<{ filterPreset?: 'all' | 'active' | 'completed' }> = ({
   filterPreset = 'all',
 }) => {
-  const { data } = useERP();
+  const { data, can } = useERP();
   const navigate = useNavigate();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
@@ -128,6 +129,14 @@ export const ProductionOrdersListPage: React.FC<{ filterPreset?: 'all' | 'active
       <PageHeader
         title={title}
         subtitle="Click any production order to view Overview, BOM, Material Receipts, Daily Updates, QC, and Rework in one screen."
+        actions={
+          can('production', 'create') && (
+            <Button size="sm" onClick={() => navigate('/production/received-orders')}>
+              <Plus className="w-4 h-4" />
+              Create Production Order
+            </Button>
+          )
+        }
       />
       <FilterBar
         search={search}

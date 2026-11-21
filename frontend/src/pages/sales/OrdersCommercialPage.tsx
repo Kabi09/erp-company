@@ -226,6 +226,7 @@ export const CustomerPOsPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
+  const [previewSO, setPreviewSO] = useState<SalesOrder | null>(null);
 
   const [piId, setPiId] = useState('');
   const [customerPoNumber, setCustomerPoNumber] = useState('');
@@ -458,6 +459,7 @@ export const PaymentsPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [open, setOpen] = useState(false);
+  const [previewSO, setPreviewSO] = useState<SalesOrder | null>(null);
 
   const [piId, setPiId] = useState('');
   const [amount, setAmount] = useState('');
@@ -758,6 +760,7 @@ export const SalesOrdersPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
   const [open, setOpen] = useState(false);
+  const [previewSO, setPreviewSO] = useState<SalesOrder | null>(null);
 
   const [piId, setPiId] = useState('');
   const [promisedDeliveryDate, setPromisedDeliveryDate] = useState('');
@@ -869,13 +872,19 @@ export const SalesOrdersPage: React.FC = () => {
     },
     {
       key: 'actions',
-      header: 'Track',
+      header: 'Actions',
       align: 'right',
       render: (r) => (
-        <Button variant="secondary" size="sm" onClick={() => navigate(`/tracking/${r.id}`)}>
-          <Activity className="w-3.5 h-3.5" />
-          Lifecycle
-        </Button>
+        <div className="flex items-center justify-end gap-1.5">
+          <Button variant="ghost" size="sm" onClick={() => setPreviewSO(r)}>
+            <Eye className="w-3.5 h-3.5" />
+            PDF
+          </Button>
+          <Button variant="secondary" size="sm" onClick={() => navigate(`/tracking/${r.id}`)}>
+            <Activity className="w-3.5 h-3.5" />
+            Lifecycle
+          </Button>
+        </div>
       ),
     },
   ];
@@ -922,7 +931,10 @@ export const SalesOrdersPage: React.FC = () => {
                 <span>Payment: <StatusBadge status={pay.paymentStatus} /></span>
                 <span className="font-mono font-semibold">{formatCurrency(r.totalAmount)}</span>
               </div>
-              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+              <div className="pt-2 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-2">
+                <Button variant="ghost" size="sm" onClick={() => setPreviewSO(r)}>
+                  PDF
+                </Button>
                 <Button variant="secondary" size="sm" onClick={() => navigate(`/tracking/${r.id}`)}>
                   Track Order
                 </Button>
@@ -995,6 +1007,13 @@ export const SalesOrdersPage: React.FC = () => {
           </Field>
         </form>
       </Modal>
+
+      <DocumentPreviewModal
+        open={Boolean(previewSO)}
+        onClose={() => setPreviewSO(null)}
+        company={data.company}
+        payload={previewSO ? { kind: 'so', doc: previewSO } : null}
+      />
     </div>
   );
 };

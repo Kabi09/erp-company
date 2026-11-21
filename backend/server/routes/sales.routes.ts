@@ -569,7 +569,7 @@ salesRouter.post('/sales/quotations', requireAuth, requirePerm('sales', 'create'
 
 salesRouter.post('/sales/quotations/:id/revise', requireAuth, requirePerm('sales', 'create'), async (req: AuthenticatedRequest, res) => {
   try {
-    const revised = await mongoERPRepository.reviseQuotation(req.params.id, req.body, {
+    const revised = await mongoERPRepository.reviseQuotation(req.params.id as string, req.body, {
       id: req.user!.id,
       name: req.user!.name,
     });

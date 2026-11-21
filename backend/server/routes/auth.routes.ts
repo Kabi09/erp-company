@@ -477,7 +477,7 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
           StockTransactionModel.find().sort({ timestamp: -1 }).limit(200).lean(),
         ]);
     } else if (dept === 'production') {
-      [productionOrders, boms, materialRequests, dailyUpdates, qualityChecks, reworkOrders, productionReturns, salesOrders] =
+      [productionOrders, boms, materialRequests, dailyUpdates, qualityChecks, reworkOrders, productionReturns, salesOrders, products, materials] =
         await Promise.all([
           ProductionOrderModel.find().sort({ createdAt: -1 }).lean(),
           BOMModel.find().sort({ createdAt: -1 }).lean(),
@@ -486,13 +486,53 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
           QualityCheckModel.find().sort({ createdAt: -1 }).lean(),
           ReworkOrderModel.find().sort({ createdAt: -1 }).lean(),
           ProductionReturnModel.find().sort({ createdAt: -1 }).lean(),
-          SalesOrderModel.find({}, { items: 1, docNo: 1, customerSnapshot: 1, promisedDeliveryDate: 1, fulfillmentStatus: 1 }).lean(),
+          SalesOrderModel.find(
+            {},
+            {
+              id: 1,
+              docNo: 1,
+              customerSnapshot: 1,
+              customerPoNumber: 1,
+              promisedDeliveryDate: 1,
+              priority: 1,
+              commercialStatus: 1,
+              fulfillmentStatus: 1,
+              items: 1,
+              deliveryAddress: 1,
+              createdAt: 1,
+            },
+          )
+            .sort({ createdAt: -1 })
+            .lean(),
+          ProductModel.find().lean(),
+          MaterialModel.find().lean(),
         ]);
     } else if (dept === 'logistics') {
-      [deliveryOrders, deliveryIssues, salesOrders] = await Promise.all([
+      [deliveryOrders, deliveryIssues, salesOrders, productionOrders, products] = await Promise.all([
         DeliveryOrderModel.find().sort({ createdAt: -1 }).lean(),
         DeliveryIssueModel.find().sort({ createdAt: -1 }).lean(),
-        SalesOrderModel.find({}, { docNo: 1, customerSnapshot: 1, deliveryAddress: 1, promisedDeliveryDate: 1, fulfillmentStatus: 1 }).lean(),
+        SalesOrderModel.find(
+          {},
+          {
+            id: 1,
+            docNo: 1,
+            customerSnapshot: 1,
+            customerPoNumber: 1,
+            deliveryAddress: 1,
+            promisedDeliveryDate: 1,
+            priority: 1,
+            commercialStatus: 1,
+            fulfillmentStatus: 1,
+            items: 1,
+            createdAt: 1,
+          },
+        )
+          .sort({ createdAt: -1 })
+          .lean(),
+        ProductionOrderModel.find({ status: { $in: ['Completed', 'Ready to Start', 'In Progress'] } })
+          .sort({ createdAt: -1 })
+          .lean(),
+        ProductModel.find().lean(),
       ]);
     }
 

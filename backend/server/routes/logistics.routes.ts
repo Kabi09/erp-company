@@ -143,7 +143,7 @@ logisticsRouter.post('/logistics/delivery-orders', requireAuth, requirePerm('log
 logisticsRouter.post('/logistics/delivery-orders/:id/cancel', requireAuth, requirePerm('logistics', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
     const reason = req.body.reason || req.body.cancellationReason;
-    const cancelled = await mongoERPRepository.cancelDeliveryOrderTx(req.params.id, reason, req.user!);
+    const cancelled = await mongoERPRepository.cancelDeliveryOrderTx(req.params.id as string, reason, req.user!);
     res.json(cancelled);
   } catch (err) {
     sendError(res, err);
@@ -325,7 +325,7 @@ logisticsRouter.post('/logistics/delivery-orders/:id/deliver', requireAuth, requ
       type: body.podFileType,
     });
 
-    const result = await mongoERPRepository.confirmDelivery(req.params.id, body, req.user!);
+    const result = await mongoERPRepository.confirmDelivery(req.params.id as string, body, req.user!);
     res.json(result.deliveryOrder);
   } catch (err) {
     sendError(res, err);

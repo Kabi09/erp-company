@@ -33,7 +33,7 @@ const upload = multer({
 });
 
 // POST /api/files/upload - Secure file upload (supports both multipart form and JSON base64)
-fileRouter.post('/files/upload', requireAuth, upload.single('file'), async (req: AuthenticatedRequest, res) => {
+fileRouter.post('/files/upload', requireAuth, upload.single('file') as any, async (req: AuthenticatedRequest, res) => {
   try {
     const user = req.user!;
     let buffer: Buffer;

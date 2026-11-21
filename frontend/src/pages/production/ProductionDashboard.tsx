@@ -380,9 +380,9 @@ export const ReceivedSalesOrdersPage: React.FC = () => {
   };
 
   const filtered = data.salesOrders.filter((so) => {
-    if (so.commercialStatus !== 'Confirmed') return false;
+    if (so.commercialStatus && so.commercialStatus !== 'Confirmed') return false;
     const q = search.trim().toLowerCase();
-    return !q || so.docNo.toLowerCase().includes(q) || so.customerSnapshot.name.toLowerCase().includes(q);
+    return !q || so.docNo.toLowerCase().includes(q) || (so.customerSnapshot?.name || '').toLowerCase().includes(q);
   });
 
   const columns: ColumnDef<SalesOrder>[] = [
@@ -481,7 +481,16 @@ export const ReceivedSalesOrdersPage: React.FC = () => {
             {err && <ErrorBanner message={err} />}
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <Field label="Product Line" required>
-                <Select value={productId} onChange={(e) => setProductId(e.target.value)} required>
+                <Select
+                  value={productId}
+                  onChange={(e) => {
+                    const newPid = e.target.value;
+                    setProductId(newPid);
+                    const rem = getRemainingSOAllocatableQty(allocatingSO, newPid, data.productionOrders);
+                    setQuantity(rem > 0 ? rem : 1);
+                  }}
+                  required
+                >
                   {allocatingSO.items.map((it) => (
                     <option key={it.id} value={it.productId}>
                       {it.productName} ({it.model}) — Unallocated: {getRemainingSOAllocatableQty(allocatingSO, it.productId, data.productionOrders)}

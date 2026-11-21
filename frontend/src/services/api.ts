@@ -430,7 +430,7 @@ export const erpApi = {
     }
     return res.json();
   },
-  downloadDocumentPDF: async (type: string, id: string, docNo: string) => {
+  getDocumentPDFBlob: async (type: string, id: string): Promise<Blob> => {
     const token = getAuthToken();
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
@@ -442,7 +442,14 @@ export const erpApi = {
       const err = await res.json().catch(() => ({}));
       throw new Error(err.message || 'Failed to generate PDF document');
     }
-    const blob = await res.blob();
+    return res.blob();
+  },
+  getDocumentPDFUrl: (type: string, id: string): string => {
+    const token = getAuthToken();
+    return `${API_BASE}/documents/${type}/${id}/pdf${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+  },
+  downloadDocumentPDF: async (type: string, id: string, docNo: string) => {
+    const blob = await erpApi.getDocumentPDFBlob(type, id);
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

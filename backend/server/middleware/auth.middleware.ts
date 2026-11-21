@@ -45,12 +45,18 @@ export async function resolveAuthUser(employeeDbId: string): Promise<AuthUser | 
 }
 
 export async function requireAuth(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
+  let token = '';
   const header = req.headers.authorization;
-  if (!header || !header.startsWith('Bearer ')) {
+  if (header && header.startsWith('Bearer ')) {
+    token = header.slice(7);
+  } else if (typeof req.query?.token === 'string') {
+    token = req.query.token;
+  }
+
+  if (!token) {
     res.status(401).json({ error: 'Authentication required. Please sign in.' });
     return;
   }
-  const token = header.slice(7);
   try {
     const decoded = jwt.verify(token, env.jwtSecret) as { sub: string; type?: string };
     if (decoded.type && decoded.type !== 'access') {

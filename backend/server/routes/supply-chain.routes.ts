@@ -409,7 +409,7 @@ supplyChainRouter.post(
         items?: Array<{ materialId: string; issuingQty?: number; issuedQty?: number }>;
         remarks?: string;
       };
-      const reqId = req.params.id || materialRequestId;
+      const reqId = (req.params.id || materialRequestId) as string;
       if (!reqId) throw new Error('materialRequestId is required.');
       const normalizedItems = (items || []).map((x) => ({
         materialId: x.materialId,
