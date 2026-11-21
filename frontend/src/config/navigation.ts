@@ -14,6 +14,7 @@ import {
   FileCheck2,
   FileSpreadsheet,
   FileText,
+  FlaskConical,
   History,
   Inbox,
   Layers,
@@ -141,6 +142,7 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
       { label: 'Quality Check', path: '/production/quality-check', icon: ShieldCheck, module: 'quality_inspections' },
       { label: 'Rework', path: '/production/rework', icon: RefreshCw, module: 'quality_inspections' },
       { label: 'Completed Production', path: '/production/completed', icon: CheckCircle2, module: 'production_orders' },
+      { label: 'Delivered Products', path: '/production/delivered-products', icon: PackageCheck, module: 'delivered_products' },
       { label: 'Reports', path: '/production/reports', icon: BarChart3, module: 'reports' },
     ],
     quickCreate: [
@@ -175,6 +177,57 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
       { label: 'Confirm Delivery', path: '/logistics/in-transit', module: 'epod', action: 'create' },
     ],
   },
+  service: {
+    id: 'service',
+    label: 'Service Management',
+    shortLabel: 'Service',
+    basePath: '/service',
+    accentText: 'text-emerald-600 dark:text-emerald-400',
+    accentBg: 'bg-emerald-600',
+    accentBorder: 'border-emerald-600/30',
+    accentDot: 'bg-emerald-500',
+    nav: [
+      { label: 'Dashboard', path: '/service', icon: LayoutDashboard, module: 'service_dashboard' },
+      { label: 'Delivered Products', path: '/service/delivered-products', icon: PackageCheck, module: 'delivered_products' },
+      { label: 'Service Requests', path: '/service/requests', icon: Inbox, module: 'service_requests' },
+      { label: 'Service Jobs', path: '/service/jobs', icon: Wrench, module: 'service_jobs' },
+      { label: 'Technician Schedule', path: '/service/schedule', icon: CalendarClock, module: 'service_schedule' },
+      { label: 'Spare Parts Requisition', path: '/service/materials', icon: ClipboardList, module: 'service_materials' },
+      { label: 'Expenses & Advances', path: '/service/expenses', icon: CreditCard, module: 'service_expenses' },
+      { label: 'Reports', path: '/service/reports', icon: BarChart3, module: 'service_reports' },
+    ],
+    quickCreate: [
+      { label: 'New Service Request', path: '/service/requests?create=1', module: 'service_requests', action: 'create' },
+      { label: 'Log Service Expense', path: '/service/expenses?create=1', module: 'service_expenses', action: 'create' },
+      { label: 'Disburse Advance', path: '/service/expenses?advance=1', module: 'service_expenses', action: 'create' },
+      { label: 'Register Delivered Product', path: '/service/delivered-products?create=1', module: 'delivered_products', action: 'create' },
+    ],
+  },
+  rd: {
+    id: 'rd',
+    label: 'Research & Development (R&D)',
+    shortLabel: 'R&D',
+    basePath: '/rd',
+    accentText: 'text-indigo-600 dark:text-indigo-400',
+    accentBg: 'bg-indigo-600',
+    accentBorder: 'border-indigo-600/30',
+    accentDot: 'bg-indigo-500',
+    nav: [
+      { label: 'Dashboard', path: '/rd', icon: LayoutDashboard, module: 'rd_dashboard' },
+      { label: 'R&D Projects', path: '/rd/projects', icon: Layers, module: 'rd_projects' },
+      { label: 'Product Specifications', path: '/rd/specifications', icon: FileText, module: 'rd_specifications' },
+      { label: 'Prototype BOM & Materials', path: '/rd/bom', icon: Boxes, module: 'rd_bom' },
+      { label: 'Daily Work Updates', path: '/rd/daily-updates', icon: Activity, module: 'rd_work_updates' },
+      { label: 'Testing & Validation', path: '/rd/testing', icon: ShieldCheck, module: 'rd_testing' },
+      { label: 'Completed R&D Archive', path: '/rd/completed', icon: CheckCircle2, module: 'completed_rd_projects' },
+      { label: 'Reports', path: '/rd/reports', icon: BarChart3, module: 'rd_reports' },
+    ],
+    quickCreate: [
+      { label: 'New R&D Project', path: '/rd/projects?create=1', module: 'rd_projects', action: 'create' },
+      { label: 'Log Daily R&D Update', path: '/rd/daily-updates?create=1', module: 'rd_work_updates', action: 'create' },
+      { label: 'Record Prototype Test', path: '/rd/testing?create=1', module: 'rd_testing', action: 'create' },
+    ],
+  },
   admin: {
     id: 'admin',
     label: 'Administration',
@@ -202,13 +255,15 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
   },
 };
 
-export const OPERATIONAL_DEPARTMENTS: Department[] = ['sales', 'supply_chain', 'production', 'logistics'];
+export const OPERATIONAL_DEPARTMENTS: Department[] = ['sales', 'supply_chain', 'production', 'logistics', 'service', 'rd'];
 
 export function inferDepartmentFromPath(pathname: string, fallback: Department): Department {
   if (pathname.startsWith('/sales')) return 'sales';
   if (pathname.startsWith('/supply-chain')) return 'supply_chain';
   if (pathname.startsWith('/production')) return 'production';
   if (pathname.startsWith('/logistics')) return 'logistics';
+  if (pathname.startsWith('/service')) return 'service';
+  if (pathname.startsWith('/rd')) return 'rd';
   if (pathname.startsWith('/admin')) return 'admin';
   return fallback;
 }

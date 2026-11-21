@@ -11,6 +11,10 @@ const DEMO_ACCOUNTS = [
   { label: 'Supply Chain Manager', dept: 'Supply Chain', email: 'sc.mgr@cryoerp.com', role: 'Stock, issues, supplier POs, GRN & QC' },
   { label: 'Production Manager', dept: 'Production', email: 'prod.mgr@cryoerp.com', role: 'Orders, BOM, daily updates, QC & rework' },
   { label: 'Logistics Manager', dept: 'Logistics', email: 'log.mgr@cryoerp.com', role: 'Delivery orders, dispatch & POD' },
+  { label: 'Service Manager', dept: 'Service', email: 'service.mgr@cryoerp.com', role: 'Warranty check, triage, dispatch, expenses & billing' },
+  { label: 'Service Technician', dept: 'Service', email: 'tech.anil@cryoerp.com', role: 'Check-in/out, repair updates, checklist & expense claims' },
+  { label: 'R&D Director', dept: 'R&D', email: 'rd.mgr@cryoerp.com', role: 'Prototype projects, specifications, testing & completion' },
+  { label: 'R&D Engineer', dept: 'R&D', email: 'rd.eng@cryoerp.com', role: 'Prototype BOM, daily updates, multi-stage fabrication' },
 ];
 
 export const LoginPage: React.FC = () => {
@@ -111,7 +115,7 @@ export const LoginPage: React.FC = () => {
             </form>
 
             <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
-              Connected departments: Sales Management · Supply Chain · Production & QC · Logistics & Delivery
+              Connected departments: Sales · Supply Chain · Production · Logistics · Service · R&D · Administration
             </div>
           </div>
 

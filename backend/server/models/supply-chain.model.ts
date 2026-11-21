@@ -60,6 +60,7 @@ const MaterialRequestSchema = new Schema<MaterialRequest>(
     salesOrderId: { type: String, required: true, index: true },
     salesOrderDocNo: { type: String, required: true },
     productName: { type: String, required: true },
+    department: { type: String, default: 'production', index: true },
     priority: { type: String, enum: ['Normal', 'High', 'Urgent'], default: 'Normal', index: true },
     items: [
       {

@@ -89,6 +89,8 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (u.department === 'supply_chain') return '/supply-chain';
       if (u.department === 'production') return '/production';
       if (u.department === 'logistics') return '/logistics';
+      if (u.department === 'service') return '/service';
+      if (u.department === 'rd') return '/rd';
       return '/sales';
     },
     [user],

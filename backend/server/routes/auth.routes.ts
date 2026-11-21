@@ -46,6 +46,19 @@ import {
   SupplierModel,
   SupplierPOModel,
   SupplierReturnModel,
+  DeliveredProductModel,
+  ServiceRequestModel,
+  ServiceJobModel,
+  ServiceWorkUpdateModel,
+  ServiceMaterialRequestModel,
+  ServiceExpenseModel,
+  TechnicianAdvanceModel,
+  ServiceBillingModel,
+  RDProjectModel,
+  RDSpecificationModel,
+  RDBOMModel,
+  RDWorkUpdateModel,
+  RDTestRecordModel,
 } from '../models';
 import { mongoERPRepository } from '../repositories/MongoERPRepository';
 import { generateId, sendError } from '../utils/routeUtils';
@@ -452,6 +465,19 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
     let productionReturns: any[] = [];
     let deliveryOrders: any[] = [];
     let deliveryIssues: any[] = [];
+    let deliveredProducts: any[] = [];
+    let serviceRequests: any[] = [];
+    let serviceJobs: any[] = [];
+    let serviceWorkUpdates: any[] = [];
+    let serviceMaterialRequests: any[] = [];
+    let serviceExpenses: any[] = [];
+    let technicianAdvances: any[] = [];
+    let serviceBillings: any[] = [];
+    let rdProjects: any[] = [];
+    let rdSpecifications: any[] = [];
+    let rdBoms: any[] = [];
+    let rdWorkUpdates: any[] = [];
+    let rdTestRecords: any[] = [];
 
     if (dept === 'sales') {
       [customers, products, enquiries, followUps, quotations, proformaInvoices, customerPOs, payments, salesOrders] =
@@ -541,6 +567,37 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
           .lean(),
         ProductModel.find().lean(),
       ]);
+    } else if (dept === 'service') {
+      [deliveredProducts, serviceRequests, serviceJobs, serviceWorkUpdates, serviceMaterialRequests, serviceExpenses, technicianAdvances, serviceBillings, customers, products, materials] =
+        await Promise.all([
+          DeliveredProductModel.find().sort({ deliveredDate: -1 }).lean(),
+          ServiceRequestModel.find().sort({ createdAt: -1 }).lean(),
+          ServiceJobModel.find().sort({ scheduledDate: -1, createdAt: -1 }).lean(),
+          ServiceWorkUpdateModel.find().sort({ date: -1 }).lean(),
+          ServiceMaterialRequestModel.find().sort({ createdAt: -1 }).lean(),
+          ServiceExpenseModel.find().sort({ date: -1 }).lean(),
+          TechnicianAdvanceModel.find().sort({ advanceDate: -1 }).lean(),
+          ServiceBillingModel.find().sort({ createdAt: -1 }).lean(),
+          CustomerModel.find().lean(),
+          ProductModel.find().lean(),
+          MaterialModel.find().lean(),
+        ]);
+    } else if (dept === 'rd') {
+      [rdProjects, rdSpecifications, rdBoms, rdWorkUpdates, rdTestRecords, materials, materialRequests, materialIssues] =
+        await Promise.all([
+          RDProjectModel.find().sort({ createdAt: -1 }).lean(),
+          RDSpecificationModel.find().lean(),
+          RDBOMModel.find().lean(),
+          RDWorkUpdateModel.find().sort({ date: -1 }).lean(),
+          RDTestRecordModel.find().sort({ iteration: -1 }).lean(),
+          MaterialModel.find().lean(),
+          MaterialRequestModel.find({ department: 'rd' }).sort({ createdAt: -1 }).lean(),
+          MaterialIssueModel.find().sort({ createdAt: -1 }).lean(),
+        ]);
+    }
+
+    if (dept === 'production' && deliveredProducts.length === 0) {
+      deliveredProducts = await DeliveredProductModel.find().sort({ deliveredDate: -1 }).lean();
     }
 
     const [notifications, activityLogs, approvalWorkflows, approvalRequests] = await Promise.all([
@@ -591,6 +648,19 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
       productionReturns,
       deliveryOrders,
       deliveryIssues,
+      deliveredProducts,
+      serviceRequests,
+      serviceJobs,
+      serviceWorkUpdates,
+      serviceMaterialRequests,
+      serviceExpenses,
+      technicianAdvances,
+      serviceBillings,
+      rdProjects,
+      rdSpecifications,
+      rdBoms,
+      rdWorkUpdates,
+      rdTestRecords,
       notifications,
       activityLogs,
       approvalWorkflows,

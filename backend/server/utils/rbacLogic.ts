@@ -22,7 +22,7 @@ export function resolveEffectivePermissions(
     moduleToDept[mod.id] = mod.department;
   }
 
-  const coarseModules = ['sales', 'supply_chain', 'production', 'logistics', 'admin', 'tracking', 'reports'];
+  const coarseModules = ['sales', 'supply_chain', 'production', 'logistics', 'service', 'rd', 'admin', 'tracking', 'reports'];
   for (const c of coarseModules) {
     moduleToDept[c] = c;
   }

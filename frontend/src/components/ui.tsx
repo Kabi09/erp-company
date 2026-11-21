@@ -17,7 +17,7 @@ import type { ToastMessage } from '../context/ERPContext';
 // BUTTONS
 // ==========================================
 
-type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success';
+type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost' | 'success' | 'outline';
 type ButtonSize = 'sm' | 'md' | 'lg';
 
 interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
@@ -30,6 +30,8 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
   primary:
     'bg-teal-700 hover:bg-teal-800 text-white border border-transparent dark:bg-teal-600 dark:hover:bg-teal-500',
   secondary:
+    'bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 dark:bg-slate-900 dark:hover:bg-slate-800 dark:text-slate-200 dark:border-slate-700',
+  outline:
     'bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 dark:bg-slate-900 dark:hover:bg-slate-800 dark:text-slate-200 dark:border-slate-700',
   danger:
     'bg-red-600 hover:bg-red-700 text-white border border-transparent dark:bg-red-600 dark:hover:bg-red-500',
@@ -88,6 +90,12 @@ const STATUS_STYLE_MAP: Record<string, string> = {
   'Replacement Received': 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70',
   Converted: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70',
   Pass: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70',
+  Passed: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70',
+  'Under Warranty': 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70',
+  'Work Completed': 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70',
+  Billed: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70',
+  'Successfully Completed': 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70',
+  Balanced: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70',
 
   // Active / Info / In-Progress
   New: 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800/70',
@@ -102,10 +110,23 @@ const STATUS_STYLE_MAP: Record<string, string> = {
   'In Transit': 'bg-teal-50 text-teal-800 border-teal-200 dark:bg-teal-950/60 dark:text-teal-300 dark:border-teal-800/70',
   Dispatched: 'bg-teal-50 text-teal-800 border-teal-200 dark:bg-teal-950/60 dark:text-teal-300 dark:border-teal-800/70',
   Scheduled: 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800/70',
+  Assigned: 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800/70',
   Received: 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800/70',
+  Initiated: 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800/70',
+  'Specification Done': 'bg-teal-50 text-teal-800 border-teal-200 dark:bg-teal-950/60 dark:text-teal-300 dark:border-teal-800/70',
+  Prototyping: 'bg-indigo-50 text-indigo-800 border-indigo-200 dark:bg-indigo-950/60 dark:text-indigo-300 dark:border-indigo-800/70',
+  Testing: 'bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800/70',
+  Disbursed: 'bg-blue-50 text-blue-800 border-blue-200 dark:bg-blue-950/60 dark:text-blue-300 dark:border-blue-800/70',
+  Reconciled: 'bg-emerald-50 text-emerald-800 border-emerald-200 dark:bg-emerald-950/60 dark:text-emerald-300 dark:border-emerald-800/70',
 
   // Warning / Partial / Pending
   Pending: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/70',
+  Expired: 'bg-rose-50 text-rose-800 border-rose-200 dark:bg-rose-950/60 dark:text-rose-300 dark:border-rose-800/70',
+  'Not Configured': 'bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700',
+  'Under Service': 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/70',
+  'Awaiting Spares': 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/70',
+  'Reimbursement Due': 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/70',
+  'Advance Return Due': 'bg-purple-50 text-purple-800 border-purple-200 dark:bg-purple-950/60 dark:text-purple-300 dark:border-purple-800/70',
   Partial: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/70',
   Negotiation: 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/70',
   'Partially Issued': 'bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/60 dark:text-amber-300 dark:border-amber-800/70',
@@ -159,32 +180,60 @@ export const StatusBadge: React.FC<{ status: string; className?: string }> = ({ 
 };
 
 // ==========================================
-// PAGE HEADER & STAT CARD
+// PAGE HEADER, STAT CARD & CARD
 // ==========================================
+
+export const Card: React.FC<React.HTMLAttributes<HTMLDivElement>> = ({ className = '', children, ...props }) => (
+  <div className={`bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg ${className}`} {...props}>
+    {children}
+  </div>
+);
 
 export const PageHeader: React.FC<{
   title: string;
   subtitle?: string;
+  description?: string;
+  breadcrumbs?: Array<{ label: string; path?: string }>;
   actions?: React.ReactNode;
-}> = ({ title, subtitle, actions }) => (
-  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
-    <div className="min-w-0">
-      <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
-        {title}
-      </h1>
-      {subtitle && <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">{subtitle}</p>}
+}> = ({ title, subtitle, description, breadcrumbs, actions }) => {
+  const sub = subtitle || description;
+  return (
+    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
+      <div className="min-w-0">
+        {breadcrumbs && breadcrumbs.length > 0 && (
+          <nav className="flex items-center gap-1.5 text-xs text-slate-500 dark:text-slate-400 mb-1">
+            {breadcrumbs.map((b, idx) => (
+              <React.Fragment key={idx}>
+                {idx > 0 && <span>/</span>}
+                {b.path ? (
+                  <a href={b.path} className="hover:text-slate-800 dark:hover:text-slate-200">{b.label}</a>
+                ) : (
+                  <span className="text-slate-800 dark:text-slate-200 font-medium">{b.label}</span>
+                )}
+              </React.Fragment>
+            ))}
+          </nav>
+        )}
+        <h1 className="text-xl sm:text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
+          {title}
+        </h1>
+        {sub && <p className="text-sm text-slate-600 dark:text-slate-400 mt-0.5">{sub}</p>}
+      </div>
+      {actions && <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">{actions}</div>}
     </div>
-    {actions && <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap shrink-0">{actions}</div>}
-  </div>
-);
+  );
+};
 
 export const StatCard: React.FC<{
   label: string;
   value: string | number;
   hint?: string;
+  subtext?: string;
+  icon?: React.ComponentType<{ className?: string }>;
   onClick?: () => void;
   tone?: 'default' | 'warning' | 'danger' | 'success';
-}> = ({ label, value, hint, onClick, tone = 'default' }) => {
+}> = ({ label, value, hint, subtext, icon: Icon, onClick, tone = 'default' }) => {
+  const sub = hint || subtext;
   const valueTone =
     tone === 'danger'
       ? 'text-red-700 dark:text-red-400'
@@ -196,9 +245,12 @@ export const StatCard: React.FC<{
 
   const content = (
     <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg text-left transition-colors hover:border-slate-300 dark:hover:border-slate-700 h-full">
-      <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">{label}</div>
+      <div className="flex items-center justify-between">
+        <div className="text-xs font-medium text-slate-500 dark:text-slate-400 truncate">{label}</div>
+        {Icon && <Icon className="w-4 h-4 text-slate-400" />}
+      </div>
       <div className={`text-2xl font-semibold mt-1.5 font-mono tabular-nums ${valueTone}`}>{value}</div>
-      {hint && <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">{hint}</div>}
+      {sub && <div className="text-xs text-slate-500 dark:text-slate-400 mt-1 truncate">{sub}</div>}
     </div>
   );
 
@@ -224,6 +276,7 @@ export const FilterBar: React.FC<{
   activeStatus?: string;
   onStatusChange?: (s: string) => void;
   extra?: React.ReactNode;
+  children?: React.ReactNode;
 }> = ({
   search,
   onSearchChange,
@@ -232,6 +285,7 @@ export const FilterBar: React.FC<{
   activeStatus,
   onStatusChange,
   extra,
+  children,
 }) => (
   <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4">
     <div className="relative flex-1 max-w-md">
@@ -265,6 +319,7 @@ export const FilterBar: React.FC<{
         </div>
       )}
       {extra}
+      {children}
     </div>
   </div>
 );
@@ -274,29 +329,37 @@ export const FilterBar: React.FC<{
 // ==========================================
 
 export interface ColumnDef<T> {
-  key: string;
+  key?: string;
+  accessorKey?: string;
   header: string;
   align?: 'left' | 'right';
   sortable?: boolean;
   sortValue?: (row: T) => string | number;
-  render: (row: T) => React.ReactNode;
+  render?: (row: T) => React.ReactNode;
+  cell?: (row: T) => React.ReactNode;
   className?: string;
 }
 
-export function DataTable<T extends { id: string }>({
+export function DataTable<T extends { id?: string }>({
   rows,
+  data,
   columns,
+  loading,
   renderMobileCard,
   emptyTitle = 'No records found',
-  emptyDescription = 'Try adjusting your filters or create a new record.',
+  emptyDescription,
+  emptyMessage,
   emptyAction,
   pageSize = 10,
 }: {
-  rows: T[];
+  rows?: T[];
+  data?: T[];
   columns: ColumnDef<T>[];
+  loading?: boolean;
   renderMobileCard?: (row: T) => React.ReactNode;
   emptyTitle?: string;
   emptyDescription?: string;
+  emptyMessage?: string;
   emptyAction?: React.ReactNode;
   pageSize?: number;
 }) {
@@ -304,15 +367,32 @@ export function DataTable<T extends { id: string }>({
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [page, setPage] = useState(1);
 
+  const allRows = useMemo(() => {
+    const list = rows || data || [];
+    return list.map((item, idx) => ({
+      ...item,
+      id: item.id || `row-${idx}`,
+    }));
+  }, [rows, data]);
+
   useEffect(() => {
     setPage(1);
-  }, [rows.length]);
+  }, [allRows.length]);
+
+  const getColKey = (col: ColumnDef<T>, idx: number) => col.key || col.accessorKey || `col-${idx}`;
+
+  const renderCell = (col: ColumnDef<T>, row: T) => {
+    if (col.render) return col.render(row);
+    if (col.cell) return col.cell(row);
+    const k = col.key || col.accessorKey;
+    return k ? (row as any)[k] : null;
+  };
 
   const sorted = useMemo(() => {
-    if (!sortKey) return rows;
-    const col = columns.find((c) => c.key === sortKey);
-    if (!col?.sortValue) return rows;
-    return [...rows].sort((a, b) => {
+    if (!sortKey) return allRows;
+    const col = columns.find((c, idx) => getColKey(c, idx) === sortKey);
+    if (!col?.sortValue) return allRows;
+    return [...allRows].sort((a, b) => {
       const va = col.sortValue!(a);
       const vb = col.sortValue!(b);
       if (typeof va === 'number' && typeof vb === 'number') {
@@ -322,7 +402,7 @@ export function DataTable<T extends { id: string }>({
         ? String(va).localeCompare(String(vb))
         : String(vb).localeCompare(String(va));
     });
-  }, [rows, sortKey, sortDir, columns]);
+  }, [allRows, sortKey, sortDir, columns]);
 
   const totalPages = Math.max(1, Math.ceil(sorted.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -337,11 +417,17 @@ export function DataTable<T extends { id: string }>({
     }
   };
 
-  if (rows.length === 0) {
+  if (loading) {
+    return <LoadingSkeleton />;
+  }
+
+  const desc = emptyDescription || emptyMessage || 'Try adjusting your filters or create a new record.';
+
+  if (allRows.length === 0) {
     return (
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-10 text-center">
         <p className="text-sm font-medium text-slate-900 dark:text-slate-100">{emptyTitle}</p>
-        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{emptyDescription}</p>
+        <p className="text-sm text-slate-500 dark:text-slate-400 mt-1">{desc}</p>
         {emptyAction && <div className="mt-4 flex justify-center">{emptyAction}</div>}
       </div>
     );
@@ -355,28 +441,31 @@ export function DataTable<T extends { id: string }>({
           <table className="w-full text-sm text-left border-collapse">
             <thead>
               <tr className="border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/80 text-slate-600 dark:text-slate-400">
-                {columns.map((col) => (
-                  <th
-                    key={col.key}
-                    className={`px-4 py-2.5 font-medium text-xs whitespace-nowrap ${
-                      col.align === 'right' ? 'text-right' : 'text-left'
-                    } ${col.className || ''}`}
-                  >
-                    {col.sortable && col.sortValue ? (
-                      <button
-                        type="button"
-                        onClick={() => toggleSort(col.key)}
-                        className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer"
-                      >
-                        {col.header}
-                        {sortKey === col.key &&
-                          (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
-                      </button>
-                    ) : (
-                      col.header
-                    )}
-                  </th>
-                ))}
+                {columns.map((col, idx) => {
+                  const colKey = getColKey(col, idx);
+                  return (
+                    <th
+                      key={colKey}
+                      className={`px-4 py-2.5 font-medium text-xs whitespace-nowrap ${
+                        col.align === 'right' ? 'text-right' : 'text-left'
+                      } ${col.className || ''}`}
+                    >
+                      {col.sortable && col.sortValue ? (
+                        <button
+                          type="button"
+                          onClick={() => toggleSort(colKey)}
+                          className="inline-flex items-center gap-1 hover:text-slate-900 dark:hover:text-slate-100 cursor-pointer"
+                        >
+                          {col.header}
+                          {sortKey === colKey &&
+                            (sortDir === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />)}
+                        </button>
+                      ) : (
+                        col.header
+                      )}
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200/80 dark:divide-slate-800">
@@ -385,16 +474,19 @@ export function DataTable<T extends { id: string }>({
                   key={row.id}
                   className="hover:bg-slate-50/90 dark:hover:bg-slate-800/50 transition-colors"
                 >
-                  {columns.map((col) => (
-                    <td
-                      key={col.key}
-                      className={`px-4 py-3 text-slate-800 dark:text-slate-200 align-middle ${
-                        col.align === 'right' ? 'text-right tabular-nums' : 'text-left'
-                      } ${col.className || ''}`}
-                    >
-                      {col.render(row)}
-                    </td>
-                  ))}
+                  {columns.map((col, idx) => {
+                    const colKey = getColKey(col, idx);
+                    return (
+                      <td
+                        key={colKey}
+                        className={`px-4 py-3 text-slate-800 dark:text-slate-200 align-middle ${
+                          col.align === 'right' ? 'text-right tabular-nums' : 'text-left'
+                        } ${col.className || ''}`}
+                      >
+                        {renderCell(col, row)}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>
@@ -456,24 +548,27 @@ export function DataTable<T extends { id: string }>({
 // ==========================================
 
 export const Modal: React.FC<{
-  open: boolean;
+  open?: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   title: string;
   subtitle?: string;
   size?: 'md' | 'lg' | 'xl';
   footer?: React.ReactNode;
   children: React.ReactNode;
-}> = ({ open, onClose, title, subtitle, size = 'lg', footer, children }) => {
+}> = ({ open, isOpen, onClose, title, subtitle, size = 'lg', footer, children }) => {
+  const isModalOpen = open ?? isOpen ?? false;
+
   useEffect(() => {
-    if (!open) return;
+    if (!isModalOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [open, onClose]);
+  }, [isModalOpen, onClose]);
 
-  if (!open) return null;
+  if (!isModalOpen) return null;
 
   const widthClass = size === 'md' ? 'max-w-lg' : size === 'xl' ? 'max-w-4xl' : 'max-w-2xl';
 
@@ -513,7 +608,8 @@ export const Modal: React.FC<{
 };
 
 export const ConfirmDialog: React.FC<{
-  open: boolean;
+  open?: boolean;
+  isOpen?: boolean;
   onClose: () => void;
   onConfirm: () => void;
   title: string;
@@ -521,9 +617,9 @@ export const ConfirmDialog: React.FC<{
   confirmLabel?: string;
   variant?: 'danger' | 'primary';
   loading?: boolean;
-}> = ({ open, onClose, onConfirm, title, message, confirmLabel = 'Confirm', variant = 'danger', loading }) => (
+}> = ({ open, isOpen, onClose, onConfirm, title, message, confirmLabel = 'Confirm', variant = 'danger', loading }) => (
   <Modal
-    open={open}
+    open={open ?? isOpen}
     onClose={onClose}
     title={title}
     size="md"
@@ -572,8 +668,22 @@ export const Input: React.FC<React.InputHTMLAttributes<HTMLInputElement>> = ({ c
   <input className={`${INPUT_BASE} ${className}`} {...props} />
 );
 
-export const Select: React.FC<React.SelectHTMLAttributes<HTMLSelectElement>> = ({ className = '', ...props }) => (
-  <select className={`${INPUT_BASE} ${className}`} {...props} />
+export interface SelectProps extends React.SelectHTMLAttributes<HTMLSelectElement> {
+  options?: Array<{ value: string; label: string }>;
+}
+
+export const Select: React.FC<SelectProps> = ({ className = '', options, children, ...props }) => (
+  <select className={`${INPUT_BASE} ${className}`} {...props}>
+    {options ? (
+      options.map((opt) => (
+        <option key={opt.value} value={opt.value}>
+          {opt.label}
+        </option>
+      ))
+    ) : (
+      children
+    )}
+  </select>
 );
 
 export const Textarea: React.FC<React.TextareaHTMLAttributes<HTMLTextAreaElement>> = ({ className = '', ...props }) => (
@@ -616,39 +726,44 @@ export const FileUploadInput: React.FC<{
 // ==========================================
 
 export const Tabs: React.FC<{
-  tabs: Array<{ key: string; label: string; count?: number }>;
-  active: string;
+  tabs: Array<{ key?: string; id?: string; label: string; count?: number }>;
+  active?: string;
+  activeTab?: string;
   onChange: (key: string) => void;
-}> = ({ tabs, active, onChange }) => (
-  <div className="border-b border-slate-200 dark:border-slate-800 mb-5 overflow-x-auto">
-    <div className="flex items-center gap-1 min-w-max" role="tablist">
-      {tabs.map((tab) => {
-        const isActive = active === tab.key;
-        return (
-          <button
-            key={tab.key}
-            type="button"
-            role="tab"
-            aria-selected={isActive}
-            onClick={() => onChange(tab.key)}
-            className={`px-3.5 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
-              isActive
-                ? 'border-teal-600 text-teal-700 dark:text-teal-400'
-                : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            {tab.label}
-            {tab.count !== undefined && (
-              <span className="ml-1.5 text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
-                ({tab.count})
-              </span>
-            )}
-          </button>
-        );
-      })}
+}> = ({ tabs, active, activeTab, onChange }) => {
+  const currentActive = active ?? activeTab ?? '';
+  return (
+    <div className="border-b border-slate-200 dark:border-slate-800 mb-5 overflow-x-auto">
+      <div className="flex items-center gap-1 min-w-max" role="tablist">
+        {tabs.map((tab) => {
+          const tabKey = tab.key || tab.id || '';
+          const isActive = currentActive === tabKey;
+          return (
+            <button
+              key={tabKey}
+              type="button"
+              role="tab"
+              aria-selected={isActive}
+              onClick={() => onChange(tabKey)}
+              className={`px-3.5 py-2.5 text-sm font-medium border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+                isActive
+                  ? 'border-teal-600 text-teal-700 dark:text-teal-400'
+                  : 'border-transparent text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+              }`}
+            >
+              {tab.label}
+              {tab.count !== undefined && (
+                <span className="ml-1.5 text-xs font-mono tabular-nums text-slate-500 dark:text-slate-400">
+                  ({tab.count})
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 export const ErrorBanner: React.FC<{ message: string; onRetry?: () => void }> = ({ message, onRetry }) => (
   <div className="p-4 bg-red-50 dark:bg-red-950/50 border border-red-200 dark:border-red-800 rounded-lg flex items-center justify-between gap-3">

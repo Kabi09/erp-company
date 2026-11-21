@@ -14,6 +14,8 @@ import {
   BOMModel,
   QualityCheckModel,
   DeliveryOrderModel,
+  ServiceJobModel,
+  ServiceRequestModel,
 } from '../models';
 import { pdfService, type PDFDocData } from '../services/pdf.service';
 import { sendError } from '../utils/routeUtils';
@@ -482,6 +484,38 @@ documentRouter.get('/documents/:type/:id/pdf', requireAuth, async (req: Authenti
           terms: [
             'Goods once dispatched are under transit insurance as per standard CRYO policy.',
             'Please verify seal and package integrity before signing receipt acknowledgement.',
+          ],
+        };
+        break;
+      }
+
+      // 14. FIELD SERVICE REPORT
+      case 'service-report':
+      case 'service-job': {
+        const rawJob = await ServiceJobModel.findOne({ $or: [{ id }, { docNo: id }] }).lean();
+        if (!rawJob) throw new Error(`NOT_FOUND: Service Job '${id}' not found.`);
+        const job = rawJob as any;
+
+        docData = {
+          title: 'Field Service & Technical Inspection Report',
+          docNo: job.docNo,
+          date: toIsoDate(job.completionDate || job.scheduledDate),
+          status: job.status,
+          referenceNo: job.serviceRequestDocNo,
+          partyType: 'Customer',
+          partyName: job.customerName,
+          items: [
+            {
+              name: `Machinery: ${job.productName} (S/N: ${job.serialNumber})`,
+              description: `Diagnosis: ${job.diagnosisSummary || 'Routine maintenance and inspection'}\nRoot Cause: ${job.rootCause || 'N/A'}\nCorrective Action: ${job.checkOut?.resolutionSummary || job.correctiveAction || 'Work completed successfully'}\nAssigned Engineer: ${job.assignedTechnicianName} | Service Mode: ${job.serviceType}`,
+              quantity: 1,
+              unit: 'Service',
+            },
+          ],
+          notes: `Check-In: ${job.checkIn?.timestamp || 'N/A'}\nCheck-Out: ${job.checkOut?.timestamp || 'N/A'}\nSign-off Customer Rep: ${job.checkOut?.customerRepresentativeName || 'Customer Authorized Personnel'}`,
+          terms: [
+            'All replacement components carry standard warranty from service completion date.',
+            'Maintain prescribed operational room temperature and ventilation parameters.',
           ],
         };
         break;

@@ -427,6 +427,12 @@ adminRouter.delete('/admin/roles/:id', requireAuth, requirePerm('admin', 'delete
       'role-qc-inspector',
       'role-logistics-manager',
       'role-dispatch-exec',
+      'role-service-manager',
+      'role-service-coord',
+      'role-service-tech',
+      'role-rd-manager',
+      'role-rd-engineer',
+      'role-rd-tester',
     ];
     if (coreRoles.includes(roleId)) {
       throw new Error('FORBIDDEN: Built-in core system roles cannot be deleted.');

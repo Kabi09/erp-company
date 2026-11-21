@@ -22,6 +22,14 @@ export const PREFIX_MAP: Record<string, string> = {
   RW: 'RW',
   DEL: 'DEL',
   EMP: 'EMP',
+  SRV: 'SRV',
+  JOB: 'JOB',
+  RND: 'RND',
+  SMR: 'SMR',
+  EXP: 'EXP',
+  ADV: 'ADV',
+  SBL: 'SBL',
+  DP: 'DP',
 };
 
 export const generateId = (prefix: string) =>

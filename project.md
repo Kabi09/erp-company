@@ -1,9 +1,9 @@
 # CRYO Enterprise ERP 2.0 — Project Architecture & Implementation Record
 
 ## 1. Project Overview
-**CRYO Enterprise ERP 2.0** is an industrial, multi-department Enterprise Resource Planning web application engineered for cryogenic and precision thermal manufacturing operations. It automates and connects the complete quote-to-cash, procure-to-pay, plan-to-produce, quality-control, and order-to-delivery lifecycle across four strictly separated operational departments plus centralized administration and tracking:
+**CRYO Enterprise ERP 2.0** is an industrial, multi-department Enterprise Resource Planning web application engineered for cryogenic and precision thermal manufacturing operations. It automates and connects the complete quote-to-cash, procure-to-pay, plan-to-produce, quality-control, order-to-delivery, after-sales service, and experimental R&D lifecycle across six strictly separated operational departments plus centralized administration and tracking:
 
-`Customer Enquiry → Follow-up → Qualified Enquiry → Quotation (V1/V2/V3) → Proforma Invoice → Customer PO → Payment Entry → Sales Order → Production Order & Duration Plan → BOM Request → Supply Chain Material Issue / Purchase & GRN Verification → Physical Receipt → Manufacturing & Daily Updates → Quality Check → Rework / Acceptance → Logistics Dispatch (Own Vehicle / Courier) → Delivery Completion`
+`Customer Enquiry → Follow-up → Qualified Enquiry → Quotation (V1/V2/V3) → Proforma Invoice → Customer PO → Payment Entry → Sales Order → Production Order & Duration Plan → BOM Request → Supply Chain Material Issue / Purchase & GRN Verification → Physical Receipt → Manufacturing & Daily Updates → Quality Check → Rework / Acceptance → Logistics Dispatch (Own Vehicle / Courier) → Delivery Completion → Shared Delivered Products Register → Service Requests & Field Engineering Jobs / Autonomous R&D Prototyping & Testing`
 
 ---
 
@@ -14,7 +14,7 @@
 - **Shared Domain Layer (`shared/`)**: Pure, zero-dependency domain definitions (`shared/types/erp.ts`) and deterministic calculation formulas (`shared/utils/erpLogic.ts`) shared between frontend and backend without database or backend secret leakage.
 - **Authentication & Authorization**: Dual JWT Bearer access (15m) and rotating refresh tokens (7d), bcrypt password hashing (`bcryptjs`), and module-by-action Role-Based Access Control (RBAC) enforced on both Express API middleware and React route guards.
 - **Persistence**: Production-ready MongoDB + Mongoose 9 persistence layer with connection pooling, graceful shutdown, replica set/Atlas auto-detection, and atomic document numbering via `$inc` on `DocCounterModel`. Historical JSON snapshot preserved in `backend/data/cryo-erp-db.json` and timestamped backups in `backend/data/backups/`. Normal operations execute 100% on MongoDB without JSON fallback.
-- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 12 test suites totaling **133 passing automated tests (100% pass rate)** plus 10 frontend unit tests.
+- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 14 test suites totaling **151 passing automated tests (100% pass rate)** plus 10 frontend unit tests.
 
 ---
 
@@ -67,6 +67,30 @@
 - **Delivery Issues** (`/logistics/issues`): Exception tracking across 9 standard issue types (`Customer Unavailable`, `Address Not Found`, `Customer Refused Delivery`, `Package Damaged in Transit`, `Vehicle Breakdown`, `Weather Delay`, `Incorrect Items Shipped`, `Transit Loss`, `Customs / Checkpost Delay`). Interactive resolution modal supporting 5 business outcomes (`Retry Delivery`, `Reschedule Delivery`, `Delivery Confirmed`, `Returned to CRYO`, `Requires Further Action`).
 - **Logistics Reports** (`/logistics/reports`): Transportation method breakdown (Own Vehicle vs Courier), delivery status distribution, delay analytics, delivery issue summary, and operational CSV export.
 
+### Department 5: Service Management (`/service`, Emerald Accent)
+- **Dashboard** (`/service`): Fleet overview KPIs, open warranty claims, priority repair queues, today's field engineer agenda, and quick-intake modal.
+- **Shared Delivered Products Register** (`/service/delivered-products`, shared with `/production/delivered-products`): Authoritative registry of installed equipment with serial numbers, customer details, warranty expiration dates, warranty badges (`Under Warranty`, `Expired`, `Not Configured`), and service history logs.
+- **Service Requests** (`/service/requests`): Customer ticket triage (`SRV-xxxx`) with warranty claim evaluation, urgency flags, and technician dispatch workflow.
+- **Service Jobs & Cockpit** (`/service/jobs`, `/service/jobs/:id`): Scheduled and active service jobs (`JOB-xxxx`). 5-tab cockpit (Overview, Work Updates, Spare Parts, Expenses, Billing & PDF Report).
+- **Technician Mobile Check-In & Check-Out**: On-site arrival logging with ISO timestamps, site location, customer signature acknowledgement, and CSAT rating.
+- **Daily Service Updates**: Floor/field repair logs with multi-point dynamic test checklist (`Pass`, `Fail`, `Pending`), shift highlights, and hours spent accumulation.
+- **Spare Parts Requisition & SCM Integration** (`/service/materials`): Service Material Requests (`SMR-xxxx`) bridged directly to Supply Chain Material Requests (`MR-xxxx`) for store issuance, on-site receipt acknowledgement, and unused parts return reconciliation.
+- **Technician Advances & Expense Settlement** (`/service/expenses`): Travel advance disbursals (`ADV-xxxx`), technician expense claims with receipt attachments, manager verification, and deterministic settlement math (`Reimbursement Due`, `Advance Return Due`, `Balanced`).
+- **Customer Service Billing**: Service invoice generation (`SBL-xxxx`) with complimentary 100% warranty coverage waiver or billable GST calculation.
+- **Service Reports** (`/service/reports`): Resolution times, first-time fix rate, warranty vs billable distribution, and CSAT ratings.
+
+### Department 6: Research & Development (`/rd`, Violet Accent)
+- **Dashboard** (`/rd`): Innovation pipeline KPIs, stage distribution chart, active prototyping initiatives, and budget burn rate gauges.
+- **Innovation Projects** (`/rd/projects`, `/rd/projects/:id`): Master R&D project register (`RND-xxxx`). 6-tab engineering cockpit (Overview, Specifications, Prototype BOM, Daily Updates, Testing & Validation, Knowledge Archive).
+- **Product Specifications** (`/rd/specifications`): Target parameters, measurement units, min/max tolerances, verification methods, and critical parameter flags.
+- **Prototype BOM & SCM Stores Indents** (`/rd/bom`): Prototype component bills of materials with flexible sourcing (`Stock`, `Procurement`, `Custom Fabrication`, `Existing Rig`) and automatic Supply Chain store requisitioning (`MR-xxxx` with `department: 'rd'`).
+- **Material Consumption & Budget Burn**: Real-time comparison of prototype material costs against research budget allocations.
+- **Daily Engineering Updates** (`/rd/daily-updates`): Floor updates with multi-select manufacturing stage chips, inline custom stage creator (`+ Add New Stage`), and shift highlights.
+- **Prototype Testing & Iterative Retests** (`/rd/testing`): Multi-point validation checklists (`Pass`, `Fail`, `Pending`) with automatic retest iteration counters (`Iteration 1`, `Iteration 2`...).
+- **Completion Gate & Knowledge Archiving** (`/rd/completed`): Formal project completion gate (`Successfully Completed` / `Shelved`) with strict architectural isolation.
+- **Strict Architectural Boundary**: R&D project completion is strictly isolated: never generates commercial Production Orders, never alters Product Master BOMs, and never pollutes the commercial Product Catalog.
+- **R&D Reports** (`/rd/reports`): Innovation velocity, testing pass/fail breakdown, stage progression, and financial burn tables.
+
 ### Shared Supporting & Administration Modules
 - **Centralized Order Tracking** (`/tracking`, `/tracking/:soId`): 12-stage visual end-to-end timeline linking Enquiry through final Delivery with permission-gated deep links.
 - **Notifications** (`/notifications`): Department-scoped handoff alerts with read/unread filtering.
@@ -91,15 +115,18 @@
 ## 5. REST API Structure (`/api/*`)
 - **Auth**: `POST /api/auth/login`, `GET /api/auth/me`, `PATCH /api/auth/profile`
 - **State & Alerts**: `GET /api/erp/bootstrap`, `POST /api/notifications/:id/read`, `POST /api/notifications/read-all`
-- **Sales**: `/api/sales/{customers,products,enquiries,follow-ups,quotations,proforma-invoices,customer-pos,payments,sales-orders}`
-- **Supply Chain**: `/api/supply-chain/{materials,stock-adjustment,suppliers,material-issues,supplier-pos,grns,supplier-returns}`
-- **Production**: `/api/production/{orders,boms,material-receipts,daily-updates,quality-checks,rework}`
+- **Sales**: `/api/sales/{customers,products,enquiries,follow-ups,quotations,proforma-invoices,customer-pos,payments,sales-orders,product-categories}`
+- **Supply Chain**: `/api/supply-chain/{materials,stock-adjustment,suppliers,material-issues,supplier-pos,grns,supplier-returns,material-requests}`
+- **Production**: `/api/production/{orders,boms,material-receipts,daily-updates,quality-checks,rework,stages}`
 - **Logistics**: `/api/logistics/{delivery-orders,delivery-issues}`
+- **Service Management**: `/api/service/{delivered-products,requests,jobs,material-requests,advances,expenses,billings,dashboard}`
+- **Research & Development**: `/api/rd/{projects,specifications,boms,requisitions,work-updates,tests,reports,dashboard}`
 - **Admin**: `/api/admin/{employees,roles,company,reset-demo}`
+- **Documents & PDFs**: `/documents/{quotations,proforma-invoices,purchase-orders,delivery-orders,delivery-challans,service-report}/:id/pdf`
 
 ---
 
-## 6. Demo Accounts (Password: `cryo123`)
+## 6. Demo Accounts (Password: `password123` / `cryo123`)
 | Role | Email | Default Department |
 | --- | --- | --- |
 | Super Admin | `admin@cryoerp.com` | All Departments + Admin |
@@ -108,6 +135,10 @@
 | Supply Chain Manager | `sc.mgr@cryoerp.com` | Supply Chain Management |
 | Production Manager | `prod.mgr@cryoerp.com` | Production Management |
 | Logistics Manager | `log.mgr@cryoerp.com` | Logistics & Delivery |
+| Service Operations Manager | `service.mgr@cryoerp.com` | Service Management |
+| Service Field Engineer | `tech.anil@cryoerp.com` | Service Management |
+| Head of Cryogenic R&D | `rd.mgr@cryoerp.com` | Research & Development |
+| Senior Prototype Engineer | `rd.eng@cryoerp.com` | Research & Development |
 
 ---
 
@@ -559,4 +590,34 @@
     - **10/10 frontend logic tests passing**.
     - **0 TypeScript compilation errors** (`tsc --noEmit` across frontend and backend).
     - Vite production client build completed in 608ms.
+    - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
+- **v2.9.6 (Fresh Implementation of Service Management and Research & Development Departments)**:
+  - Architecture & Department Expansion:
+    - Expanded CRYO Enterprise ERP 2.0 to **six operational departments** (Sales, Supply Chain, Production, Logistics, Service, and R&D) plus Administration.
+    - Expanded `Department = 'sales' | 'supply_chain' | 'production' | 'logistics' | 'service' | 'rd' | 'admin'` and synchronized all 4 type mirrors (`shared/types/erp.ts`, `frontend/src/types/erp.ts`, `backend/src/types/erp.ts`, `src/types/erp.ts`).
+    - Added 18 new module catalog entries into `ERP_MODULE_CATALOG`.
+  - Service Management Department (`/service`, Emerald Accent):
+    - **Shared Delivered Products Register**: Cross-departmentally accessible in `/service/delivered-products` and `/production/delivered-products`, tracking serial numbers, installation addresses, warranty expiry dates, warranty statuses (`Under Warranty`, `Expired`, `Not Configured`), and service history.
+    - **Customer Service Requests** (`SRV-xxxx`): Intake triage with automated and manual warranty assessment, priority assignment, and status lifecycle (`Open` → `Assigned` → `In Progress` → `Completed`).
+    - **Technician Assignment & Job Cockpit** (`JOB-xxxx`): Field engineer dispatch with 5-tab cockpit (Overview, Work Updates, Spare Parts, Expenses, Billing & PDF Report).
+    - **Technician Mobile Check-In & Check-Out**: On-site arrival and departure logging with ISO timestamps, site location, customer signature acknowledgement, and CSAT scoring.
+    - **Daily Work Updates with Dynamic Checklists**: Floor/field repair logs with 3-way toggle checklists (`Pass`, `Fail`, `Pending`), repeatable shift highlights, and cumulative hour tracking.
+    - **Spare Parts Requisition & SCM Integration** (`SMR-xxxx`): Indents bridged directly into Supply Chain Material Requests (`MR-xxxx`) with store issuance, on-site receipt acknowledgement, and unused parts reconciliation.
+    - **Technician Advances & Expense Settlement**: Travel advances (`ADV-xxxx`), technician expense claims with receipt attachments, manager verification, and deterministic settlement math (`Reimbursement Due`, `Advance Return Due`, `Balanced`).
+    - **Customer Service Billing** (`SBL-xxxx`): Warranty complimentary waiver or billable repair charges with GST calculation.
+    - **Binary PDF Service Report Generation**: Native PDF document generated via `/documents/service-report/:jobId/pdf`.
+  - Research & Development Department (`/rd`, Violet Accent):
+    - **Innovation Projects Register** (`RND-xxxx`): Innovation initiatives with category, assigned lead engineer, allocated research budget, target completion, and 6-tab engineering cockpit.
+    - **Product Specifications Baseline**: Quantitative parameters with target values, min/max tolerances, measurement units, verification methods, and critical parameter classifications.
+    - **Prototype BOM & Store Indent Requisitions**: Component sourcing (`Stock`, `Procurement`, `Custom Fabrication`, `Existing Rig`) with automatic Supply Chain Material Requests (`MR-xxxx` with `department: 'rd'`).
+    - **Material Consumption & Budget Burn**: Real-time tracking of prototype material costs against research budget allocations (`burnRatePercent`).
+    - **Daily Engineering Updates**: Multi-select manufacturing stage chips, inline custom stage creator (`+ Add New Stage`), and shift highlights.
+    - **Prototype Testing & Iterative Retests**: Multi-point validation checklists (`Pass`, `Fail`, `Pending`) with automatic retest iteration counters (`Iteration 1`, `Iteration 2`...).
+    - **Completion Gate & Knowledge Archiving**: Formal gate marking projects `Successfully Completed` or `Shelved`.
+    - **Strict Architectural Isolation Boundary**: Programmatically enforced and verified gate guaranteeing R&D completion never creates commercial Production Orders, never modifies Product Master BOMs, and never alters the Sales Product Catalog.
+  - Automated Verification & Test Results:
+    - Dedicated test suites: `server/tests/service-workflow.test.ts` (10/10 passed) and `server/tests/rd-workflow.test.ts` (8/8 passed).
+    - Full regression test run: **151/151 backend automated tests passing (100% pass rate across all 14 test suites)**.
+    - **0 TypeScript compilation errors** across backend and frontend (`tsc --noEmit`).
+    - Frontend production bundle built cleanly in 712ms.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.

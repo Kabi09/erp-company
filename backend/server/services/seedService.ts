@@ -1,0 +1,473 @@
+import bcrypt from 'bcryptjs';
+import {
+  CustomerModel,
+  DeliveredProductModel,
+  DeliveryOrderModel,
+  EmployeeModel,
+  ProductModel,
+  ProductionOrderModel,
+  RDProjectModel,
+  RDSpecificationModel,
+  RoleModel,
+  SalesOrderModel,
+  ServiceJobModel,
+  ServiceRequestModel,
+} from '../models';
+import { generateId } from '../utils/routeUtils';
+
+const DEFAULT_HASH = bcrypt.hashSync('cryo123', 8);
+
+const ALL_ACTIONS = [
+  'view',
+  'create',
+  'edit',
+  'delete',
+  'submit',
+  'approve',
+  'verify',
+  'confirm',
+  'export',
+  'manage',
+] as const;
+
+export async function ensureServiceAndRDRolesAndData(): Promise<void> {
+  try {
+    // 1. Ensure Super Admin role includes service and rd actions
+    const superAdminRole = await RoleModel.findOne({ id: 'role-super-admin' });
+    if (superAdminRole) {
+      let updated = false;
+      if (!superAdminRole.permissions.service) {
+        superAdminRole.permissions.service = [...ALL_ACTIONS];
+        updated = true;
+      }
+      if (!superAdminRole.permissions.rd) {
+        superAdminRole.permissions.rd = [...ALL_ACTIONS];
+        updated = true;
+      }
+      if (updated) {
+        superAdminRole.markModified('permissions');
+        await superAdminRole.save();
+      }
+    }
+
+    // 2. Ensure Service Roles
+    const serviceRoles = [
+      {
+        id: 'role-service-manager',
+        name: 'Service Manager',
+        department: 'service' as const,
+        description: 'Complete oversight of field service, job triage, technician dispatch, warranty decisions, and expense approval.',
+        permissions: {
+          service: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export', 'manage'],
+          delivered_products: ['view', 'create', 'edit', 'delete', 'export'],
+          service_requests: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'],
+          service_jobs: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'],
+          service_materials: ['view', 'create', 'edit', 'submit', 'confirm', 'export'],
+          service_expenses: ['view', 'create', 'edit', 'verify', 'confirm', 'export'],
+          service_billing: ['view', 'create', 'edit', 'confirm', 'export'],
+          tracking: ['view'],
+          reports: ['view', 'export'],
+        },
+      },
+      {
+        id: 'role-service-coord',
+        name: 'Service Coordinator',
+        department: 'service' as const,
+        description: 'Customer ticket intake, scheduling, technician calendar management, and spare parts coordination.',
+        permissions: {
+          service: ['view', 'create', 'edit', 'submit', 'export'],
+          delivered_products: ['view', 'export'],
+          service_requests: ['view', 'create', 'edit', 'submit', 'export'],
+          service_jobs: ['view', 'create', 'edit', 'export'],
+          service_materials: ['view', 'create', 'submit', 'export'],
+          service_expenses: ['view', 'create', 'export'],
+          service_billing: ['view', 'create', 'export'],
+          tracking: ['view'],
+          reports: ['view'],
+        },
+      },
+      {
+        id: 'role-service-tech',
+        name: 'Service Technician',
+        department: 'service' as const,
+        description: 'Field engineer responsible for site visits, check-in/out, repair work updates, and expense submission.',
+        permissions: {
+          service: ['view', 'create', 'edit'],
+          delivered_products: ['view'],
+          service_requests: ['view'],
+          service_jobs: ['view', 'create', 'edit'],
+          service_materials: ['view', 'create'],
+          service_expenses: ['view', 'create'],
+          service_billing: ['view'],
+          tracking: ['view'],
+        },
+      },
+    ];
+
+    for (const r of serviceRoles) {
+      const exists = await RoleModel.findOne({ $or: [{ id: r.id }, { name: r.name }] });
+      if (!exists) {
+        await RoleModel.create(r);
+      }
+    }
+
+    // 3. Ensure R&D Roles
+    const rdRoles = [
+      {
+        id: 'role-rd-manager',
+        name: 'R&D Manager',
+        department: 'rd' as const,
+        description: 'Oversight of innovation initiatives, prototype projects, budget approvals, and test validation.',
+        permissions: {
+          rd: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export', 'manage'],
+          rd_projects: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'],
+          rd_specifications: ['view', 'create', 'edit', 'delete', 'export'],
+          rd_bom: ['view', 'create', 'edit', 'delete', 'submit', 'export'],
+          rd_work_updates: ['view', 'create', 'edit', 'export'],
+          rd_testing: ['view', 'create', 'edit', 'verify', 'confirm', 'export'],
+          tracking: ['view'],
+          reports: ['view', 'export'],
+        },
+      },
+      {
+        id: 'role-rd-engineer',
+        name: 'R&D Engineer',
+        department: 'rd' as const,
+        description: 'Design, component selection, prototype fabrication logging, and technical specification drafting.',
+        permissions: {
+          rd: ['view', 'create', 'edit', 'submit', 'export'],
+          rd_projects: ['view', 'edit', 'export'],
+          rd_specifications: ['view', 'create', 'edit', 'export'],
+          rd_bom: ['view', 'create', 'edit', 'submit', 'export'],
+          rd_work_updates: ['view', 'create', 'edit', 'export'],
+          rd_testing: ['view', 'create', 'edit', 'export'],
+          tracking: ['view'],
+          reports: ['view'],
+        },
+      },
+      {
+        id: 'role-rd-tester',
+        name: 'R&D Tester',
+        department: 'rd' as const,
+        description: 'Prototype test execution, dynamic checklist scoring, retesting verification, and test report generation.',
+        permissions: {
+          rd: ['view', 'create', 'edit'],
+          rd_projects: ['view'],
+          rd_specifications: ['view'],
+          rd_bom: ['view'],
+          rd_work_updates: ['view', 'create'],
+          rd_testing: ['view', 'create', 'edit', 'verify'],
+          tracking: ['view'],
+        },
+      },
+    ];
+
+    for (const r of rdRoles) {
+      const exists = await RoleModel.findOne({ $or: [{ id: r.id }, { name: r.name }] });
+      if (!exists) {
+        await RoleModel.create(r);
+      }
+    }
+
+    // 4. Ensure Service and R&D Employees
+    const defaultEmployees = [
+      {
+        id: 'emp-8',
+        employeeId: 'EMP-008',
+        name: 'Rajesh Kumar',
+        email: 'service.mgr@cryoerp.com',
+        phone: '+91 98450 11008',
+        department: 'service' as const,
+        roleId: 'role-service-manager',
+        designation: 'Service Operations Manager',
+        status: 'Active' as const,
+        passwordHash: DEFAULT_HASH,
+        createdAt: '2026-02-01T09:00:00Z',
+      },
+      {
+        id: 'emp-9',
+        employeeId: 'EMP-009',
+        name: 'Anil Sharma',
+        email: 'tech.anil@cryoerp.com',
+        phone: '+91 98450 11009',
+        department: 'service' as const,
+        roleId: 'role-service-tech',
+        designation: 'Senior Field Service Engineer',
+        status: 'Active' as const,
+        passwordHash: DEFAULT_HASH,
+        createdAt: '2026-02-05T09:00:00Z',
+      },
+      {
+        id: 'emp-10',
+        employeeId: 'EMP-010',
+        name: 'Dr. Sunita Rao',
+        email: 'rd.mgr@cryoerp.com',
+        phone: '+91 98450 11010',
+        department: 'rd' as const,
+        roleId: 'role-rd-manager',
+        designation: 'Head of Cryogenic R&D',
+        status: 'Active' as const,
+        passwordHash: DEFAULT_HASH,
+        createdAt: '2026-02-10T09:00:00Z',
+      },
+      {
+        id: 'emp-11',
+        employeeId: 'EMP-011',
+        name: 'Karthik Raman',
+        email: 'rd.eng@cryoerp.com',
+        phone: '+91 98450 11011',
+        department: 'rd' as const,
+        roleId: 'role-rd-engineer',
+        designation: 'Senior Prototype Engineer',
+        status: 'Active' as const,
+        passwordHash: DEFAULT_HASH,
+        createdAt: '2026-02-15T09:00:00Z',
+      },
+    ];
+
+    for (const emp of defaultEmployees) {
+      const exists = await EmployeeModel.findOne({ $or: [{ id: emp.id }, { email: emp.email }, { employeeId: emp.employeeId }] });
+      if (!exists) {
+        await EmployeeModel.create(emp);
+      }
+    }
+
+    // 5. Synchronize Delivered Products from completed deliveries
+    await syncDeliveredProducts();
+
+    // 6. Ensure sample Service Request & R&D Project if none exist
+    const srvCount = await ServiceRequestModel.countDocuments();
+    if (srvCount === 0) {
+      await seedSampleServiceRecords();
+    }
+
+    const rdCount = await RDProjectModel.countDocuments();
+    if (rdCount === 0) {
+      await seedSampleRDRecords();
+    }
+  } catch (err) {
+    console.warn('[SeedService] Notice during ensureServiceAndRDRolesAndData:', err);
+  }
+}
+
+export async function syncDeliveredProducts(): Promise<number> {
+  let count = 0;
+  const completedDeliveries = await DeliveryOrderModel.find({
+    status: { $in: ['Delivered', 'Completed'] },
+  }).lean();
+
+  for (const del of completedDeliveries) {
+    const existing = await DeliveredProductModel.findOne({ deliveryOrderId: del.id });
+    if (!existing) {
+      const so = await SalesOrderModel.findOne({ id: del.salesOrderId }).lean();
+      const prodOrder = await ProductionOrderModel.findOne({ salesOrderId: del.salesOrderId }).lean();
+      const product = await ProductModel.findOne({
+        id: del.items?.[0]?.productId || prodOrder?.productId,
+      }).lean();
+      const customer = await CustomerModel.findOne({ id: del.customerId }).lean();
+
+      const serials =
+        prodOrder?.serialNumbers && prodOrder.serialNumbers.length > 0
+          ? prodOrder.serialNumbers
+          : [`CRYO-${product?.model || 'EQ'}-${Date.now().toString(36).toUpperCase()}`];
+
+      for (const sn of serials) {
+        const already = await DeliveredProductModel.findOne({ serialNumber: sn });
+        if (!already) {
+          const deliveredDate =
+            del.actualDeliveryDate || del.dispatchDate || new Date().toISOString().split('T')[0];
+          const start = new Date(deliveredDate);
+          const end = new Date(start);
+          end.setFullYear(end.getFullYear() + 2); // 24 months standard warranty
+          const isUnder = new Date() <= end;
+
+          await DeliveredProductModel.create({
+            id: generateId('DP'),
+            serialNumber: sn,
+            productId: product?.id || 'prod-sample',
+            productName: product?.name || del.items?.[0]?.name || 'Ultra-Low Temperature Freezer -86°C',
+            modelNumber: product?.model || 'ULT-86-400',
+            customerId: customer?.id || del.customerId,
+            customerName: customer?.name || del.customerName,
+            customerContact: customer?.contactPerson || '',
+            customerPhone: customer?.phone || '',
+            customerEmail: customer?.email || '',
+            deliveryAddress: del.deliveryAddress || customer?.shippingAddress || customer?.billingAddress || '',
+            salesOrderId: del.salesOrderId,
+            salesOrderDocNo: del.salesOrderDocNo,
+            productionOrderId: prodOrder?.id,
+            productionOrderDocNo: prodOrder?.docNo,
+            deliveryOrderId: del.id,
+            deliveryOrderDocNo: del.docNo,
+            deliveredDate,
+            warrantyPeriodMonths: 24,
+            warrantyStartDate: deliveredDate,
+            warrantyEndDate: end.toISOString().split('T')[0],
+            warrantyStatus: isUnder ? 'Under Warranty' : 'Expired',
+            status: 'Active',
+            notes: `Delivered under Challan ${del.docNo}`,
+          });
+          count++;
+        }
+      }
+    }
+  }
+
+  // If no completed delivery orders exist in current test/dev DB, create at least 2 baseline delivered products
+  const totalDelivered = await DeliveredProductModel.countDocuments();
+  if (totalDelivered === 0) {
+    const cust = await CustomerModel.findOne().lean();
+    const prod = await ProductModel.findOne().lean();
+
+    const today = new Date();
+    const pastDate = new Date(today.getTime() - 90 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const expiryDate = new Date(today.getTime() + 640 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    const pastExpiredDate = new Date(today.getTime() - 800 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const pastExpiredEndDate = new Date(today.getTime() - 70 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+
+    await DeliveredProductModel.create([
+      {
+        id: 'dp-1',
+        serialNumber: 'CRYO-ULT-2025-001',
+        productId: prod?.id || 'prod-1',
+        productName: prod?.name || 'Ultra-Low Temperature Freezer -86°C (400L)',
+        modelNumber: prod?.model || 'ULT-86-400',
+        customerId: cust?.id || 'cust-1',
+        customerName: cust?.name || 'Biogenix Diagnostics Pvt. Ltd.',
+        customerContact: cust?.contactPerson || 'Dr. Meera Deshmukh',
+        customerPhone: cust?.phone || '+91 98201 44510',
+        customerEmail: cust?.email || 'm.deshmukh@biogenix.in',
+        deliveryAddress: cust?.shippingAddress || 'Andheri East, Mumbai, Maharashtra 400069',
+        deliveredDate: pastDate,
+        warrantyPeriodMonths: 24,
+        warrantyStartDate: pastDate,
+        warrantyEndDate: expiryDate,
+        warrantyStatus: 'Under Warranty',
+        status: 'Active',
+        notes: 'Installed and commissioned at Central Lab Unit 3.',
+      },
+      {
+        id: 'dp-2',
+        serialNumber: 'CRYO-BLD-2023-014',
+        productId: prod?.id || 'prod-2',
+        productName: 'Blood Bank Refrigerator +4°C (300L)',
+        modelNumber: 'BBR-04-300',
+        customerId: cust?.id || 'cust-1',
+        customerName: cust?.name || 'Biogenix Diagnostics Pvt. Ltd.',
+        customerContact: cust?.contactPerson || 'Dr. Meera Deshmukh',
+        customerPhone: cust?.phone || '+91 98201 44510',
+        customerEmail: cust?.email || 'm.deshmukh@biogenix.in',
+        deliveryAddress: cust?.shippingAddress || 'Andheri East, Mumbai, Maharashtra 400069',
+        deliveredDate: pastExpiredDate,
+        warrantyPeriodMonths: 24,
+        warrantyStartDate: pastExpiredDate,
+        warrantyEndDate: pastExpiredEndDate,
+        warrantyStatus: 'Expired',
+        status: 'Active',
+        notes: 'Legacy equipment installed in 2023. Warranty expired.',
+      },
+    ]);
+    count += 2;
+  }
+
+  return count;
+}
+
+async function seedSampleServiceRecords(): Promise<void> {
+  const dp = await DeliveredProductModel.findOne({ status: 'Active' }).lean();
+  if (!dp) return;
+
+  const srv = await ServiceRequestModel.create({
+    id: 'srv-1',
+    docNo: 'SRV-0001',
+    requestDate: new Date().toISOString().split('T')[0],
+    customerId: dp.customerId,
+    customerName: dp.customerName,
+    contactPerson: dp.customerContact,
+    contactPhone: dp.customerPhone,
+    contactEmail: dp.customerEmail,
+    serviceAddress: dp.deliveryAddress,
+    deliveredProductId: dp.id,
+    serialNumber: dp.serialNumber,
+    productName: dp.productName,
+    modelNumber: dp.modelNumber,
+    serviceType: 'Customer Site',
+    priority: 'High',
+    issueDescription: 'Cabinet temperature fluctuating above -70°C threshold. Alarm sounding intermittently.',
+    isUnderWarranty: dp.warrantyStatus === 'Under Warranty',
+    warrantyClaimValid: true,
+    warrantyRemarks: 'Valid under 24-month comprehensive manufacturer warranty.',
+    status: 'In Progress',
+    assignedJobId: 'job-1',
+    assignedTechnicianId: 'emp-9',
+    assignedTechnicianName: 'Anil Sharma',
+    scheduledDate: new Date().toISOString().split('T')[0],
+    createdBy: 'Rajesh Kumar',
+  });
+
+  await ServiceJobModel.create({
+    id: 'job-1',
+    docNo: 'JOB-0001',
+    serviceRequestId: srv.id,
+    serviceRequestDocNo: srv.docNo,
+    customerId: dp.customerId,
+    customerName: dp.customerName,
+    deliveredProductId: dp.id,
+    serialNumber: dp.serialNumber,
+    productName: dp.productName,
+    serviceType: 'Customer Site',
+    priority: 'High',
+    assignedTechnicianId: 'emp-9',
+    assignedTechnicianName: 'Anil Sharma',
+    scheduledDate: srv.scheduledDate!,
+    status: 'In Progress',
+    checkIn: {
+      timestamp: new Date().toISOString(),
+      performedBy: 'Anil Sharma',
+      location: 'Biogenix Diagnostics Lab 3',
+      notes: 'Reached customer site on time. Commenced temperature sensor resistance diagnostic.',
+    },
+    diagnosisSummary: 'Secondary stage thermal expansion valve sensor drifting under high ambient heat.',
+    rootCause: 'Dust clogging on auxiliary condenser coil causing heat rejection bottleneck.',
+    correctiveAction: 'Cleaned auxiliary condenser, recalibrated PT100 probe, and tested pull-down cycle.',
+    isChargeable: false,
+    totalHoursSpent: 3.5,
+  });
+}
+
+async function seedSampleRDRecords(): Promise<void> {
+  const proj = await RDProjectModel.create({
+    id: 'rnd-1',
+    projectCode: 'RND-0001',
+    title: 'Ultra-Fast Cryo Cascade Refrigeration Engine (-150°C)',
+    objective: 'Develop next-generation dual-stage mixed-refrigerant cryogenic cooling system for bio-repository preservation.',
+    projectType: 'New Product Development',
+    leadEngineerId: 'emp-10',
+    leadEngineerName: 'Dr. Sunita Rao',
+    teamMembers: [
+      { id: 'emp-10', name: 'Dr. Sunita Rao', role: 'Principal Investigator' },
+      { id: 'emp-11', name: 'Karthik Raman', role: 'Lead Mechanical & Thermal Engineer' },
+    ],
+    targetCompletionDate: '2026-08-30',
+    budgetEstimated: 850000,
+    budgetUtilized: 185000,
+    status: 'Prototyping',
+    currentStage: 'Secondary Stage Brazing & Leak Testing',
+  });
+
+  await RDSpecificationModel.create({
+    id: 'spec-1',
+    rdProjectId: proj.id,
+    version: '1.0',
+    parameters: [
+      { id: 'p1', category: 'Thermal', parameterName: 'Ultimate Low Temperature', targetValue: '-150', tolerance: '±2', unit: '°C', notes: 'Measured at evaporator core' },
+      { id: 'p2', category: 'Thermal', parameterName: 'Pull-down Time from +25°C to -150°C', targetValue: '180', tolerance: '<= 210', unit: 'Minutes', notes: 'Unloaded test chamber' },
+      { id: 'p3', category: 'Electrical', parameterName: 'Power Consumption at Steady State', targetValue: '1800', tolerance: '±150', unit: 'Watts', notes: '230V 50Hz single phase' },
+      { id: 'p4', category: 'Acoustic', parameterName: 'Operating Sound Level at 1 Meter', targetValue: '52', tolerance: '<= 55', unit: 'dBA', notes: 'Acoustic enclosure verified' },
+    ],
+    approvedBy: 'Dr. Sunita Rao',
+    approvedAt: '2026-02-12T11:00:00Z',
+    notes: 'Initial engineering baseline approved.',
+  });
+}

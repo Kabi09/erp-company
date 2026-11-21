@@ -15,6 +15,20 @@ import type {
   Role,
   SalesOrder,
   SupplierPO,
+  DeliveredProduct,
+  ExpenseSettlementSummary,
+  RDBOM,
+  RDProject,
+  RDSpecification,
+  RDTestRecord,
+  RDWorkUpdate,
+  ServiceBilling,
+  ServiceExpense,
+  ServiceJob,
+  ServiceMaterialRequest,
+  ServiceRequest,
+  ServiceWorkUpdate,
+  TechnicianAdvance,
 } from '../types/erp';
 
 const TOKEN_KEY = 'cryo_erp_jwt_token';
@@ -475,6 +489,114 @@ export const erpApi = {
   getSupplyChainSummary: () => request<any>('/supply-chain/summary'),
   getProductionSummary: () => request<any>('/production/summary'),
   getLogisticsSummary: () => request<any>('/logistics/summary'),
+
+  // Service Management
+  getDeliveredProducts: (params?: any) =>
+    request<DeliveredProduct[]>(`/service/delivered-products${toQueryString(params)}`),
+  getDeliveredProductDetail: (id: string) =>
+    request<{ product: DeliveredProduct; serviceHistory: { requests: ServiceRequest[]; jobs: ServiceJob[] } }>(`/service/delivered-products/${id}`),
+  createDeliveredProduct: (payload: any) =>
+    request<DeliveredProduct>('/service/delivered-products', { method: 'POST', body: JSON.stringify(payload) }),
+  updateDeliveredProduct: (id: string, payload: any) =>
+    request<DeliveredProduct>(`/service/delivered-products/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  getServiceRequests: (params?: any) =>
+    request<ServiceRequest[]>(`/service/requests${toQueryString(params)}`),
+  getServiceRequestDetail: (id: string) =>
+    request<ServiceRequest>(`/service/requests/${id}`),
+  createServiceRequest: (payload: any) =>
+    request<ServiceRequest>('/service/requests', { method: 'POST', body: JSON.stringify(payload) }),
+  checkWarrantyClaim: (id: string, payload: any) =>
+    request<ServiceRequest>(`/service/requests/${id}/warranty-check`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  assignTechnicianJob: (id: string, payload: any) =>
+    request<{ serviceRequest: ServiceRequest; serviceJob: ServiceJob }>(`/service/requests/${id}/assign`, { method: 'POST', body: JSON.stringify(payload) }),
+  getServiceJobs: (params?: any) =>
+    request<ServiceJob[]>(`/service/jobs${toQueryString(params)}`),
+  getServiceJobDetail: (id: string) =>
+    request<{ job: ServiceJob; request: ServiceRequest; product: DeliveredProduct; updates: ServiceWorkUpdate[]; materialRequests: ServiceMaterialRequest[]; expenses: ServiceExpense[]; billing: ServiceBilling | null }>(`/service/jobs/${id}`),
+  serviceJobCheckIn: (id: string, payload: any) =>
+    request<ServiceJob>(`/service/jobs/${id}/check-in`, { method: 'POST', body: JSON.stringify(payload) }),
+  serviceJobCheckOut: (id: string, payload: any) =>
+    request<ServiceJob>(`/service/jobs/${id}/check-out`, { method: 'POST', body: JSON.stringify(payload) }),
+  createServiceWorkUpdate: (id: string, payload: any) =>
+    request<ServiceWorkUpdate>(`/service/jobs/${id}/work-updates`, { method: 'POST', body: JSON.stringify(payload) }),
+  completeServiceJob: (id: string, payload?: any) =>
+    request<{ ok: boolean; job: ServiceJob }>(`/service/jobs/${id}/complete`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  getServiceMaterialRequests: () =>
+    request<ServiceMaterialRequest[]>('/service/material-requests'),
+  createServiceMaterialRequest: (id: string, payload: any) =>
+    request<ServiceMaterialRequest>(`/service/jobs/${id}/material-requests`, { method: 'POST', body: JSON.stringify(payload) }),
+  receiveServiceMaterials: (id: string) =>
+    request<ServiceMaterialRequest>(`/service/material-requests/${id}/receive`, { method: 'PATCH' }),
+  reconcileServiceMaterials: (id: string, payload: any) =>
+    request<ServiceMaterialRequest>(`/service/material-requests/${id}/reconcile`, { method: 'POST', body: JSON.stringify(payload) }),
+  getTechnicianAdvances: (params?: any) =>
+    request<TechnicianAdvance[]>(`/service/advances${toQueryString(params)}`),
+  createTechnicianAdvance: (payload: any) =>
+    request<TechnicianAdvance>('/service/advances', { method: 'POST', body: JSON.stringify(payload) }),
+  getServiceExpenses: (params?: any) =>
+    request<ServiceExpense[]>(`/service/expenses${toQueryString(params)}`),
+  createServiceExpense: (payload: any) =>
+    request<ServiceExpense>('/service/expenses', { method: 'POST', body: JSON.stringify(payload) }),
+  verifyServiceExpense: (id: string, payload: any) =>
+    request<ServiceExpense>(`/service/expenses/${id}/verify`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  getTechnicianSettlementSummary: (technicianId: string) =>
+    request<ExpenseSettlementSummary>(`/service/expenses/settlement-summary/${technicianId}`),
+  settleTechnicianExpenses: (payload: any) =>
+    request<{ ok: boolean; message: string }>('/service/expenses/settle', { method: 'POST', body: JSON.stringify(payload) }),
+  getServiceBillings: () =>
+    request<ServiceBilling[]>('/service/billings'),
+  createServiceBilling: (id: string, payload: any) =>
+    request<ServiceBilling>(`/service/jobs/${id}/billing`, { method: 'POST', body: JSON.stringify(payload) }),
+  recordServiceBillingPayment: (id: string, payload: any) =>
+    request<ServiceBilling>(`/service/billings/${id}/payment`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  getServiceDashboard: () =>
+    request<any>('/service/dashboard'),
+
+  // Research & Development (R&D) Management
+  getRDProjects: (params?: any) =>
+    request<RDProject[]>(`/rd/projects${toQueryString(params)}`),
+  getRDProjectDetail: (id: string) =>
+    request<{ project: RDProject; specifications: RDSpecification | null; bom: RDBOM | null; workUpdates: RDWorkUpdate[]; testRecords: RDTestRecord[] }>(`/rd/projects/${id}`),
+  createRDProject: (payload: any) =>
+    request<RDProject>('/rd/projects', { method: 'POST', body: JSON.stringify(payload) }),
+  updateRDProject: (id: string, payload: any) =>
+    request<RDProject>(`/rd/projects/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  completeRDProject: (id: string, payload: { finalConclusion: string }) =>
+    request<{ ok: boolean; project: RDProject }>(`/rd/projects/${id}/complete`, { method: 'POST', body: JSON.stringify(payload) }),
+  getRDSpecifications: (id: string) =>
+    request<RDSpecification>(`/rd/projects/${id}/specifications`),
+  saveRDSpecifications: (id: string, payload: any) =>
+    request<RDSpecification>(`/rd/projects/${id}/specifications`, { method: 'POST', body: JSON.stringify(payload) }),
+  getRDBOM: (id: string) =>
+    request<RDBOM>(`/rd/projects/${id}/bom`),
+  saveRDBOM: (id: string, payload: any) =>
+    request<RDBOM>(`/rd/projects/${id}/bom`, { method: 'POST', body: JSON.stringify(payload) }),
+  requestRDMaterials: (id: string, payload: any) =>
+    request<any>(`/rd/projects/${id}/material-request`, { method: 'POST', body: JSON.stringify(payload) }),
+  consumeRDBOMItem: (id: string, itemId: string, payload: any) =>
+    request<RDBOM>(`/rd/projects/${id}/bom/${itemId}/consume`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  getRDWorkUpdates: (id: string) =>
+    request<RDWorkUpdate[]>(`/rd/projects/${id}/work-updates`),
+  createRDWorkUpdate: (id: string, payload: any) =>
+    request<RDWorkUpdate>(`/rd/projects/${id}/work-updates`, { method: 'POST', body: JSON.stringify(payload) }),
+  getRDTests: (id: string) =>
+    request<RDTestRecord[]>(`/rd/projects/${id}/tests`),
+  createRDTest: (id: string, payload: any) =>
+    request<RDTestRecord>(`/rd/projects/${id}/tests`, { method: 'POST', body: JSON.stringify(payload) }),
+  createRDRetest: (id: string, testId: string, payload: any) =>
+    request<RDTestRecord>(`/rd/projects/${id}/tests/${testId}/retest`, { method: 'POST', body: JSON.stringify(payload) }),
+  getRDDashboard: () =>
+    request<any>('/rd/dashboard'),
+  getAllRDSpecifications: () =>
+    request<(RDSpecification & { projectCode: string; projectTitle: string; projectStatus: string; leadEngineerName: string })[]>('/rd/specifications'),
+  getAllRDBOMs: () =>
+    request<(RDBOM & { projectCode: string; projectTitle: string; projectStatus: string; leadEngineerName: string })[]>('/rd/boms'),
+  getAllRDWorkUpdates: () =>
+    request<(RDWorkUpdate & { projectCode: string; projectTitle: string })[]>('/rd/work-updates'),
+  getAllRDTests: () =>
+    request<(RDTestRecord & { projectCode: string; projectTitle: string })[]>('/rd/tests'),
+  getRDReports: () =>
+    request<any>('/rd/reports'),
 
   // Phase 9: Shared Enterprise Integration Endpoints
   getAdminSummary: () => request<any>('/admin/summary'),

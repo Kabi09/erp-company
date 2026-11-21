@@ -1,4 +1,4 @@
-export type Department = 'sales' | 'supply_chain' | 'production' | 'logistics' | 'admin';
+export type Department = 'sales' | 'supply_chain' | 'production' | 'logistics' | 'service' | 'rd' | 'admin';
 
 export type PermissionAction =
   | 'view'
@@ -17,6 +17,8 @@ export type PermissionModule =
   | 'supply_chain'
   | 'production'
   | 'logistics'
+  | 'service'
+  | 'rd'
   | 'admin'
   | 'tracking'
   | 'reports'
@@ -126,6 +128,28 @@ export const ERP_MODULE_CATALOG: ModuleDef[] = [
   { id: 'delivery_issues', name: 'Delivery Incidents', department: 'logistics', description: 'Transit damages, customer refusal, and rerouting', actions: ['view', 'create', 'edit', 'confirm', 'export'] },
   { id: 'delivery_history', name: 'Dispatch History Archive', department: 'logistics', description: 'Historical shipment records and search', actions: ['view', 'export'] },
   { id: 'logistics_reports', name: 'Logistics Reports', department: 'logistics', description: 'Carrier performance, delivery SLAs, and freight cost', actions: ['view', 'export'] },
+
+  // Service Department
+  { id: 'service_dashboard', name: 'Service Dashboard', department: 'service', description: 'Technician dispatch, open tickets, SLAs, and performance metrics', actions: ['view', 'export'] },
+  { id: 'delivered_products', name: 'Delivered Products Register', department: 'service', description: 'Customer delivered machinery, serial numbers, and warranty records', actions: ['view', 'create', 'edit', 'delete', 'export'] },
+  { id: 'service_requests', name: 'Service Requests', department: 'service', description: 'Customer breakdown tickets, warranty claim reviews, and triage', actions: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'] },
+  { id: 'service_jobs', name: 'Service Work Orders', department: 'service', description: 'Technician job sheets, check-in/out, work updates, and checklists', actions: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'] },
+  { id: 'service_schedule', name: 'Technician Schedule', department: 'service', description: 'Technician site visit calendar and field allocations', actions: ['view', 'create', 'edit', 'export'] },
+  { id: 'service_materials', name: 'Service Spare Requests', department: 'service', description: 'Spare parts indent to supply chain, receipt, and consumption', actions: ['view', 'create', 'edit', 'submit', 'confirm', 'export'] },
+  { id: 'service_expenses', name: 'Technician Expenses & Advances', department: 'service', description: 'Travel advances, expense claims, verification, and settlement', actions: ['view', 'create', 'edit', 'verify', 'confirm', 'export'] },
+  { id: 'service_billing', name: 'Service Billing & Invoicing', department: 'service', description: 'Chargeable service invoices, spare billing, and payment tracking', actions: ['view', 'create', 'edit', 'confirm', 'export'] },
+  { id: 'completed_services', name: 'Service History & Reports', department: 'service', description: 'Archived service completion reports and customer sign-offs', actions: ['view', 'export'] },
+  { id: 'service_reports', name: 'Service Department Reports', department: 'service', description: 'Warranty claim trends, MTBF, MTTR, and technician utilization', actions: ['view', 'export'] },
+
+  // Research & Development (R&D) Department
+  { id: 'rd_dashboard', name: 'R&D Dashboard', department: 'rd', description: 'Active prototype metrics, testing queues, and milestone tracking', actions: ['view', 'export'] },
+  { id: 'rd_projects', name: 'R&D Projects', department: 'rd', description: 'Product development projects, innovation milestones, and budgets', actions: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'] },
+  { id: 'rd_specifications', name: 'Product Specifications', department: 'rd', description: 'Dynamic technical design specifications, parameters, and tolerances', actions: ['view', 'create', 'edit', 'delete', 'export'] },
+  { id: 'rd_bom', name: 'Prototype BOM & Materials', department: 'rd', description: 'Experimental BOMs, component requisitions, and inventory requests', actions: ['view', 'create', 'edit', 'delete', 'submit', 'export'] },
+  { id: 'rd_work_updates', name: 'Daily R&D Work Updates', department: 'rd', description: 'Fabrication & engineering updates, multi-stage logs, and highlights', actions: ['view', 'create', 'edit', 'export'] },
+  { id: 'rd_testing', name: 'Prototype Testing & Validation', department: 'rd', description: 'Dynamic test protocols, Pass/Fail/Pending checklist, and retest runs', actions: ['view', 'create', 'edit', 'verify', 'confirm', 'export'] },
+  { id: 'completed_rd_projects', name: 'Completed R&D Archive', department: 'rd', description: 'Successfully completed R&D projects and validated prototypes archive', actions: ['view', 'export'] },
+  { id: 'rd_reports', name: 'R&D Department Reports', department: 'rd', description: 'R&D testing yields, budget utilization, and milestone completion velocity', actions: ['view', 'export'] },
 
   // Shared & Admin
   { id: 'tracking', name: 'Centralized Order Tracking', department: 'shared', description: 'End-to-end 15-stage order lifecycle visibility', actions: ['view', 'export'] },
@@ -1085,6 +1109,384 @@ export interface DeliveryIssue {
 }
 
 // ==========================================
+// SERVICE MANAGEMENT TYPES
+// ==========================================
+
+export type WarrantyStatus = 'Under Warranty' | 'Expired' | 'Not Configured';
+
+export interface DeliveredProduct {
+  id: string;
+  serialNumber: string;
+  productId: string;
+  productName: string;
+  modelNumber: string;
+  customerId: string;
+  customerName: string;
+  customerContact?: string;
+  customerPhone?: string;
+  customerEmail?: string;
+  deliveryAddress: string;
+  salesOrderId?: string;
+  salesOrderDocNo?: string;
+  productionOrderId?: string;
+  productionOrderDocNo?: string;
+  deliveryOrderId?: string;
+  deliveryOrderDocNo?: string;
+  deliveredDate: string;
+  warrantyPeriodMonths: number;
+  warrantyStartDate: string;
+  warrantyEndDate: string;
+  warrantyStatus: WarrantyStatus;
+  status: 'Active' | 'Under Service' | 'Decommissioned';
+  notes?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type ServicePriority = 'Low' | 'Medium' | 'High' | 'Urgent';
+export type ServiceLocation = 'Customer Site' | 'CRYO Workshop';
+export type ServiceRequestStatus = 'Open' | 'Assigned' | 'In Progress' | 'Completed' | 'Cancelled';
+
+export interface ServiceRequest {
+  id: string;
+  docNo: string; // SRV-xxxx
+  requestDate: string;
+  customerId: string;
+  customerName: string;
+  contactPerson?: string;
+  contactPhone?: string;
+  contactEmail?: string;
+  serviceAddress: string;
+  deliveredProductId: string;
+  serialNumber: string;
+  productName: string;
+  modelNumber?: string;
+  serviceType: ServiceLocation;
+  priority: ServicePriority;
+  issueDescription: string;
+  isUnderWarranty: boolean;
+  warrantyClaimValid: boolean;
+  warrantyRemarks?: string;
+  status: ServiceRequestStatus;
+  assignedJobId?: string;
+  assignedTechnicianId?: string;
+  assignedTechnicianName?: string;
+  scheduledDate?: string;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ServiceJobStatus = 'Scheduled' | 'In Progress' | 'Awaiting Spares' | 'Work Completed' | 'Billed' | 'Closed';
+
+export interface ServiceJobCheckIn {
+  timestamp: string;
+  performedBy: string;
+  location?: string;
+  notes?: string;
+}
+
+export interface ServiceJobCheckOut {
+  timestamp: string;
+  performedBy: string;
+  resolutionSummary: string;
+  customerRepresentativeName?: string;
+  customerSignatureAck?: boolean;
+}
+
+export interface ServiceJob {
+  id: string;
+  docNo: string; // JOB-xxxx
+  serviceRequestId: string;
+  serviceRequestDocNo: string;
+  customerId: string;
+  customerName: string;
+  deliveredProductId: string;
+  serialNumber: string;
+  productName: string;
+  serviceType: ServiceLocation;
+  priority: ServicePriority;
+  assignedTechnicianId: string;
+  assignedTechnicianName: string;
+  scheduledDate: string;
+  status: ServiceJobStatus;
+  checkIn?: ServiceJobCheckIn;
+  checkOut?: ServiceJobCheckOut;
+  diagnosisSummary?: string;
+  rootCause?: string;
+  correctiveAction?: string;
+  preventiveAction?: string;
+  totalHoursSpent?: number;
+  customerFeedbackScore?: number;
+  customerFeedbackNotes?: string;
+  isChargeable: boolean;
+  billingId?: string;
+  completionDate?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface DynamicChecklistItem {
+  id: string;
+  item: string;
+  result: 'Pass' | 'Fail' | 'Pending';
+  remarks?: string;
+}
+
+export interface ServiceWorkUpdate {
+  id: string;
+  serviceJobId: string;
+  date: string;
+  technicianId: string;
+  technicianName: string;
+  stageName: string;
+  hoursSpent: number;
+  highlights: string[];
+  checklist: DynamicChecklistItem[];
+  findingsNotes?: string;
+  createdAt: string;
+}
+
+export interface ServiceMaterialItem {
+  materialId?: string;
+  materialName: string;
+  partNumber?: string;
+  quantityRequested: number;
+  quantityIssued: number;
+  quantityUsed: number;
+  quantityReturned: number;
+  unit: string;
+  unitCost?: number;
+  totalCost?: number;
+}
+
+export interface ServiceMaterialRequest {
+  id: string;
+  docNo: string; // SMR-xxxx
+  serviceJobId: string;
+  serviceJobDocNo: string;
+  customerId: string;
+  customerName: string;
+  requestedBy: string;
+  requestDate: string;
+  items: ServiceMaterialItem[];
+  status: 'Pending' | 'Issued' | 'Received' | 'Reconciled';
+  issuedDate?: string;
+  receivedDate?: string;
+  reconciledDate?: string;
+  notes?: string;
+  linkedMaterialRequestId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type ExpenseCategory = 'Travel' | 'Food' | 'Lodging' | 'Local Transport' | 'Tools/Hardware' | 'Other';
+export type ExpensePaidBy = 'Technician' | 'Company';
+export type ExpenseVerificationStatus = 'Pending' | 'Verified' | 'Rejected';
+
+export interface ServiceExpense {
+  id: string;
+  docNo: string; // EXP-xxxx
+  serviceJobId?: string;
+  serviceJobDocNo?: string;
+  technicianId: string;
+  technicianName: string;
+  date: string;
+  category: ExpenseCategory;
+  description: string;
+  amount: number;
+  paidBy: ExpensePaidBy;
+  receiptAttachment?: string;
+  status: ExpenseVerificationStatus;
+  verifiedBy?: string;
+  verifiedAt?: string;
+  rejectionReason?: string;
+  createdAt: string;
+}
+
+export interface TechnicianAdvance {
+  id: string;
+  docNo: string; // ADV-xxxx
+  technicianId: string;
+  technicianName: string;
+  serviceJobId?: string;
+  serviceJobDocNo?: string;
+  amount: number;
+  advanceDate: string;
+  paymentMode: 'Cash' | 'Bank Transfer' | 'UPI' | 'Company Card';
+  purpose: string;
+  status: 'Disbursed' | 'Settled';
+  approvedBy: string;
+  settledDate?: string;
+  createdAt: string;
+}
+
+export interface ExpenseSettlementSummary {
+  technicianId: string;
+  technicianName: string;
+  serviceJobId?: string;
+  totalExpenses: number;
+  employeePaid: number;
+  companyPaid: number;
+  advancePaid: number;
+  reimbursementDue: number;
+  advanceToReturn: number;
+  settlementStatus: 'Balanced' | 'Reimbursement Due' | 'Advance Return Due';
+  verifiedExpensesCount?: number;
+}
+
+export interface ServiceBillingItem {
+  description: string;
+  itemType: 'Spare' | 'Labor' | 'Travel' | 'Other';
+  quantity: number;
+  unitPrice: number;
+  totalPrice: number;
+  isWarrantyCovered: boolean;
+}
+
+export interface ServiceBilling {
+  id: string;
+  docNo: string; // SBL-xxxx
+  serviceJobId: string;
+  serviceJobDocNo: string;
+  customerId: string;
+  customerName: string;
+  billingDate: string;
+  items: ServiceBillingItem[];
+  subtotal: number;
+  taxPercent: number;
+  taxAmount: number;
+  grandTotal: number;
+  paymentStatus: 'Pending' | 'Paid' | 'Waived';
+  paymentMode?: string;
+  paymentReference?: string;
+  paymentDate?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ==========================================
+// R&D MANAGEMENT TYPES
+// ==========================================
+
+export type RDProjectType = 'New Product Development' | 'Component Research' | 'Efficiency Optimization' | 'Custom Prototype';
+export type RDProjectStatus = 'Initiated' | 'Specification Done' | 'Prototyping' | 'Testing' | 'Successfully Completed' | 'On Hold' | 'Cancelled';
+
+export interface RDProject {
+  id: string;
+  projectCode: string; // RND-xxxx
+  title: string;
+  objective: string;
+  projectType: RDProjectType;
+  leadEngineerId: string;
+  leadEngineerName: string;
+  teamMembers: Array<{ id: string; name: string; role: string }>;
+  targetCompletionDate: string;
+  budgetEstimated: number;
+  budgetUtilized: number;
+  status: RDProjectStatus;
+  currentStage: string;
+  finalConclusion?: string;
+  completedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RDSpecParameter {
+  id: string;
+  category?: string;
+  parameterName: string;
+  targetValue: string;
+  tolerance?: string;
+  unit?: string;
+  isCritical?: boolean;
+  notes?: string;
+}
+
+export interface RDSpecification {
+  id: string;
+  rdProjectId: string;
+  version: string;
+  parameters: RDSpecParameter[];
+  approvedBy?: string;
+  approvedAt?: string;
+  notes?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RDBOMItem {
+  id: string;
+  materialId?: string;
+  name: string;
+  partNumber?: string;
+  category?: string;
+  quantityRequired: number;
+  unit: string;
+  source: 'Stock' | 'Procurement';
+  estimatedUnitCost: number;
+  totalCost: number;
+  quantityRequested: number;
+  quantityIssued: number;
+  quantityConsumed: number;
+  notes?: string;
+}
+
+export interface RDBOM {
+  id: string;
+  rdProjectId: string;
+  version: string;
+  items: RDBOMItem[];
+  totalEstimatedCost: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RDWorkUpdate {
+  id: string;
+  rdProjectId: string;
+  date: string;
+  engineerId: string;
+  engineerName: string;
+  selectedStages: string[];
+  customStage?: string;
+  hoursSpent: number;
+  highlights: string[];
+  technicalObservations?: string;
+  attachments?: string[];
+  createdAt: string;
+}
+
+export interface RDTestItem {
+  id: string;
+  parameterOrCheck: string;
+  expectedCondition: string;
+  measuredValue: string;
+  result: 'Pass' | 'Fail' | 'Pending';
+  remarks?: string;
+}
+
+export interface RDTestRecord {
+  id: string;
+  rdProjectId: string;
+  testName: string;
+  testProtocolNumber?: string;
+  iteration: number;
+  testDate: string;
+  testedById: string;
+  testedByName: string;
+  status: 'In Progress' | 'Passed' | 'Failed';
+  checklist: RDTestItem[];
+  environmentalConditions?: string;
+  testNotes?: string;
+  retestRequired?: boolean;
+  retestReason?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ==========================================
 // FULL ERP DATABASE SNAPSHOT
 // ==========================================
 
@@ -1108,6 +1510,14 @@ export interface DocCounters {
   EMP?: number;
   MAT?: number;
   PRT?: number;
+  SRV?: number;
+  JOB?: number;
+  RND?: number;
+  SMR?: number;
+  EXP?: number;
+  ADV?: number;
+  SBL?: number;
+  DP?: number;
 }
 
 export interface ERPDatabase {
@@ -1145,4 +1555,19 @@ export interface ERPDatabase {
   attachments?: AttachmentRecord[];
   approvalWorkflows?: ApprovalWorkflow[];
   approvalRequests?: ApprovalRequest[];
+  // Service Management
+  deliveredProducts?: DeliveredProduct[];
+  serviceRequests?: ServiceRequest[];
+  serviceJobs?: ServiceJob[];
+  serviceWorkUpdates?: ServiceWorkUpdate[];
+  serviceMaterialRequests?: ServiceMaterialRequest[];
+  serviceExpenses?: ServiceExpense[];
+  technicianAdvances?: TechnicianAdvance[];
+  serviceBillings?: ServiceBilling[];
+  // R&D Management
+  rdProjects?: RDProject[];
+  rdSpecifications?: RDSpecification[];
+  rdBoms?: RDBOM[];
+  rdWorkUpdates?: RDWorkUpdate[];
+  rdTestRecords?: RDTestRecord[];
 }

@@ -54,6 +54,30 @@ const LogisticsDashboard = React.lazy(() => import('./pages/logistics/LogisticsP
 const LogisticsReportsPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.LogisticsReportsPage })));
 const ReadyForDispatchPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.ReadyForDispatchPage })));
 
+// Shared Delivered Products Register
+const DeliveredProductsPage = React.lazy(() => import('./pages/shared/DeliveredProductsPage').then((m) => ({ default: m.DeliveredProductsPage })));
+
+// Service Management (Code-split)
+const ServiceDashboard = React.lazy(() => import('./pages/service/ServiceDashboard').then((m) => ({ default: m.ServiceDashboard })));
+const ServiceRequestsPage = React.lazy(() => import('./pages/service/ServiceRequestsPage').then((m) => ({ default: m.ServiceRequestsPage })));
+const ServiceJobsPage = React.lazy(() => import('./pages/service/ServiceJobsPage').then((m) => ({ default: m.ServiceJobsPage })));
+const ServiceJobDetailPage = React.lazy(() => import('./pages/service/ServiceJobDetailPage').then((m) => ({ default: m.ServiceJobDetailPage })));
+const TechnicianSchedulePage = React.lazy(() => import('./pages/service/TechnicianSchedulePage').then((m) => ({ default: m.TechnicianSchedulePage })));
+const ServiceMaterialsPage = React.lazy(() => import('./pages/service/ServiceMaterialsPage').then((m) => ({ default: m.ServiceMaterialsPage })));
+const ServiceExpensesPage = React.lazy(() => import('./pages/service/ServiceExpensesPage').then((m) => ({ default: m.ServiceExpensesPage })));
+const ServiceReportsPage = React.lazy(() => import('./pages/service/ServiceReportsPage').then((m) => ({ default: m.ServiceReportsPage })));
+
+// Research & Development (R&D) (Code-split)
+const RDDashboard = React.lazy(() => import('./pages/rd/RDDashboard').then((m) => ({ default: m.RDDashboard })));
+const RDProjectsPage = React.lazy(() => import('./pages/rd/RDProjectsPage').then((m) => ({ default: m.RDProjectsPage })));
+const RDProjectDetailPage = React.lazy(() => import('./pages/rd/RDProjectDetailPage').then((m) => ({ default: m.RDProjectDetailPage })));
+const RDSpecificationsPage = React.lazy(() => import('./pages/rd/RDSpecificationsPage').then((m) => ({ default: m.RDSpecificationsPage })));
+const RDBomPage = React.lazy(() => import('./pages/rd/RDBomPage').then((m) => ({ default: m.RDBomPage })));
+const RDWorkUpdatesPage = React.lazy(() => import('./pages/rd/RDWorkUpdatesPage').then((m) => ({ default: m.RDWorkUpdatesPage })));
+const RDTestingPage = React.lazy(() => import('./pages/rd/RDTestingPage').then((m) => ({ default: m.RDTestingPage })));
+const RDCompletedPage = React.lazy(() => import('./pages/rd/RDCompletedPage').then((m) => ({ default: m.RDCompletedPage })));
+const RDReportsPage = React.lazy(() => import('./pages/rd/RDReportsPage').then((m) => ({ default: m.RDReportsPage })));
+
 // Shared & Administration (Code-split)
 const OrderTrackingDetailPage = React.lazy(() => import('./pages/shared/OrderTrackingPage').then((m) => ({ default: m.OrderTrackingDetailPage })));
 const OrderTrackingPage = React.lazy(() => import('./pages/shared/OrderTrackingPage').then((m) => ({ default: m.OrderTrackingPage })));
@@ -446,6 +470,14 @@ export function App() {
                 </RequireModule>
               }
             />
+            <Route
+              path="/production/delivered-products"
+              element={
+                <RequireModule module="delivered_products">
+                  <DeliveredProductsPage sourceDept="production" />
+                </RequireModule>
+              }
+            />
 
             {/* Department 4: Logistics & Delivery Management */}
             <Route
@@ -517,6 +549,154 @@ export function App() {
               element={
                 <RequireModule module="logistics">
                   <LogisticsReportsPage />
+                </RequireModule>
+              }
+            />
+
+            {/* Department 5: Service Management */}
+            <Route
+              path="/service"
+              element={
+                <RequireModule module="service_dashboard">
+                  <ServiceDashboard />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/service/delivered-products"
+              element={
+                <RequireModule module="delivered_products">
+                  <DeliveredProductsPage sourceDept="service" />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/service/requests"
+              element={
+                <RequireModule module="service_requests">
+                  <ServiceRequestsPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/service/jobs"
+              element={
+                <RequireModule module="service_jobs">
+                  <ServiceJobsPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/service/jobs/:id"
+              element={
+                <RequireModule module="service_jobs">
+                  <ServiceJobDetailPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/service/schedule"
+              element={
+                <RequireModule module="service_schedule">
+                  <TechnicianSchedulePage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/service/materials"
+              element={
+                <RequireModule module="service_materials">
+                  <ServiceMaterialsPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/service/expenses"
+              element={
+                <RequireModule module="service_expenses">
+                  <ServiceExpensesPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/service/reports"
+              element={
+                <RequireModule module="service_reports">
+                  <ServiceReportsPage />
+                </RequireModule>
+              }
+            />
+
+            {/* Department 6: Research & Development (R&D) */}
+            <Route
+              path="/rd"
+              element={
+                <RequireModule module="rd_dashboard">
+                  <RDDashboard />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/rd/projects"
+              element={
+                <RequireModule module="rd_projects">
+                  <RDProjectsPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/rd/projects/:id"
+              element={
+                <RequireModule module="rd_projects">
+                  <RDProjectDetailPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/rd/specifications"
+              element={
+                <RequireModule module="rd_specifications">
+                  <RDSpecificationsPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/rd/bom"
+              element={
+                <RequireModule module="rd_bom">
+                  <RDBomPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/rd/daily-updates"
+              element={
+                <RequireModule module="rd_work_updates">
+                  <RDWorkUpdatesPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/rd/testing"
+              element={
+                <RequireModule module="rd_testing">
+                  <RDTestingPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/rd/completed"
+              element={
+                <RequireModule module="completed_rd_projects">
+                  <RDCompletedPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/rd/reports"
+              element={
+                <RequireModule module="rd_reports">
+                  <RDReportsPage />
                 </RequireModule>
               }
             />
