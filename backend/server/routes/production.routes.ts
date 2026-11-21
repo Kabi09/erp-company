@@ -12,6 +12,7 @@ import { requireAuth, requirePerm, type AuthenticatedRequest } from '../middlewa
 import {
   BOMModel,
   DailyProductionUpdateModel,
+  ManufacturingStageDefinitionModel,
   MaterialIssueModel,
   MaterialModel,
   MaterialRequestModel,
@@ -560,6 +561,90 @@ productionRouter.post('/production/orders/:id/start', requireAuth, requirePerm('
   }
 });
 
+// --- Manufacturing Stages Catalog ---
+productionRouter.get('/production/stages', requireAuth, requirePerm('production', 'view'), async (_req: AuthenticatedRequest, res) => {
+  try {
+    let stages = await ManufacturingStageDefinitionModel.find({ active: true }).sort({ name: 1 }).lean();
+    if (stages.length === 0) {
+      const standardStages = [
+        'Design Review',
+        'Material Preparation',
+        'Cutting',
+        'Fabrication',
+        'Welding',
+        'Assembly',
+        'Electrical Wiring',
+        'Testing Preparation',
+        'Finishing',
+        'Packing',
+      ];
+      const now = new Date().toISOString();
+      const docs = standardStages.map((name) => ({
+        id: generateId('stg'),
+        name,
+        normalizedName: name.trim().toLowerCase().replace(/\s+/g, ' '),
+        active: true,
+        createdBy: 'System Seed',
+        createdAt: now,
+        updatedAt: now,
+      }));
+      await ManufacturingStageDefinitionModel.insertMany(docs);
+      stages = await ManufacturingStageDefinitionModel.find({ active: true }).sort({ name: 1 }).lean();
+    }
+    res.json(stages);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+productionRouter.post('/production/stages', requireAuth, requirePerm('production', 'create'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      throw new Error('Stage name is required.');
+    }
+    const cleanName = name.trim();
+    const normalized = cleanName.toLowerCase().replace(/\s+/g, ' ');
+
+    const existing = await ManufacturingStageDefinitionModel.findOne({ normalizedName: normalized });
+    if (existing) {
+      if (!existing.active) {
+        existing.active = true;
+        await existing.save();
+        return res.status(200).json(existing.toObject());
+      }
+      throw new Error(`Manufacturing stage "${existing.name}" already exists.`);
+    }
+
+    const now = new Date().toISOString();
+    const doc = {
+      id: generateId('stg'),
+      name: cleanName,
+      normalizedName: normalized,
+      active: true,
+      createdBy: req.user!.name,
+      createdAt: now,
+      updatedAt: now,
+    };
+    await ManufacturingStageDefinitionModel.create(doc);
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'production',
+      action: 'Created Manufacturing Stage',
+      entityType: 'ManufacturingStage',
+      entityId: doc.id,
+      entityDocNo: doc.name,
+      details: `Created manufacturing stage "${doc.name}"`,
+    });
+
+    res.status(201).json(doc);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // --- Daily Production Updates ---
 productionRouter.get('/production/daily-updates', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
   try {
@@ -581,23 +666,68 @@ productionRouter.post(
     try {
       const body = req.body;
       const poId = req.params.id || body.productionOrderId;
-      if (!poId || !body.stage?.trim() || !body.workCompleted?.trim()) {
-        throw new Error('Production order, process stage, and work completed description are required.');
-      }
+      if (!poId) throw new Error('Production order ID is required.');
       const po = await ProductionOrderModel.findOne({ id: poId });
       if (!po) throw new Error('NOT_FOUND:Production order not found.');
-      if (po.status !== 'In Progress' && po.status !== 'Rework') {
-        throw new Error(`Daily updates can only be added for Active or Rework orders (current: ${po.status}).`);
+
+      // Normalize selected stages & primary stage
+      let selectedStages: string[] = [];
+      if (Array.isArray(body.selectedStages)) {
+        selectedStages = body.selectedStages.map((s: string) => String(s).trim()).filter(Boolean);
+      } else if (body.stage && typeof body.stage === 'string' && body.stage.trim()) {
+        selectedStages = [body.stage.trim()];
       }
+      const stage = selectedStages.length > 0 ? selectedStages.join(', ') : (body.stage?.trim() || '');
+
+      // Normalize highlights & work description
+      let highlights: string[] = [];
+      if (Array.isArray(body.highlights)) {
+        highlights = body.highlights.map((h: string) => String(h).trim()).filter(Boolean);
+      }
+      let workCompleted = (body.workCompleted && typeof body.workCompleted === 'string') ? body.workCompleted.trim() : '';
+      if (!workCompleted && highlights.length > 0) {
+        workCompleted = highlights.join('; ');
+      }
+
+      if (!stage) {
+        throw new Error('Production order, process stage, and work completed description are required.');
+      }
+      if (!workCompleted) {
+        throw new Error('Production order, process stage, and work completed description are required.');
+      }
+
+      // Work Type validation & production readiness protection
+      const isManufacturingAllowed = po.status === 'In Progress' || po.status === 'Rework';
+      let workType: 'Preliminary Planning / Preparation' | 'Manufacturing Progress' = body.workType;
+      if (!workType) {
+        workType = isManufacturingAllowed ? 'Manufacturing Progress' : 'Preliminary Planning / Preparation';
+      }
+
+      if (!isManufacturingAllowed) {
+        if (workType === 'Manufacturing Progress') {
+          throw new Error(
+            `Manufacturing progress cannot be recorded while production is not started (current: ${po.status}). Use 'Preliminary Planning / Preparation' instead.`,
+          );
+        }
+      }
+
+      // Quantitative safety: preliminary planning updates must have zero completed qty
+      const completedQty = workType === 'Preliminary Planning / Preparation'
+        ? 0
+        : Math.min(po.quantity, Math.max(0, Number(body.completedQty) || 0));
+
       const now = new Date().toISOString();
       const du = {
         id: generateId('du'),
         productionOrderId: po.id,
         productionOrderDocNo: po.docNo,
         workDate: body.workDate || now.slice(0, 10),
-        stage: body.stage.trim(),
-        workCompleted: body.workCompleted.trim(),
-        completedQty: Math.min(po.quantity, Math.max(0, Number(body.completedQty) || 0)),
+        workType,
+        stage,
+        selectedStages,
+        workCompleted,
+        highlights,
+        completedQty,
         workHours: Math.max(0, Number(body.workHours) || 0),
         stageStatus: body.stageStatus || 'In Progress',
         issues: body.issues?.trim() || '',
@@ -608,27 +738,28 @@ productionRouter.post(
         createdAt: now,
       };
 
-    await DailyProductionUpdateModel.create(du);
+      await DailyProductionUpdateModel.create(du);
 
-    po.updatedAt = now;
-    await po.save();
+      po.updatedAt = now;
+      await po.save();
 
-    await mongoERPRepository.addActivity({
-      actorId: req.user!.id,
-      actorName: req.user!.name,
-      department: 'production',
-      action: 'Logged Daily Update',
-      entityType: 'ProductionOrder',
-      entityId: po.id,
-      entityDocNo: po.docNo,
-      details: `${du.stage} (${du.stageStatus}): ${du.workCompleted.slice(0, 80)}`,
-    });
+      await mongoERPRepository.addActivity({
+        actorId: req.user!.id,
+        actorName: req.user!.name,
+        department: 'production',
+        action: 'Logged Daily Update',
+        entityType: 'ProductionOrder',
+        entityId: po.id,
+        entityDocNo: po.docNo,
+        details: `[${du.workType}] ${du.stage} (${du.stageStatus}): ${du.workCompleted.slice(0, 80)}`,
+      });
 
-    res.status(201).json(du);
-  } catch (err) {
-    sendError(res, err);
-  }
-});
+      res.status(201).json(du);
+    } catch (err) {
+      sendError(res, err);
+    }
+  },
+);
 
 // --- Complete Manufacturing ---
 const completeManufacturingHandler = async (req: AuthenticatedRequest, res: any) => {
@@ -639,9 +770,12 @@ const completeManufacturingHandler = async (req: AuthenticatedRequest, res: any)
     if (po.status !== 'In Progress') {
       throw new Error('Only orders In Progress can be marked manufacturing completed.');
     }
-    const updateCount = await DailyProductionUpdateModel.countDocuments({ productionOrderId: po.id });
+    const updateCount = await DailyProductionUpdateModel.countDocuments({
+      productionOrderId: po.id,
+      workType: { $ne: 'Preliminary Planning / Preparation' },
+    });
     if (updateCount === 0) {
-      throw new Error('Record at least one daily production update before completing manufacturing.');
+      throw new Error('Record at least one daily production update with "Manufacturing Progress" before completing manufacturing.');
     }
     const qty = Number(body.completedQty ?? body.completedManufacturingQty ?? po.quantity);
     if (!qty || qty <= 0 || qty > po.quantity) {
@@ -730,9 +864,39 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
 
     let acceptedQty: number;
     let rejectedQty: number;
-    let finalResult: 'Accepted' | 'Rejected';
+    let finalResult: 'Accepted' | 'Rejected' | 'Pending';
 
-    if (body.acceptedQty !== undefined || body.rejectedQty !== undefined) {
+    // Normalize Dynamic QC Checklist Items
+    const rawChecks = Array.isArray(body.checks) ? body.checks : [];
+    const normalizedChecks: any[] = rawChecks.map((c: any, idx: number) => {
+      const name = String(c.name || c.title || `Check Item #${idx + 1}`).trim();
+      let resVal: 'Pass' | 'Fail' | 'Pending' = 'Pass';
+      if (c.result === 'Pass' || c.result === 'Fail' || c.result === 'Pending') {
+        resVal = c.result;
+      } else if (c.passed === false) {
+        resVal = 'Fail';
+      } else if (c.passed === true) {
+        resVal = 'Pass';
+      }
+      return {
+        id: c.id || `chk-${idx + 1}`,
+        name,
+        result: resVal,
+        observation: c.observation?.trim() || '',
+        measuredValue: c.measuredValue?.trim() || undefined,
+        expectedValue: c.expectedValue?.trim() || undefined,
+        required: Boolean(c.required),
+        passed: resVal === 'Pass',
+      };
+    });
+
+    const isPendingDraft = body.finalResult === 'Pending';
+
+    if (isPendingDraft) {
+      finalResult = 'Pending';
+      acceptedQty = 0;
+      rejectedQty = 0;
+    } else if (body.acceptedQty !== undefined || body.rejectedQty !== undefined) {
       acceptedQty = Number(body.acceptedQty ?? 0);
       rejectedQty = Number(body.rejectedQty ?? 0);
       if (acceptedQty < 0 || rejectedQty < 0) {
@@ -748,8 +912,38 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
       rejectedQty = finalResult === 'Rejected' ? inspectedQty : 0;
     }
 
-    if (rejectedQty > 0 && !body.rejectionReason?.trim()) {
-      throw new Error('Rejection reason is required when rejecting in Quality Check.');
+    // Acceptance Gates: Dynamic Checklist Validation
+    if (finalResult === 'Accepted') {
+      const failedRequired = normalizedChecks.filter((c) => c.required && c.result === 'Fail');
+      if (failedRequired.length > 0) {
+        throw new Error(`Cannot accept Quality Check: Required check item(s) failed (${failedRequired.map((c) => c.name).join(', ')}).`);
+      }
+      const failedAny = normalizedChecks.filter((c) => c.result === 'Fail');
+      if (failedAny.length > 0) {
+        throw new Error(`Cannot accept Quality Check: Inspection check item(s) failed (${failedAny.map((c) => c.name).join(', ')}).`);
+      }
+      const pendingRequired = normalizedChecks.filter((c) => c.required && c.result === 'Pending');
+      if (pendingRequired.length > 0) {
+        throw new Error(`Cannot accept Quality Check: Required check item(s) are still pending (${pendingRequired.map((c) => c.name).join(', ')}). Save as Draft / Pending instead.`);
+      }
+      if (rejectedQty > 0) {
+        throw new Error('Cannot accept Quality Check when rejected quantity is greater than 0.');
+      }
+    }
+
+    if (finalResult === 'Rejected') {
+      if (rejectedQty === 0) {
+        rejectedQty = inspectedQty;
+        acceptedQty = 0;
+      }
+      if (!body.rejectionReason?.trim()) {
+        const failedNames = normalizedChecks.filter((c) => c.result === 'Fail').map((c) => c.name).join(', ');
+        if (failedNames) {
+          body.rejectionReason = `Failed inspection checks: ${failedNames}`;
+        } else {
+          throw new Error('Rejection reason is required when rejecting in Quality Check.');
+        }
+      }
     }
 
     const prevAttempts = await QualityCheckModel.countDocuments({ productionOrderId: po.id });
@@ -760,7 +954,11 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
     let reworkId: string | undefined;
     let reworkDocNo: string | undefined;
 
-    if (rejectedQty > 0) {
+    if (finalResult === 'Pending') {
+      // Draft / In-progress inspection: leave order in QC Pending state without creating rework
+      po.updatedAt = now;
+      await po.save();
+    } else if (rejectedQty > 0) {
       reworkId = generateId('rw');
       reworkDocNo = await mongoERPRepository.getNextDocNo('RW');
       const rw = {
@@ -842,8 +1040,8 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
       serialNumbers: po.serialNumbers,
       inspectionDate: body.inspectionDate || now.slice(0, 10),
       inspector: body.inspector?.trim() || req.user!.name,
-      checks: Array.isArray(body.checks) ? body.checks : [],
-      finalResult: finalResult as 'Accepted' | 'Rejected',
+      checks: normalizedChecks,
+      finalResult,
       rejectionReason: rejectedQty > 0 ? body.rejectionReason?.trim() : undefined,
       reworkId,
       reworkDocNo,

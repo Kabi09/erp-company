@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import {
   Button,
@@ -300,6 +300,27 @@ export const ProductsPage: React.FC = () => {
   const { data, refresh, toast, can } = useERP();
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [showNewCategoryModal, setShowNewCategoryModal] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [catError, setCatError] = useState<string | null>(null);
+  const [creatingCat, setCreatingCat] = useState(false);
+
+  const defaultCategories = useMemo(
+    () => [
+      'Ultra Low Temperature Freezers',
+      'Laboratory Refrigerators',
+      'Cold Rooms',
+      'Environmental Chambers',
+      'Scientific Equipment',
+    ],
+    [],
+  );
+
+  const allCategories = useMemo(() => {
+    return Array.from(new Set([...defaultCategories, ...categories]));
+  }, [defaultCategories, categories]);
+
   const [form, setForm] = useState({
     code: '',
     name: '',
@@ -314,7 +335,57 @@ export const ProductsPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  useEffect(() => {
+    let active = true;
+    erpApi
+      .getProductCategories()
+      .then((cats) => {
+        if (!active) return;
+        const catNames = cats.filter((c) => c.active).map((c) => c.name);
+        const existingFromCatalog = data ? Array.from(new Set(data.products.map((p) => p.category).filter(Boolean))) : [];
+        const merged = Array.from(new Set([...catNames, ...existingFromCatalog]));
+        if (merged.length > 0) setCategories(merged);
+      })
+      .catch(() => {
+        if (data) {
+          const existingFromCatalog = Array.from(new Set(data.products.map((p) => p.category).filter(Boolean)));
+          if (existingFromCatalog.length > 0) setCategories(existingFromCatalog);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [data]);
+
   if (!data) return null;
+
+  const handleCreateCategory = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    setCatError(null);
+    const clean = newCategoryName.trim();
+    if (!clean) {
+      setCatError('Category name is required.');
+      return;
+    }
+    const exists = allCategories.some((c) => c.toLowerCase() === clean.toLowerCase());
+    if (exists) {
+      setCatError(`Category "${clean}" already exists.`);
+      return;
+    }
+    setCreatingCat(true);
+    try {
+      await erpApi.createProductCategory(clean);
+      setCategories((prev) => [...prev, clean]);
+      setForm((prev) => ({ ...prev, category: clean }));
+      toast('success', 'Category Created', `Category "${clean}" added to catalog and selected.`);
+      setNewCategoryName('');
+      setShowNewCategoryModal(false);
+    } catch (err) {
+      setCatError(err instanceof Error ? err.message : 'Failed to create category');
+    } finally {
+      setCreatingCat(false);
+    }
+  };
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -337,7 +408,17 @@ export const ProductsPage: React.FC = () => {
       await refresh();
       toast('success', 'Product added to catalogue', `${form.name} (${form.model})`);
       setOpen(false);
-      setForm({ code: '', name: '', category: 'Ultra Low Temperature Freezers', model: '', specifications: '', sellingPrice: 0, unit: 'Unit', description: '', highlights: [''] });
+      setForm({
+        code: '',
+        name: '',
+        category: allCategories[0] || 'Ultra Low Temperature Freezers',
+        model: '',
+        specifications: '',
+        sellingPrice: 0,
+        unit: 'Unit',
+        description: '',
+        highlights: [''],
+      });
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Failed to create product');
     } finally {
@@ -445,13 +526,29 @@ export const ProductsPage: React.FC = () => {
             <Field label="Product Name" required>
               <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} required />
             </Field>
-            <Field label="Category" required>
+            <Field
+              label="Category"
+              required
+              hint={
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCatError(null);
+                    setNewCategoryName('');
+                    setShowNewCategoryModal(true);
+                  }}
+                  className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer font-medium ml-auto"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add New Category
+                </button>
+              }
+            >
               <Select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}>
-                <option value="Ultra Low Temperature Freezers">Ultra Low Temperature Freezers</option>
-                <option value="Laboratory Refrigerators">Laboratory Refrigerators</option>
-                <option value="Cold Rooms">Cold Rooms</option>
-                <option value="Environmental Chambers">Environmental Chambers</option>
-                <option value="Scientific Equipment">Scientific Equipment</option>
+                {allCategories.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
               </Select>
             </Field>
             <Field label="Default Selling Price (₹)" required>
@@ -494,6 +591,42 @@ export const ProductsPage: React.FC = () => {
             ))}
           </div>
         </form>
+      </Modal>
+
+      <Modal
+        open={showNewCategoryModal}
+        onClose={() => setShowNewCategoryModal(false)}
+        title="Add Product Category"
+        subtitle="Create a new reusable category in the product catalog."
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setShowNewCategoryModal(false)}>
+              Cancel
+            </Button>
+            <Button type="button" onClick={() => handleCreateCategory()} loading={creatingCat}>
+              Create Category
+            </Button>
+          </>
+        }
+      >
+        <div className="space-y-3">
+          {catError && <ErrorBanner message={catError} />}
+          <Field label="Category Name" required>
+            <Input
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+              placeholder="e.g. Cryogenic Storage Tanks"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleCreateCategory();
+                }
+              }}
+            />
+          </Field>
+        </div>
       </Modal>
     </div>
   );

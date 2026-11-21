@@ -134,8 +134,8 @@ test('CRYO ERP 2.0 Phase 6 — Supply Chain Management Workflow, Inventory & Int
     // 2. Create mock production order
     const now = new Date().toISOString();
     const poDoc = await ProductionOrderModel.create({
-      id: `po-s1-${Date.now()}`,
-      docNo: `PO-S1-${Date.now().toString().slice(-4)}`,
+      id: `po-s1-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+      docNo: `PO-S1-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
       salesOrderId: 'so-s1',
       salesOrderDocNo: 'SO-0001',
       customerId: 'cust-1',

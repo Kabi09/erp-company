@@ -14,7 +14,7 @@
 - **Shared Domain Layer (`shared/`)**: Pure, zero-dependency domain definitions (`shared/types/erp.ts`) and deterministic calculation formulas (`shared/utils/erpLogic.ts`) shared between frontend and backend without database or backend secret leakage.
 - **Authentication & Authorization**: Dual JWT Bearer access (15m) and rotating refresh tokens (7d), bcrypt password hashing (`bcryptjs`), and module-by-action Role-Based Access Control (RBAC) enforced on both Express API middleware and React route guards.
 - **Persistence**: Production-ready MongoDB + Mongoose 9 persistence layer with connection pooling, graceful shutdown, replica set/Atlas auto-detection, and atomic document numbering via `$inc` on `DocCounterModel`. Historical JSON snapshot preserved in `backend/data/cryo-erp-db.json` and timestamped backups in `backend/data/backups/`. Normal operations execute 100% on MongoDB without JSON fallback.
-- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 11 test suites totaling **115 passing automated tests (100% pass rate)**.
+- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 12 test suites totaling **133 passing automated tests (100% pass rate)** plus 10 frontend unit tests.
 
 ---
 
@@ -529,4 +529,34 @@
     - **115/115 automated tests passing (100% pass rate across all 11 test suites)**.
     - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
     - Vite production build bundled cleanly in 650ms.
+    - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
+- **v2.9.5 (Production Forms Refinement, BOQ/BOM Pending Updates, Manufacturing Stages, Dynamic QC Checklists & Product Categories)**:
+  - BOQ/BOM Pending Work Updates:
+    - Introduced `workType`: `'Preliminary Planning / Preparation'` vs `'Manufacturing Progress'`.
+    - Allowed preliminary daily updates on `Planned`, `Awaiting Materials`, and `Ready to Start` orders with informative guidance banner and forced `completedQty: 0`.
+    - Protected production readiness: `Manufacturing Progress` updates strictly rejected unless order is in `In Progress` or `Rework`.
+    - Completing manufacturing requires at least one daily update with `workType === 'Manufacturing Progress'`.
+  - Multi-Select & Custom Manufacturing Stages:
+    - Predefined and seeded catalog stages: `Design Review`, `Material Preparation`, `Cutting`, `Fabrication`, `Welding`, `Assembly`, `Electrical Wiring`, `Testing Preparation`, `Finishing`, `Packing`.
+    - Interactive chip UI for multiple stage selection (`selectedStages: string[]`), maintaining backward-compatible `stage` string.
+    - "+ Add New Stage": inline creation form with non-empty validation, case-insensitive duplicate check, and MongoDB catalog persistence via `POST /api/production/stages`.
+  - Daily Work Highlights:
+    - Repeatable `[Enter today's work highlight] [+ Add]` input saving as `highlights: string[]`.
+    - Rendered in shift timeline cards, order tracking details, and mobile cards with itemized removal.
+  - Dynamic Quality Inspection Checklist (Pass / Fail / Pending):
+    - Configurable checklist model (`QCCheckItem`) with `id`, `name`, `result` (`Pass` | `Fail` | `Pending`), `observation`, `measuredValue`, `expectedValue`, and `required`.
+    - 3-way toggle button group with inspection summary metrics (Pass/Fail/Pending/Total counts).
+    - Save as Draft / Pending inspection capability (`finalResult: 'Pending'`), keeping order in `QC Pending`.
+    - Strict acceptance gating: final release to logistics blocked if any check item failed or any required check is pending.
+    - Complete reinspection and rework lifecycle audit trail preserved across attempts without overwriting.
+  - Dropdown Product Categories with Add New Category:
+    - Created `ProductCategoryModel` in `sales.model.ts` with normalized unique index.
+    - Added `GET /api/sales/product-categories`, `POST /api/sales/product-categories`, and `PATCH /api/sales/product-categories/:id/toggle`.
+    - Product Master form dynamically loads categories from database/catalog and provides "+ Add New Category" modal with instant auto-selection.
+  - Verification & Automated Test Results:
+    - Created dedicated test suite `server/tests/production-form-refinement.test.ts` with 16 comprehensive integration scenarios (18 subtests).
+    - **133/133 backend automated tests passing (100% pass rate across all 12 test suites)**.
+    - **10/10 frontend logic tests passing**.
+    - **0 TypeScript compilation errors** (`tsc --noEmit` across frontend and backend).
+    - Vite production client build completed in 608ms.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.

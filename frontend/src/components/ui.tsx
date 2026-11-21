@@ -549,7 +549,7 @@ export const ConfirmDialog: React.FC<{
 export const Field: React.FC<{
   label: string;
   required?: boolean;
-  hint?: string;
+  hint?: React.ReactNode;
   error?: string;
   htmlFor?: string;
   children: React.ReactNode;
@@ -561,7 +561,7 @@ export const Field: React.FC<{
     </label>
     {children}
     {error && <p className="text-xs text-red-600 dark:text-red-400">{error}</p>}
-    {!error && hint && <p className="text-xs text-slate-500 dark:text-slate-400">{hint}</p>}
+    {!error && hint && <div className="text-xs text-slate-500 dark:text-slate-400">{hint}</div>}
   </div>
 );
 

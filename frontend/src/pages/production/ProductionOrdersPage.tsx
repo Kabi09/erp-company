@@ -697,8 +697,11 @@ export const ProductionOrderDetailPage: React.FC = () => {
       {tab === 'daily' && (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4">
           <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold">Daily Work Timeline</h2>
-            {(po.status === 'In Progress' || po.status === 'Rework') && can('production', 'create') && (
+            <div>
+              <h2 className="text-sm font-semibold">Daily Work Timeline</h2>
+              <p className="text-xs text-slate-500">Shift progress, engineering highlights, and process stage logs.</p>
+            </div>
+            {po.status !== 'Completed' && can('production', 'create') && (
               <Button size="sm" onClick={() => navigate(`/production/daily-updates?create=1&poId=${po.id}`)}>
                 + Add Daily Update
               </Button>
@@ -709,15 +712,54 @@ export const ProductionOrderDetailPage: React.FC = () => {
           ) : (
             <div className="space-y-3">
               {updates.map((u) => (
-                <div key={u.id} className="p-3.5 rounded border border-slate-200 dark:border-slate-800 text-sm">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-semibold">{u.stage} <span className="font-mono text-xs text-slate-500">· {u.workDate}</span></span>
+                <div key={u.id} className="p-3.5 rounded border border-slate-200 dark:border-slate-800 text-sm space-y-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-900 dark:text-slate-100">{u.stage}</span>
+                      <span className="font-mono text-xs text-slate-500">· {u.workDate}</span>
+                      {u.workType && (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                            u.workType === 'Preliminary Planning / Preparation'
+                              ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
+                              : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                          }`}
+                        >
+                          {u.workType === 'Preliminary Planning / Preparation' ? 'Planning / Prep' : 'Manufacturing'}
+                        </span>
+                      )}
+                    </div>
                     <StatusBadge status={u.stageStatus} />
                   </div>
-                  <p className="text-slate-700 dark:text-slate-300 mt-1 text-xs">{u.workCompleted}</p>
-                  <div className="text-xs text-slate-500 mt-1.5">
-                    By {u.employeeName} · {u.workHours} hrs · Qty: {u.completedQty}
-                    {u.issues && <span className="text-red-600 dark:text-red-400 ml-2">Issue: {u.issues}</span>}
+
+                  {u.selectedStages && u.selectedStages.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {u.selectedStages.map((stg, i) => (
+                        <span
+                          key={i}
+                          className="px-2 py-0.5 rounded text-[10px] font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+                        >
+                          {stg}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+
+                  <p className="text-slate-700 dark:text-slate-300 text-xs">{u.workCompleted}</p>
+
+                  {u.highlights && u.highlights.length > 0 && (
+                    <ul className="list-disc list-inside text-xs text-slate-500 dark:text-slate-400 space-y-0.5">
+                      {u.highlights.map((h, i) => (
+                        <li key={i}>{h}</li>
+                      ))}
+                    </ul>
+                  )}
+
+                  <div className="text-xs text-slate-500 pt-1 border-t border-slate-100 dark:border-slate-800 flex flex-wrap items-center justify-between gap-2">
+                    <span>
+                      By {u.employeeName} · {u.workHours} hrs · Qty: {u.completedQty}
+                    </span>
+                    {u.issues && <span className="text-red-600 dark:text-red-400">Issue: {u.issues}</span>}
                   </div>
                 </div>
               ))}
@@ -748,9 +790,18 @@ export const ProductionOrderDetailPage: React.FC = () => {
                   {q.rejectionReason && <div className="text-red-700 dark:text-red-400 font-medium">Rejection: {q.rejectionReason}</div>}
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 pt-1">
                     {q.checks.map((c, idx) => (
-                      <div key={idx} className="flex items-center justify-between px-2.5 py-1.5 bg-slate-50 dark:bg-slate-950 rounded">
-                        <span>{c.name}</span>
-                        <StatusBadge status={c.result} />
+                      <div key={idx} className="flex flex-col p-2 bg-slate-50 dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-800/60 gap-1">
+                        <div className="flex items-center justify-between">
+                          <span className="font-medium text-slate-800 dark:text-slate-200">{c.name}</span>
+                          <StatusBadge status={c.result} />
+                        </div>
+                        {(c.measuredValue || c.expectedValue || c.observation) && (
+                          <div className="text-[11px] text-slate-500 flex flex-wrap gap-x-2">
+                            {c.measuredValue && <span>Measured: <strong className="text-slate-700 dark:text-slate-300">{c.measuredValue}</strong></span>}
+                            {c.expectedValue && <span>Expected: {c.expectedValue}</span>}
+                            {c.observation && <span className="italic">{c.observation}</span>}
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>

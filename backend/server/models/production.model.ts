@@ -2,6 +2,7 @@ import { Schema, model, type Model } from 'mongoose';
 import type {
   BOM,
   DailyProductionUpdate,
+  ManufacturingStageDefinition,
   ProductionOrder,
   QualityCheck,
   ReworkOrder,
@@ -106,8 +107,16 @@ const DailyProductionUpdateSchema = new Schema<DailyProductionUpdate>(
     productionOrderId: { type: String, required: true, index: true },
     productionOrderDocNo: { type: String, required: true },
     workDate: { type: String, required: true, index: true },
+    workType: {
+      type: String,
+      enum: ['Preliminary Planning / Preparation', 'Manufacturing Progress'],
+      default: 'Manufacturing Progress',
+      index: true,
+    },
     stage: { type: String, required: true },
+    selectedStages: { type: [String], default: [] },
     workCompleted: { type: String, required: true },
+    highlights: { type: [String], default: [] },
     completedQty: { type: Number, default: 0, min: 0 },
     workHours: { type: Number, default: 0, min: 0 },
     stageStatus: {
@@ -147,12 +156,16 @@ const QualityCheckSchema = new Schema<QualityCheck>(
     inspector: { type: String, required: true },
     checks: [
       {
+        id: { type: String },
         name: { type: String, required: true },
-        result: { type: String, enum: ['Pass', 'Fail'], required: true },
+        result: { type: String, enum: ['Pass', 'Fail', 'Pending'], required: true },
         observation: { type: String, default: '' },
+        measuredValue: { type: String, default: '' },
+        expectedValue: { type: String, default: '' },
+        required: { type: Boolean, default: true },
       },
     ],
-    finalResult: { type: String, enum: ['Accepted', 'Rejected'], required: true, index: true },
+    finalResult: { type: String, enum: ['Accepted', 'Rejected', 'Pending'], required: true, index: true },
     rejectionReason: { type: String },
     reworkId: { type: String, index: true },
     reworkDocNo: { type: String },
@@ -164,6 +177,22 @@ const QualityCheckSchema = new Schema<QualityCheck>(
 );
 QualityCheckSchema.index({ productionOrderId: 1, attemptNumber: 1 });
 export const QualityCheckModel: Model<QualityCheck> = model<QualityCheck>('QualityCheck', QualityCheckSchema);
+
+// --- MANUFACTURING STAGE DEFINITION MODEL ---
+const ManufacturingStageDefinitionSchema = new Schema<ManufacturingStageDefinition>(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true },
+    normalizedName: { type: String, required: true, unique: true, index: true },
+    active: { type: Boolean, default: true, index: true },
+    createdBy: { type: String, required: true },
+  },
+  { timestamps: true },
+);
+export const ManufacturingStageDefinitionModel: Model<ManufacturingStageDefinition> = model<ManufacturingStageDefinition>(
+  'ManufacturingStageDefinition',
+  ManufacturingStageDefinitionSchema,
+);
 
 // --- REWORK ORDER MODEL ---
 const ReworkOrderSchema = new Schema<ReworkOrder>(

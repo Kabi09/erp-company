@@ -6,6 +6,7 @@ import type {
   FollowUp,
   PaymentEntry,
   Product,
+  ProductCategory,
   ProformaInvoice,
   Quotation,
   SalesOrder,
@@ -54,6 +55,22 @@ const ProductSchema = new Schema<Product>(
   { timestamps: true },
 );
 export const ProductModel: Model<Product> = model<Product>('Product', ProductSchema);
+
+// --- PRODUCT CATEGORY MODEL ---
+const ProductCategorySchema = new Schema<ProductCategory>(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    name: { type: String, required: true, trim: true },
+    normalizedName: { type: String, required: true, unique: true, index: true },
+    active: { type: Boolean, default: true, index: true },
+    createdBy: { type: String, required: true },
+  },
+  { timestamps: true },
+);
+export const ProductCategoryModel: Model<ProductCategory> = model<ProductCategory>(
+  'ProductCategory',
+  ProductCategorySchema,
+);
 
 // --- ENQUIRY MODEL ---
 const EnquirySchema = new Schema<Enquiry>(

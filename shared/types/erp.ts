@@ -868,13 +868,18 @@ export interface BOM {
   updatedAt: string;
 }
 
+export type WorkUpdateType = 'Preliminary Planning / Preparation' | 'Manufacturing Progress';
+
 export interface DailyProductionUpdate {
   id: string;
   productionOrderId: string;
   productionOrderDocNo: string;
   workDate: string;
+  workType?: WorkUpdateType;
   stage: string;
+  selectedStages?: string[];
   workCompleted: string;
+  highlights?: string[];
   completedQty: number;
   workHours: number;
   stageStatus: 'Pending' | 'In Progress' | 'Completed' | 'Blocked';
@@ -886,10 +891,17 @@ export interface DailyProductionUpdate {
   createdAt: string;
 }
 
+export type QCItemResult = 'Pass' | 'Fail' | 'Pending';
+
 export interface QCCheckItem {
+  id?: string;
   name: string;
-  result: 'Pass' | 'Fail';
-  observation: string;
+  result: QCItemResult;
+  observation?: string;
+  measuredValue?: string;
+  expectedValue?: string;
+  required?: boolean;
+  passed?: boolean;
 }
 
 export interface QualityCheck {
@@ -906,7 +918,7 @@ export interface QualityCheck {
   inspectionDate: string;
   inspector: string;
   checks: QCCheckItem[];
-  finalResult: 'Accepted' | 'Rejected';
+  finalResult: 'Accepted' | 'Rejected' | 'Pending';
   rejectionReason?: string;
   reworkId?: string;
   reworkDocNo?: string;
@@ -914,6 +926,26 @@ export interface QualityCheck {
   reportName?: string;
   reportDataUrl?: string;
   createdAt: string;
+}
+
+export interface ProductCategory {
+  id: string;
+  name: string;
+  normalizedName: string;
+  active: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ManufacturingStageDefinition {
+  id: string;
+  name: string;
+  normalizedName: string;
+  active: boolean;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface ReworkOrder {

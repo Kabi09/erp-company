@@ -1,6 +1,23 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Activity, CheckCircle2, Plus, RefreshCw, ShieldAlert, ShieldCheck } from 'lucide-react';
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  CheckCircle2,
+  Clock,
+  FileCheck,
+  Info,
+  Layers,
+  Plus,
+  RefreshCw,
+  Save,
+  ShieldAlert,
+  ShieldCheck,
+  Tag,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { erpApi } from '../../services/api';
 import {
@@ -18,13 +35,26 @@ import {
   type ColumnDef,
 } from '../../components/ui';
 import { formatDate } from '../../utils/erpLogic';
-import type { DailyProductionUpdate, QCCheckItem, QualityCheck, ReworkOrder } from '../../types/erp';
+import type { DailyProductionUpdate, QCCheckItem, QualityCheck, ReworkOrder, WorkUpdateType } from '../../types/erp';
 
 const DEFAULT_QC_CHECKS: QCCheckItem[] = [
-  { name: 'Visual & Mechanical Fabrication Inspection', result: 'Pass', observation: '' },
-  { name: 'Electrical Insulation & Controller Safety Check', result: 'Pass', observation: '' },
-  { name: 'Thermal Pull-Down & Stability Performance Test', result: 'Pass', observation: '' },
-  { name: 'Product-Specific Calibration & Alarm Verification', result: 'Pass', observation: '' },
+  { id: 'qc-vis', name: 'Visual & Mechanical Fabrication Inspection', result: 'Pass', observation: '', required: true },
+  { id: 'qc-elec', name: 'Electrical Insulation & Controller Safety Check', result: 'Pass', observation: '', required: true },
+  { id: 'qc-therm', name: 'Thermal Pull-Down & Stability Performance Test', result: 'Pass', observation: '', required: true },
+  { id: 'qc-cal', name: 'Product-Specific Calibration & Alarm Verification', result: 'Pass', observation: '', required: true },
+];
+
+const STANDARD_STAGES = [
+  'Design Review',
+  'Material Preparation',
+  'Cutting',
+  'Fabrication',
+  'Welding',
+  'Assembly',
+  'Electrical Wiring',
+  'Testing Preparation',
+  'Finishing',
+  'Packing',
 ];
 
 export const DailyUpdatesPage: React.FC = () => {
@@ -36,7 +66,14 @@ export const DailyUpdatesPage: React.FC = () => {
 
   const [poId, setPoId] = useState('');
   const [workDate, setWorkDate] = useState(new Date().toISOString().slice(0, 10));
-  const [stage, setStage] = useState('');
+  const [workType, setWorkType] = useState<WorkUpdateType>('Preliminary Planning / Preparation');
+  const [selectedStages, setSelectedStages] = useState<string[]>([]);
+  const [availableStages, setAvailableStages] = useState<string[]>(STANDARD_STAGES);
+  const [newStageInput, setNewStageInput] = useState('');
+  const [showNewStageForm, setShowNewStageForm] = useState(false);
+  const [stageToAdd, setStageToAdd] = useState('');
+  const [highlights, setHighlights] = useState<string[]>([]);
+  const [newHighlight, setNewHighlight] = useState('');
   const [workCompleted, setWorkCompleted] = useState('');
   const [workHours, setWorkHours] = useState('8');
   const [completedQty, setCompletedQty] = useState('0');
@@ -46,32 +83,77 @@ export const DailyUpdatesPage: React.FC = () => {
   const [photoName, setPhotoName] = useState('');
   const [photoDataUrl, setPhotoDataUrl] = useState('');
 
-  const activePOs = useMemo(
-    () => (db ? db.productionOrders.filter((p) => p.status === 'In Progress' || p.status === 'Rework') : []),
+  // Load backend catalog stages
+  useEffect(() => {
+    let active = true;
+    erpApi
+      .getProductionStages()
+      .then((stages) => {
+        if (!active) return;
+        const stageNames = stages.map((s) => s.name);
+        setAvailableStages((prev) => {
+          const merged = Array.from(new Set([...prev, ...stageNames]));
+          return merged;
+        });
+      })
+      .catch(() => {
+        // Fallback to STANDARD_STAGES
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  // Allowed POs: Planned, Awaiting Materials, Ready to Start, In Progress, Rework
+  const eligiblePOs = useMemo(
+    () =>
+      db
+        ? db.productionOrders.filter((p) =>
+            ['Planned', 'Awaiting Materials', 'Ready to Start', 'In Progress', 'Rework'].includes(p.status),
+          )
+        : [],
     [db],
   );
 
-  const selectedPo = db?.productionOrders.find((p) => p.id === poId);
+  const selectedPo = useMemo(() => db?.productionOrders.find((p) => p.id === poId), [db, poId]);
+  const isManufacturingAllowed = selectedPo?.status === 'In Progress' || selectedPo?.status === 'Rework';
+
+  // Product stages from catalog
   const productStages = useMemo(() => {
-    if (!db || !selectedPo) return ['Fabrication', 'Assembly', 'Electrical Integration', 'Testing'];
+    if (!db || !selectedPo) return [];
     const prod = db.products.find((pr) => pr.id === selectedPo.productId);
-    return prod?.stages.length ? prod.stages : ['Fabrication', 'Assembly', 'Electrical Integration', 'Testing'];
+    return prod?.stages && prod.stages.length ? prod.stages : [];
   }, [db, selectedPo]);
+
+  // Combined available stages
+  const allCandidateStages = useMemo(() => {
+    return Array.from(new Set([...STANDARD_STAGES, ...availableStages, ...productStages]));
+  }, [availableStages, productStages]);
 
   useEffect(() => {
     if (searchParams.get('create') === '1') {
-      const requestedPo = searchParams.get('poId') || activePOs[0]?.id || '';
+      const requestedPo = searchParams.get('poId') || eligiblePOs[0]?.id || '';
       setPoId(requestedPo);
       setModalOpen(true);
       setSearchParams({}, { replace: true });
     }
-  }, [searchParams, activePOs, setSearchParams]);
+  }, [searchParams, eligiblePOs, setSearchParams]);
 
+  // Adjust workType and default stage when PO changes
   useEffect(() => {
-    if (productStages.length > 0 && !productStages.includes(stage)) {
-      setStage(productStages[0]);
+    if (!selectedPo) return;
+    if (!isManufacturingAllowed) {
+      setWorkType('Preliminary Planning / Preparation');
+      setCompletedQty('0');
+      if (selectedStages.length === 0) {
+        setSelectedStages(['Design Review']);
+      }
+    } else {
+      if (selectedStages.length === 0) {
+        setSelectedStages(['Fabrication']);
+      }
     }
-  }, [productStages, stage]);
+  }, [selectedPo, isManufacturingAllowed]);
 
   if (!db) return null;
 
@@ -83,22 +165,92 @@ export const DailyUpdatesPage: React.FC = () => {
         du.productionOrderDocNo.toLowerCase().includes(q) ||
         du.stage.toLowerCase().includes(q) ||
         du.workCompleted.toLowerCase().includes(q) ||
-        du.employeeName.toLowerCase().includes(q)
+        du.employeeName.toLowerCase().includes(q) ||
+        (du.workType && du.workType.toLowerCase().includes(q))
       );
     });
   }, [db.dailyUpdates, search]);
 
+  const handleAddStage = (stg: string) => {
+    const trimmed = stg.trim();
+    if (!trimmed) return;
+    if (!selectedStages.includes(trimmed)) {
+      setSelectedStages([...selectedStages, trimmed]);
+    }
+    setStageToAdd('');
+  };
+
+  const handleRemoveStage = (stg: string) => {
+    setSelectedStages(selectedStages.filter((s) => s !== stg));
+  };
+
+  const handleCreateNewStage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const clean = newStageInput.trim();
+    if (!clean) return;
+
+    const exists = allCandidateStages.some((s) => s.toLowerCase() === clean.toLowerCase());
+    if (exists) {
+      const existingName = allCandidateStages.find((s) => s.toLowerCase() === clean.toLowerCase()) || clean;
+      handleAddStage(existingName);
+      setNewStageInput('');
+      setShowNewStageForm(false);
+      return;
+    }
+
+    try {
+      await erpApi.createProductionStage(clean);
+      setAvailableStages((prev) => [...prev, clean]);
+      handleAddStage(clean);
+      toast('success', 'Custom Stage Added', `Stage "${clean}" saved to company catalog.`);
+    } catch {
+      // Local fallback
+      setAvailableStages((prev) => [...prev, clean]);
+      handleAddStage(clean);
+    }
+    setNewStageInput('');
+    setShowNewStageForm(false);
+  };
+
+  const handleAddHighlight = () => {
+    const text = newHighlight.trim();
+    if (!text) return;
+    setHighlights((prev) => [...prev, text]);
+    setNewHighlight('');
+  };
+
+  const handleRemoveHighlight = (index: number) => {
+    setHighlights((prev) => prev.filter((_, idx) => idx !== index));
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (selectedStages.length === 0) {
+      toast('error', 'Stage Required', 'Please select at least one manufacturing or work stage.');
+      return;
+    }
+
+    let finalWorkCompleted = workCompleted.trim();
+    if (!finalWorkCompleted && highlights.length > 0) {
+      finalWorkCompleted = highlights.join('; ');
+    }
+    if (!finalWorkCompleted) {
+      toast('error', 'Description Required', 'Please provide a work description or add at least one highlight.');
+      return;
+    }
+
     setSaving(true);
     try {
       await erpApi.createDailyUpdate({
         productionOrderId: poId,
         workDate,
-        stage,
-        workCompleted,
+        workType,
+        stage: selectedStages.join(', '),
+        selectedStages,
+        workCompleted: finalWorkCompleted,
+        highlights,
         workHours: Number(workHours) || 0,
-        completedQty: Number(completedQty) || 0,
+        completedQty: workType === 'Preliminary Planning / Preparation' ? 0 : Number(completedQty) || 0,
         stageStatus,
         issues,
         remarks,
@@ -108,11 +260,12 @@ export const DailyUpdatesPage: React.FC = () => {
       await refresh();
       setModalOpen(false);
       setWorkCompleted('');
+      setHighlights([]);
       setIssues('');
       setRemarks('');
       setPhotoName('');
       setPhotoDataUrl('');
-      toast('success', 'Daily production update logged');
+      toast('success', 'Daily update logged', `Recorded under "${workType}".`);
     } catch (err) {
       toast('error', 'Failed to log update', (err as Error).message);
     } finally {
@@ -132,22 +285,53 @@ export const DailyUpdatesPage: React.FC = () => {
       key: 'po',
       header: 'Production Order',
       render: (d) => (
-        <Link
-          to={`/production/orders/${d.productionOrderId}`}
-          className="font-mono font-medium text-teal-700 dark:text-teal-400 hover:underline"
-        >
-          {d.productionOrderDocNo}
-        </Link>
+        <div>
+          <Link
+            to={`/production/orders/${d.productionOrderId}`}
+            className="font-mono font-medium text-teal-700 dark:text-teal-400 hover:underline"
+          >
+            {d.productionOrderDocNo}
+          </Link>
+          {d.workType && (
+            <div className="mt-0.5">
+              <span
+                className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  d.workType === 'Preliminary Planning / Preparation'
+                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
+                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                }`}
+              >
+                {d.workType === 'Preliminary Planning / Preparation' ? 'Planning / Prep' : 'Manufacturing'}
+              </span>
+            </div>
+          )}
+        </div>
       ),
     },
     {
       key: 'stage',
-      header: 'Stage & Work Completed',
+      header: 'Stages & Highlights',
       render: (d) => (
-        <div>
-          <div className="font-medium text-slate-900 dark:text-slate-100 text-xs">{d.stage}</div>
-          <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5 max-w-md">{d.workCompleted}</div>
-          {d.issues && <div className="text-xs text-amber-700 dark:text-amber-400 mt-0.5">Issue: {d.issues}</div>}
+        <div className="space-y-1">
+          <div className="flex flex-wrap gap-1">
+            {(d.selectedStages && d.selectedStages.length > 0 ? d.selectedStages : [d.stage]).map((stg, i) => (
+              <span
+                key={i}
+                className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300"
+              >
+                {stg}
+              </span>
+            ))}
+          </div>
+          <div className="text-xs text-slate-700 dark:text-slate-300 max-w-md">{d.workCompleted}</div>
+          {d.highlights && d.highlights.length > 0 && (
+            <ul className="list-disc list-inside text-[11px] text-slate-500 dark:text-slate-400 space-y-0.5">
+              {d.highlights.map((h, i) => (
+                <li key={i}>{h}</li>
+              ))}
+            </ul>
+          )}
+          {d.issues && <div className="text-xs text-amber-700 dark:text-amber-400">Issue: {d.issues}</div>}
         </div>
       ),
     },
@@ -178,15 +362,15 @@ export const DailyUpdatesPage: React.FC = () => {
     <div>
       <PageHeader
         title="Daily Production Updates"
-        subtitle="Record shift-level stage progress, hours spent, blockers, and floor observations on active production orders."
+        subtitle="Record planning preparation, shift-level manufacturing stages, highlights, blockers, and floor observations."
         actions={
           can('production', 'create') && (
             <Button
               onClick={() => {
-                if (!poId && activePOs[0]) setPoId(activePOs[0].id);
+                if (!poId && eligiblePOs[0]) setPoId(eligiblePOs[0].id);
                 setModalOpen(true);
               }}
-              disabled={activePOs.length === 0}
+              disabled={eligiblePOs.length === 0}
             >
               <Plus className="w-4 h-4" /> Log Daily Update
             </Button>
@@ -204,7 +388,7 @@ export const DailyUpdatesPage: React.FC = () => {
         rows={filtered}
         columns={columns}
         emptyTitle="No daily updates recorded"
-        emptyDescription="Start a production order to log daily work updates."
+        emptyDescription="Select a production order to log shift work or planning updates."
         renderMobileCard={(d) => (
           <div className="space-y-2">
             <div className="flex items-start justify-between gap-2">
@@ -221,7 +405,25 @@ export const DailyUpdatesPage: React.FC = () => {
               </div>
               <StatusBadge status={d.stageStatus} />
             </div>
+            {d.workType && (
+              <span
+                className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-medium ${
+                  d.workType === 'Preliminary Planning / Preparation'
+                    ? 'bg-blue-100 text-blue-800 dark:bg-blue-950/60 dark:text-blue-300'
+                    : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300'
+                }`}
+              >
+                {d.workType}
+              </span>
+            )}
             <p className="text-xs text-slate-700 dark:text-slate-300">{d.workCompleted}</p>
+            {d.highlights && d.highlights.length > 0 && (
+              <ul className="list-disc list-inside text-xs text-slate-500 space-y-0.5">
+                {d.highlights.map((h, i) => (
+                  <li key={i}>{h}</li>
+                ))}
+              </ul>
+            )}
             <div className="flex items-center justify-between text-xs text-slate-500 pt-1 border-t border-slate-100 dark:border-slate-800">
               <span>{d.employeeName}</span>
               <span className="font-mono">
@@ -236,7 +438,7 @@ export const DailyUpdatesPage: React.FC = () => {
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         title="Log Daily Production Update"
-        subtitle="Select an active production order to view context and record progress."
+        subtitle="Record planning and preparation or physical manufacturing progress with selectable stages and highlights."
         size="lg"
         footer={
           <>
@@ -252,8 +454,8 @@ export const DailyUpdatesPage: React.FC = () => {
         <form id="daily-update-form" onSubmit={handleSubmit} className="space-y-4">
           <Field label="Production Order" required>
             <Select value={poId} onChange={(e) => setPoId(e.target.value)} required>
-              <option value="">-- Select Active Production Order --</option>
-              {activePOs.map((po) => (
+              <option value="">-- Select Production Order --</option>
+              {eligiblePOs.map((po) => (
                 <option key={po.id} value={po.id}>
                   {po.docNo} — {po.productName} ({po.model}) [{po.status}]
                 </option>
@@ -261,6 +463,7 @@ export const DailyUpdatesPage: React.FC = () => {
             </Select>
           </Field>
 
+          {/* PO Context Summary */}
           {selectedPo && (
             <div className="p-3 rounded-md bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
               <div>
@@ -272,8 +475,10 @@ export const DailyUpdatesPage: React.FC = () => {
                 <div className="font-mono">{selectedPo.salesOrderDocNo}</div>
               </div>
               <div>
-                <div className="text-slate-500">Order Qty</div>
-                <div className="font-mono font-medium">{selectedPo.quantity} Unit(s)</div>
+                <div className="text-slate-500">Order Qty / Current Status</div>
+                <div className="font-medium">
+                  {selectedPo.quantity} Unit(s) · <span className="font-mono text-purple-700 dark:text-purple-400">{selectedPo.status}</span>
+                </div>
               </div>
               <div>
                 <div className="text-slate-500">Planned End</div>
@@ -282,42 +487,81 @@ export const DailyUpdatesPage: React.FC = () => {
             </div>
           )}
 
+          {/* BOQ/BOM Pending Informative Banner */}
+          {selectedPo && !isManufacturingAllowed && (
+            <div className="p-3.5 rounded-md bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-800 text-xs text-blue-800 dark:text-blue-300 flex items-start gap-2">
+              <Info className="w-4 h-4 mt-0.5 shrink-0 text-blue-600 dark:text-blue-400" />
+              <div>
+                <span className="font-semibold">BOQ/BOM Preparation / Material Receipt Pending:</span> This order is currently in{' '}
+                <span className="font-mono font-bold">"{selectedPo.status}"</span> state. You can record preliminary planning, design review,
+                tooling prep, and floor coordination. Physical manufacturing progress will be enabled once production readiness requirements are met.
+              </div>
+            </div>
+          )}
+
+          {/* Work Type Selection */}
+          <div className="p-3 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 space-y-2">
+            <span className="text-xs font-semibold text-slate-700 dark:text-slate-300 uppercase tracking-wider">
+              Work Update Type
+            </span>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <label
+                className={`flex items-start gap-2 p-2.5 rounded border cursor-pointer text-xs ${
+                  workType === 'Preliminary Planning / Preparation'
+                    ? 'border-blue-600 bg-blue-50/70 dark:bg-blue-950/40 text-blue-900 dark:text-blue-200'
+                    : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="workType"
+                  className="mt-0.5"
+                  checked={workType === 'Preliminary Planning / Preparation'}
+                  onChange={() => {
+                    setWorkType('Preliminary Planning / Preparation');
+                    setCompletedQty('0');
+                  }}
+                />
+                <div>
+                  <div className="font-semibold">Preliminary Planning / Preparation</div>
+                  <div className="text-[11px] text-slate-500">Design review, BOM drafting, fixtures setup, floor prep. (Zero completed units)</div>
+                </div>
+              </label>
+
+              <label
+                className={`flex items-start gap-2 p-2.5 rounded border text-xs ${
+                  !isManufacturingAllowed
+                    ? 'opacity-50 cursor-not-allowed border-dashed border-slate-300 dark:border-slate-700 text-slate-400'
+                    : workType === 'Manufacturing Progress'
+                      ? 'border-emerald-600 bg-emerald-50/70 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-200 cursor-pointer'
+                      : 'border-slate-200 dark:border-slate-800 text-slate-600 dark:text-slate-400 cursor-pointer'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="workType"
+                  className="mt-0.5"
+                  disabled={!isManufacturingAllowed}
+                  checked={workType === 'Manufacturing Progress'}
+                  onChange={() => {
+                    if (isManufacturingAllowed) setWorkType('Manufacturing Progress');
+                  }}
+                />
+                <div>
+                  <div className="font-semibold">Manufacturing Progress</div>
+                  <div className="text-[11px] text-slate-500">
+                    {isManufacturingAllowed
+                      ? 'Physical fabrication, assembly, wiring, and unit completion.'
+                      : 'Disabled: Requires production order in "In Progress" or "Rework" state.'}
+                  </div>
+                </div>
+              </label>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Work Date" required>
               <Input type="date" value={workDate} onChange={(e) => setWorkDate(e.target.value)} required />
-            </Field>
-            <Field label="Manufacturing Stage" required>
-              <Select value={stage} onChange={(e) => setStage(e.target.value)} required>
-                {productStages.map((s) => (
-                  <option key={s} value={s}>
-                    {s}
-                  </option>
-                ))}
-              </Select>
-            </Field>
-          </div>
-
-          <Field label="Work Completed" required>
-            <Textarea
-              value={workCompleted}
-              onChange={(e) => setWorkCompleted(e.target.value)}
-              placeholder="Describe assembly, wiring, vacuum test, or stage milestones completed today..."
-              required
-            />
-          </Field>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Field label="Work Hours" required>
-              <Input type="number" min="0.5" step="0.5" value={workHours} onChange={(e) => setWorkHours(e.target.value)} required />
-            </Field>
-            <Field label="Completed Units (cumulative)">
-              <Input
-                type="number"
-                min="0"
-                max={selectedPo?.quantity || 999}
-                value={completedQty}
-                onChange={(e) => setCompletedQty(e.target.value)}
-              />
             </Field>
             <Field label="Stage Status" required>
               <Select value={stageStatus} onChange={(e) => setStageStatus(e.target.value as any)}>
@@ -329,17 +573,175 @@ export const DailyUpdatesPage: React.FC = () => {
             </Field>
           </div>
 
+          {/* Manufacturing Stages Multi-Select */}
+          <div className="space-y-2 p-3 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Manufacturing / Work Stages (Multi-Select) <span className="text-red-500">*</span>
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowNewStageForm(!showNewStageForm)}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 cursor-pointer"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add New Stage
+              </button>
+            </div>
+
+            {/* Selected Stage Chips */}
+            <div className="flex flex-wrap gap-1.5 min-h-[32px] p-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded">
+              {selectedStages.length === 0 ? (
+                <span className="text-xs text-slate-400 italic">No stages selected yet. Choose from dropdown below.</span>
+              ) : (
+                selectedStages.map((stg) => (
+                  <span
+                    key={stg}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded text-xs font-medium bg-teal-100 text-teal-800 dark:bg-teal-950/70 dark:text-teal-300 border border-teal-200 dark:border-teal-800"
+                  >
+                    {stg}
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveStage(stg)}
+                      className="hover:text-red-600 focus:outline-none cursor-pointer"
+                      title="Remove stage"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </span>
+                ))
+              )}
+            </div>
+
+            {/* Stage Selector Dropdown */}
+            <div className="flex gap-2">
+              <Select
+                value={stageToAdd}
+                onChange={(e) => {
+                  handleAddStage(e.target.value);
+                }}
+              >
+                <option value="">-- Add a stage to this update --</option>
+                {allCandidateStages
+                  .filter((s) => !selectedStages.includes(s))
+                  .map((s) => (
+                    <option key={s} value={s}>
+                      + {s}
+                    </option>
+                  ))}
+              </Select>
+            </div>
+
+            {/* Inline Custom Stage Form */}
+            {showNewStageForm && (
+              <div className="p-2.5 rounded border border-blue-200 dark:border-blue-800 bg-blue-50/50 dark:bg-blue-950/30 flex items-center gap-2">
+                <Input
+                  value={newStageInput}
+                  onChange={(e) => setNewStageInput(e.target.value)}
+                  placeholder="Enter custom stage name (e.g. Helium Leak Testing)..."
+                  className="text-xs"
+                />
+                <Button size="sm" type="button" onClick={() => handleCreateNewStage()}>
+                  Add Stage
+                </Button>
+                <Button size="sm" variant="ghost" type="button" onClick={() => setShowNewStageForm(false)}>
+                  Cancel
+                </Button>
+              </div>
+            )}
+          </div>
+
+          {/* Daily Work Highlights */}
+          <div className="space-y-2 p-3 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/30">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                Daily Work Highlights (Multiple Entries)
+              </span>
+              <span className="text-[11px] text-slate-500 font-mono">{highlights.length} added</span>
+            </div>
+
+            <div className="flex gap-2">
+              <Input
+                value={newHighlight}
+                onChange={(e) => setNewHighlight(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddHighlight();
+                  }
+                }}
+                placeholder="Enter today's key milestone or task (e.g., Completed inner vessel TIG welding)..."
+                className="text-xs"
+              />
+              <Button type="button" size="sm" onClick={handleAddHighlight}>
+                <Plus className="w-3.5 h-3.5" /> Add
+              </Button>
+            </div>
+
+            {highlights.length > 0 && (
+              <div className="space-y-1.5 pt-1">
+                {highlights.map((hl, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center justify-between p-2 rounded bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs"
+                  >
+                    <span className="text-slate-800 dark:text-slate-200">• {hl}</span>
+                    <button
+                      type="button"
+                      onClick={() => handleRemoveHighlight(idx)}
+                      className="text-red-500 hover:text-red-700 p-1 cursor-pointer"
+                      title="Remove highlight"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <Field label="Detailed Work Description" required>
+            <Textarea
+              value={workCompleted}
+              onChange={(e) => setWorkCompleted(e.target.value)}
+              placeholder="Provide complete shift summary, technical observations, or equipment parameters..."
+              required={highlights.length === 0}
+            />
+          </Field>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <Field label="Work Hours" required>
+              <Input type="number" min="0.5" step="0.5" value={workHours} onChange={(e) => setWorkHours(e.target.value)} required />
+            </Field>
+
+            <Field
+              label={
+                workType === 'Preliminary Planning / Preparation'
+                  ? 'Completed Units (0 in Planning Mode)'
+                  : 'Completed Units (Cumulative)'
+              }
+            >
+              <Input
+                type="number"
+                min="0"
+                max={selectedPo?.quantity || 999}
+                value={workType === 'Preliminary Planning / Preparation' ? '0' : completedQty}
+                disabled={workType === 'Preliminary Planning / Preparation'}
+                onChange={(e) => setCompletedQty(e.target.value)}
+              />
+            </Field>
+          </div>
+
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Issues / Blockers (if any)">
-              <Input value={issues} onChange={(e) => setIssues(e.target.value)} placeholder="Optional floor issue or delay note" />
+              <Input value={issues} onChange={(e) => setIssues(e.target.value)} placeholder="Material delay, drawing clarification, etc." />
             </Field>
             <Field label="Remarks">
-              <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Handover notes for next shift" />
+              <Input value={remarks} onChange={(e) => setRemarks(e.target.value)} placeholder="Shift handover instructions" />
             </Field>
           </div>
 
           <FileUploadInput
-            label="Work Progress Photo (optional)"
+            label="Work Progress Photo / Inspection Report (optional)"
             fileName={photoName}
             accept=".png,.jpg,.jpeg,.pdf"
             onFileSelected={(name, dataUrl) => {
@@ -368,7 +770,7 @@ export const QualityCheckPage: React.FC = () => {
   const [acceptedQty, setAcceptedQty] = useState(1);
   const [rejectedQty, setRejectedQty] = useState(0);
   const [checks, setChecks] = useState<QCCheckItem[]>(DEFAULT_QC_CHECKS);
-  const [finalResult, setFinalResult] = useState<'Accepted' | 'Rejected'>('Accepted');
+  const [finalResult, setFinalResult] = useState<'Accepted' | 'Rejected' | 'Pending'>('Accepted');
   const [rejectionReason, setRejectionReason] = useState('');
   const [requiredCorrection, setRequiredCorrection] = useState('');
   const [expectedCompletionDate, setExpectedCompletionDate] = useState(
@@ -393,6 +795,17 @@ export const QualityCheckPage: React.FC = () => {
     const total = selectedQcPo.completedManufacturingQty || selectedQcPo.quantity;
     return Math.max(1, total - (selectedQcPo.qcAcceptedQty || 0));
   }, [selectedQcPo]);
+
+  // Inspection Checklist Summary
+  const passCount = useMemo(() => checks.filter((c) => c.result === 'Pass').length, [checks]);
+  const failCount = useMemo(() => checks.filter((c) => c.result === 'Fail').length, [checks]);
+  const pendingCount = useMemo(() => checks.filter((c) => c.result === 'Pending').length, [checks]);
+  const totalCount = checks.length;
+
+  const failedItems = useMemo(() => checks.filter((c) => c.result === 'Fail'), [checks]);
+  const pendingRequiredItems = useMemo(() => checks.filter((c) => c.required && c.result === 'Pending'), [checks]);
+
+  const canAccept = failedItems.length === 0 && pendingRequiredItems.length === 0 && rejectedQty === 0;
 
   const openInspection = (targetPoId?: string) => {
     const targetId = targetPoId || pendingQcOrders[0]?.id || '';
@@ -424,8 +837,82 @@ export const QualityCheckPage: React.FC = () => {
 
   if (!db) return null;
 
+  const handleAddCheckItem = () => {
+    const nextIdx = checks.length + 1;
+    const newItem: QCCheckItem = {
+      id: `chk-custom-${Date.now()}-${nextIdx}`,
+      name: `Inspection Item #${nextIdx}`,
+      result: 'Pending',
+      observation: '',
+      measuredValue: '',
+      expectedValue: '',
+      required: false,
+    };
+    setChecks((prev) => [...prev, newItem]);
+  };
+
+  const handleRemoveCheckItem = (id?: string) => {
+    if (!id) return;
+    setChecks((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const handleSaveDraft = async () => {
+    setSaving(true);
+    try {
+      await erpApi.createQualityCheck({
+        productionOrderId: poId,
+        inspectionDate,
+        inspector: inspector || undefined,
+        inspectedQty,
+        acceptedQty: 0,
+        rejectedQty: 0,
+        checks,
+        finalResult: 'Pending',
+        remarks: remarks || 'Draft / In-progress QC Inspection',
+        reportName: reportName || undefined,
+        reportDataUrl: reportDataUrl || undefined,
+      });
+      await refresh();
+      setModalOpen(false);
+      toast('info', 'QC Draft Saved', 'Inspection checklist saved with Pending status. Order remains in QC Pending.');
+    } catch (err) {
+      toast('error', 'Failed to save draft QC', (err as Error).message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (finalResult === 'Accepted') {
+      if (failedItems.length > 0) {
+        toast('error', 'Cannot Accept QC', `Inspection failed on: ${failedItems.map((c) => c.name).join(', ')}`);
+        return;
+      }
+      if (pendingRequiredItems.length > 0) {
+        toast(
+          'error',
+          'Cannot Accept QC',
+          `Required check(s) still pending: ${pendingRequiredItems.map((c) => c.name).join(', ')}. Use "Save as Draft" if inspection is incomplete.`,
+        );
+        return;
+      }
+      if (rejectedQty > 0) {
+        toast('error', 'Quantity Mismatch', 'Cannot set Accepted decision when rejected units exist.');
+        return;
+      }
+    }
+
+    if (finalResult === 'Rejected' && !rejectionReason.trim()) {
+      if (failedItems.length > 0) {
+        setRejectionReason(`Checklist items failed: ${failedItems.map((c) => c.name).join(', ')}`);
+      } else {
+        toast('error', 'Rejection Reason Required', 'Please enter a rejection reason before submitting.');
+        return;
+      }
+    }
+
     setSaving(true);
     try {
       await erpApi.createQualityCheck({
@@ -436,7 +923,7 @@ export const QualityCheckPage: React.FC = () => {
         acceptedQty,
         rejectedQty,
         checks,
-        finalResult: rejectedQty > 0 ? 'Rejected' : 'Accepted',
+        finalResult: rejectedQty > 0 ? 'Rejected' : finalResult,
         rejectionReason: rejectedQty > 0 ? rejectionReason : undefined,
         requiredCorrection: rejectedQty > 0 ? requiredCorrection : undefined,
         expectedCompletionDate: rejectedQty > 0 ? expectedCompletionDate : undefined,
@@ -528,6 +1015,19 @@ export const QualityCheckPage: React.FC = () => {
       ),
     },
     {
+      key: 'checks',
+      header: 'Checklist Summary',
+      render: (q) => {
+        const passed = (q.checks || []).filter((c) => c.result === 'Pass' || (c as any).passed).length;
+        const total = (q.checks || []).length;
+        return (
+          <div className="text-xs">
+            <span className="font-mono font-medium">{passed}/{total}</span> checks passed
+          </div>
+        );
+      },
+    },
+    {
       key: 'result',
       header: 'Final Result',
       render: (q) => (
@@ -552,7 +1052,7 @@ export const QualityCheckPage: React.FC = () => {
     <div>
       <PageHeader
         title="Quality Check (QC)"
-        subtitle="Inspect completed production orders. Accepted units release to Logistics; rejected units create Rework orders."
+        subtitle="Inspect completed production orders with dynamic checklists. Accepted units release to Logistics; rejected units create Rework orders."
         actions={
           can('production', 'create') && (
             <Button onClick={() => openInspection()} disabled={pendingQcOrders.length === 0}>
@@ -595,7 +1095,7 @@ export const QualityCheckPage: React.FC = () => {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search QC number, production order, product, or inspector..."
-        statuses={['All', 'Accepted', 'Rejected']}
+        statuses={['All', 'Accepted', 'Rejected', 'Pending']}
         activeStatus={statusFilter}
         onStatusChange={setStatusFilter}
       />
@@ -633,31 +1133,44 @@ export const QualityCheckPage: React.FC = () => {
         subtitle="Verify all engineering checklists. Rejecting automatically creates a Rework Order."
         size="xl"
         footer={
-          <>
-            <Button variant="secondary" onClick={() => setModalOpen(false)}>
-              Cancel
-            </Button>
+          <div className="flex flex-wrap items-center justify-between w-full gap-2">
             <Button
-              type="submit"
-              form="qc-form"
-              variant={rejectedQty === 0 ? 'success' : 'danger'}
+              type="button"
+              variant="secondary"
+              onClick={handleSaveDraft}
               loading={saving}
+              className="flex items-center gap-1.5"
             >
-              {rejectedQty === 0 ? (
-                <>
-                  <CheckCircle2 className="w-4 h-4" /> Accept & Release {acceptedQty} to Logistics
-                </>
-              ) : acceptedQty > 0 ? (
-                <>
-                  <ShieldAlert className="w-4 h-4" /> Release {acceptedQty} & Rework {rejectedQty}
-                </>
-              ) : (
-                <>
-                  <ShieldAlert className="w-4 h-4" /> Reject & Create Rework for {rejectedQty}
-                </>
-              )}
+              <Save className="w-4 h-4" /> Save as Draft / Pending
             </Button>
-          </>
+
+            <div className="flex items-center gap-2">
+              <Button variant="secondary" onClick={() => setModalOpen(false)}>
+                Cancel
+              </Button>
+              <Button
+                type="submit"
+                form="qc-form"
+                variant={rejectedQty === 0 && canAccept ? 'success' : 'danger'}
+                loading={saving}
+                disabled={finalResult === 'Accepted' && !canAccept}
+              >
+                {rejectedQty === 0 ? (
+                  <>
+                    <CheckCircle2 className="w-4 h-4" /> Accept & Release {acceptedQty} to Logistics
+                  </>
+                ) : acceptedQty > 0 ? (
+                  <>
+                    <ShieldAlert className="w-4 h-4" /> Release {acceptedQty} & Rework {rejectedQty}
+                  </>
+                ) : (
+                  <>
+                    <ShieldAlert className="w-4 h-4" /> Reject & Create Rework for {rejectedQty}
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
         }
       >
         <form id="qc-form" onSubmit={handleSubmit} className="space-y-4">
@@ -771,54 +1284,190 @@ export const QualityCheckPage: React.FC = () => {
             </div>
           </div>
 
-          <div className="space-y-2">
-            <div className="text-xs font-semibold uppercase tracking-wider text-slate-500">Inspection Checklist</div>
-            {checks.map((ck, idx) => (
-              <div
-                key={ck.name}
-                className="grid grid-cols-1 sm:grid-cols-12 gap-2 p-2.5 rounded-md border border-slate-200 dark:border-slate-800 items-center"
-              >
-                <div className="sm:col-span-5 text-xs font-medium text-slate-800 dark:text-slate-200">{ck.name}</div>
-                <div className="sm:col-span-3 flex items-center gap-1.5">
-                  {(['Pass', 'Fail'] as const).map((res) => (
-                    <button
-                      key={res}
-                      type="button"
-                      onClick={() => {
-                        const next = checks.map((c, i) => (i === idx ? { ...c, result: res } : c));
-                        setChecks(next);
-                        if (next.some((c) => c.result === 'Fail')) setFinalResult('Rejected');
-                      }}
-                      className={`px-3 py-1 text-xs font-medium rounded border cursor-pointer ${
-                        ck.result === res
-                          ? res === 'Pass'
-                            ? 'bg-emerald-600 text-white border-emerald-600'
-                            : 'bg-red-600 text-white border-red-600'
-                          : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
-                      }`}
-                    >
-                      {res}
-                    </button>
-                  ))}
+          {/* Dynamic Inspection Checklist */}
+          <div className="space-y-3 p-3.5 rounded-md border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300">
+                  Engineering Quality Inspection Checklist
                 </div>
-                <div className="sm:col-span-4">
-                  <Input
-                    value={ck.observation}
-                    onChange={(e) =>
-                      setChecks((prev) => prev.map((c, i) => (i === idx ? { ...c, observation: e.target.value } : c)))
-                    }
-                    placeholder="Measured value / observation"
-                  />
+                <div className="text-[11px] text-slate-500">
+                  Pass, Fail or Pending inspection. All required items must pass for final acceptance.
                 </div>
               </div>
-            ))}
+              <div className="flex items-center gap-2">
+                <span className="px-2 py-0.5 rounded text-xs font-mono bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300">
+                  {passCount} Pass
+                </span>
+                <span className="px-2 py-0.5 rounded text-xs font-mono bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">
+                  {failCount} Fail
+                </span>
+                <span className="px-2 py-0.5 rounded text-xs font-mono bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300">
+                  {pendingCount} Pending
+                </span>
+                <Button type="button" size="sm" variant="secondary" onClick={handleAddCheckItem}>
+                  <Plus className="w-3.5 h-3.5" /> Add Check Item
+                </Button>
+              </div>
+            </div>
+
+            {/* Checklist items */}
+            <div className="space-y-2">
+              {checks.map((ck, idx) => (
+                <div
+                  key={ck.id || idx}
+                  className="p-3 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/40 space-y-2"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                      {ck.required ? (
+                        <span className="text-xs font-medium text-slate-800 dark:text-slate-200">{ck.name}</span>
+                      ) : (
+                        <Input
+                          value={ck.name}
+                          onChange={(e) =>
+                            setChecks((prev) =>
+                              prev.map((c, i) => (i === idx ? { ...c, name: e.target.value } : c)),
+                            )
+                          }
+                          className="text-xs h-7"
+                          placeholder="Check item title..."
+                        />
+                      )}
+                      {ck.required ? (
+                        <span className="px-1.5 py-0.5 rounded text-[10px] font-medium bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300">
+                          Mandatory
+                        </span>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCheckItem(ck.id)}
+                          className="text-slate-400 hover:text-red-600 p-1 cursor-pointer"
+                          title="Remove custom check"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                    </div>
+
+                    {/* 3-way toggle button group */}
+                    <div className="flex items-center gap-1">
+                      {(['Pass', 'Fail', 'Pending'] as const).map((res) => (
+                        <button
+                          key={res}
+                          type="button"
+                          onClick={() => {
+                            const next = checks.map((c, i) =>
+                              i === idx ? { ...c, result: res, passed: res === 'Pass' } : c,
+                            );
+                            setChecks(next);
+                            if (res === 'Fail') {
+                              setFinalResult('Rejected');
+                              setRejectedQty(inspectedQty);
+                              setAcceptedQty(0);
+                            } else if (res === 'Pass' && !next.some((c) => c.result === 'Fail')) {
+                              setFinalResult('Accepted');
+                              setAcceptedQty(inspectedQty);
+                              setRejectedQty(0);
+                            }
+                          }}
+                          className={`px-2.5 py-1 text-xs font-medium rounded border cursor-pointer ${
+                            ck.result === res
+                              ? res === 'Pass'
+                                ? 'bg-emerald-600 text-white border-emerald-600'
+                                : res === 'Fail'
+                                  ? 'bg-red-600 text-white border-red-600'
+                                  : 'bg-amber-500 text-white border-amber-500'
+                              : 'bg-white dark:bg-slate-900 text-slate-600 dark:text-slate-300 border-slate-300 dark:border-slate-700'
+                          }`}
+                        >
+                          {res}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Observations, Expected & Measured Values */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <Input
+                      value={ck.observation}
+                      onChange={(e) =>
+                        setChecks((prev) =>
+                          prev.map((c, i) => (i === idx ? { ...c, observation: e.target.value } : c)),
+                        )
+                      }
+                      placeholder="Observation / physical condition..."
+                      className="text-xs h-7"
+                    />
+                    <Input
+                      value={ck.measuredValue || ''}
+                      onChange={(e) =>
+                        setChecks((prev) =>
+                          prev.map((c, i) => (i === idx ? { ...c, measuredValue: e.target.value } : c)),
+                        )
+                      }
+                      placeholder="Measured value (e.g. -86.4 °C)"
+                      className="text-xs h-7"
+                    />
+                    <Input
+                      value={ck.expectedValue || ''}
+                      onChange={(e) =>
+                        setChecks((prev) =>
+                          prev.map((c, i) => (i === idx ? { ...c, expectedValue: e.target.value } : c)),
+                        )
+                      }
+                      placeholder="Expected spec (e.g. <= -80 °C)"
+                      className="text-xs h-7"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Warning Banner if acceptance blocked */}
+            {!canAccept && finalResult === 'Accepted' && (
+              <div className="p-3 rounded-md bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800 text-xs text-amber-800 dark:text-amber-300 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-amber-600 dark:text-amber-400" />
+                <div>
+                  <span className="font-semibold">Acceptance Gated:</span> Order cannot be accepted and released to Logistics because:{' '}
+                  {failedItems.length > 0 && (
+                    <span className="font-medium text-red-700 dark:text-red-400">
+                      {failedItems.length} inspection check item(s) failed ({failedItems.map((c) => c.name).join(', ')}).{' '}
+                    </span>
+                  )}
+                  {pendingRequiredItems.length > 0 && (
+                    <span className="font-medium text-amber-700 dark:text-amber-400">
+                      {pendingRequiredItems.length} required inspection item(s) are still pending ({pendingRequiredItems.map((c) => c.name).join(', ')}).{' '}
+                    </span>
+                  )}
+                  Resolve checks, reject to Rework, or use <strong>"Save as Draft / Pending"</strong>.
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Final QC Decision" required>
-              <Select value={finalResult} onChange={(e) => setFinalResult(e.target.value as 'Accepted' | 'Rejected')}>
+              <Select
+                value={finalResult}
+                onChange={(e) => {
+                  const val = e.target.value as 'Accepted' | 'Rejected' | 'Pending';
+                  setFinalResult(val);
+                  if (val === 'Rejected') {
+                    setRejectedQty(inspectedQty);
+                    setAcceptedQty(0);
+                  } else if (val === 'Accepted') {
+                    setAcceptedQty(inspectedQty);
+                    setRejectedQty(0);
+                  } else {
+                    setAcceptedQty(0);
+                    setRejectedQty(0);
+                  }
+                }}
+              >
                 <option value="Accepted">Accepted (Release to Logistics)</option>
                 <option value="Rejected">Rejected (Send to Rework)</option>
+                <option value="Pending">Pending (Draft / In-Progress)</option>
               </Select>
             </Field>
             <Field label="Inspector Name">

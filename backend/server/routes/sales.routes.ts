@@ -16,6 +16,7 @@ import {
   EnquiryModel,
   FollowUpModel,
   PaymentEntryModel,
+  ProductCategoryModel,
   ProductModel,
   ProformaInvoiceModel,
   QuotationModel,
@@ -220,6 +221,119 @@ salesRouter.put('/sales/products/:id', requireAuth, requirePerm('sales', 'edit')
     await p.save();
 
     res.json(p.toObject());
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// --- PRODUCT CATEGORIES ---
+
+salesRouter.get('/sales/product-categories', requireAuth, requirePerm('products', 'view'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const filter: Record<string, any> = {};
+    if (req.query.all !== 'true') {
+      filter.active = true;
+    }
+    let categories = await ProductCategoryModel.find(filter).sort({ name: 1 }).lean();
+    if (categories.length === 0 && (await ProductCategoryModel.countDocuments()) === 0) {
+      // Auto-initialize categories from existing products and standard industrial categories
+      const distinctProdCats = await ProductModel.distinct('category');
+      const standardDefaults = [
+        'Ultra Low Temperature Freezers',
+        'Laboratory Refrigerators',
+        'Cold Rooms',
+        'Environmental Chambers',
+        'Refrigeration Systems',
+        'Cryogenic Equipment',
+        'Temperature Control Systems',
+        'Accessories',
+        'Spare Parts',
+      ];
+      const allToSeed = Array.from(new Set([...distinctProdCats.filter(Boolean), ...standardDefaults]));
+      const now = new Date().toISOString();
+      const docs = allToSeed.map((name) => ({
+        id: generateId('cat'),
+        name: name.trim(),
+        normalizedName: name.trim().toLowerCase().replace(/\s+/g, ' '),
+        active: true,
+        createdBy: 'System Seed',
+        createdAt: now,
+        updatedAt: now,
+      }));
+      await ProductCategoryModel.insertMany(docs);
+      categories = await ProductCategoryModel.find(filter).sort({ name: 1 }).lean();
+    }
+    res.json(categories);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+salesRouter.post('/sales/product-categories', requireAuth, requirePerm('products', 'create'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { name } = req.body;
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      throw new Error('Category name is required.');
+    }
+    const cleanName = name.trim();
+    const normalized = cleanName.toLowerCase().replace(/\s+/g, ' ');
+
+    const existing = await ProductCategoryModel.findOne({ normalizedName: normalized });
+    if (existing) {
+      throw new Error(`Category "${existing.name}" already exists.`);
+    }
+
+    const now = new Date().toISOString();
+    const cat = {
+      id: generateId('cat'),
+      name: cleanName,
+      normalizedName: normalized,
+      active: true,
+      createdBy: req.user!.name,
+      createdAt: now,
+      updatedAt: now,
+    };
+
+    await ProductCategoryModel.create(cat);
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'sales',
+      action: 'Created Product Category',
+      entityType: 'ProductCategory',
+      entityId: cat.id,
+      entityDocNo: cat.name,
+      details: `Created product category "${cat.name}"`,
+    });
+
+    res.status(201).json(cat);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+salesRouter.patch('/sales/product-categories/:id/toggle', requireAuth, requirePerm('products', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const cat = await ProductCategoryModel.findOne({ id: req.params.id });
+    if (!cat) throw new Error('NOT_FOUND:Category not found.');
+
+    cat.active = !cat.active;
+    cat.updatedAt = new Date().toISOString();
+    await cat.save();
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'sales',
+      action: cat.active ? 'Activated Product Category' : 'Deactivated Product Category',
+      entityType: 'ProductCategory',
+      entityId: cat.id,
+      entityDocNo: cat.name,
+      details: `${cat.active ? 'Activated' : 'Deactivated'} category "${cat.name}"`,
+    });
+
+    res.json(cat.toObject());
   } catch (err) {
     sendError(res, err);
   }

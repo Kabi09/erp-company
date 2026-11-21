@@ -211,6 +211,17 @@ export const erpApi = {
   markAllNotificationsRead: () => request<{ ok: boolean }>('/notifications/read-all', { method: 'POST' }),
 
   // Sales
+  getProductCategories: () =>
+    request<Array<{ id: string; name: string; normalizedName: string; active: boolean }>>('/sales/product-categories'),
+  createProductCategory: (name: string) =>
+    request<{ id: string; name: string; normalizedName: string; active: boolean }>('/sales/product-categories', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    }),
+  toggleProductCategory: (id: string) =>
+    request<{ ok: boolean; id: string; active: boolean }>(`/sales/product-categories/${id}/toggle`, {
+      method: 'PATCH',
+    }),
   createCustomer: (payload: any) =>
     request('/sales/customers', { method: 'POST', body: JSON.stringify(payload) }),
   updateCustomer: (id: string, payload: any) =>
@@ -318,6 +329,13 @@ export const erpApi = {
     request(`/production/material-receipts/${id}/acknowledge`, {
       method: 'POST',
       body: JSON.stringify(typeof payload === 'string' ? { discrepancyNotes: payload } : payload || {}),
+    }),
+  getProductionStages: () =>
+    request<Array<{ id: string; name: string; normalizedName: string; active: boolean }>>('/production/stages'),
+  createProductionStage: (name: string) =>
+    request<{ id: string; name: string; normalizedName: string; active: boolean }>('/production/stages', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
     }),
   addDailyUpdate: (payload: any) =>
     request('/production/daily-updates', { method: 'POST', body: JSON.stringify(payload) }),
