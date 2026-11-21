@@ -298,3 +298,38 @@
     - Achieved 83/83 passing automated tests (100% pass rate) across all 8 test suites running sequentially (`--test-concurrency=1`).
     - Verified clean TypeScript compilation (`npm run lint`) and Vite production build (`npm run build`).
     - Authored comprehensive technical report `PHASE_8_LOGISTICS_DELIVERY_MANAGEMENT.md`.
+- **v2.8.0 (Phase 9 – Centralized Order Tracking, Notifications, Document Generation, Secure File Storage, Administration & Shared System Refinement)**:
+  - Centralized Order Tracking (`/tracking/:salesOrderId` & `/tracking`):
+    - Engineered relational 15-stage lifecycle derivation engine querying live MongoDB business records across all 4 departments (`SalesOrderModel`, `EnquiryModel`, `QuotationModel`, `ProformaInvoiceModel`, `CustomerPOModel`, `PaymentEntryModel`, `ProductionOrderModel`, `BOMModel`, `MaterialRequestModel`, `MaterialIssueModel`, `DailyProductionUpdateModel`, `QualityCheckModel`, `ReworkOrderModel`, `DeliveryOrderModel`).
+    - Multi-line equipment progress tracking ordered, manufactured, inspected, and delivered quantities with percentage progress bars.
+    - Implemented field-level RBAC commercial redactions: non-sales and non-admin users have commercial financials (`totalAmount`, `subtotal`, `paymentSummary`) completely masked.
+  - Centralized Departmental Notifications (`/notifications`):
+    - Scoped notification routing to department members, global announcements (`all`), or direct employee mentions.
+    - Deduplication safeguard via indexed `dedupKey` preventing duplicate notification spam on retried or concurrent actions.
+    - User-specific read tracking via `$addToSet: { readBy: userId }`, unread counter badge, individual mark read (`PATCH /api/notifications/:id/read`), and atomic mark-all-read (`POST /api/notifications/read-all`).
+  - Production-Ready Binary PDF Document Generation via `pdfkit`:
+    - Implemented `PDFService` generating true vector-rendered A4 `application/pdf` streams with `inline; filename="..."` across 13 business document types (Quotation, PI, Sales Order, Payment Receipt, Supplier PO, GRN, Material Issue Voucher, Supplier Return, Production Order, BOM, Quality Check Report, Delivery Order, and Delivery Challan).
+    - Layout standards: Corporate header branding, party details, dynamic multi-page item tables, financial calculations, bank remittance instructions, terms & conditions, and authorized signatory signature line.
+    - Direct integration with frontend `DocumentPreviewModal.tsx` providing a one-click "Download PDF" action.
+  - Pluggable File Storage & Security (`server/services/storage.service.ts`):
+    - Implemented `IStorageAdapter` abstraction with `LocalStorageAdapter` (sandboxed in `./uploads` with path traversal guards) and `S3StorageAdapter` structure for AWS S3 / Cloudflare R2.
+    - Defined `AttachmentModel` schema tracking MIME type, file size, storage key, SHA-256 checksum, module, entity links, and uploader identity.
+    - Secure upload endpoint (`POST /api/files/upload`) supporting multipart form and JSON base64 with 10MB ceiling and MIME validation.
+    - RBAC-gated private file downloads (`GET /api/files/:id/download`).
+  - Legacy Attachment Migration Utility (`server/migrations/migrateAttachments.ts`):
+    - Developed command-line migration utility supporting `--dry-run` inspection and live base64 extraction.
+    - Extracts embedded base64 payloads from legacy Customer POs, Payment Entries, GRNs, Quality Checks, and Delivery Orders into private storage, registers `AttachmentModel` records, and updates source documents with secure download URLs.
+  - Super Admin Dashboard & System Refinements (`/admin`):
+    - Added `GET /api/admin/summary` aggregating real-time cross-department operational metrics: active employees, pending enquiries, active production orders, pending material requests, low-stock inventory counts, QC queues, and pending dispatches.
+    - Extended Company Profile and Bank settings with state, country, UPI ID, default quotation terms, and authorized signatory.
+  - Server-Side Global Search (`GET /api/search`):
+    - Indexed search across doc numbers, customer names, vendor names, and materials.
+    - Enforces department RBAC permission boundaries (sales users only see sales records; shop-floor and inventory records are filtered).
+    - Integrated into `AppLayout.tsx` header with `Cmd+K` / `Ctrl+K` keyboard shortcut.
+  - Cross-Department Analytics & CSV Export:
+    - Added `GET /api/reports/cross-department` and `GET /api/reports/cross-department/export` providing management-level visibility into order fulfillment pipelines, inventory valuation, and dispatch velocity.
+  - Automated Testing & Quality:
+    - Authored dedicated test suite `server/tests/shared-modules.test.ts` covering Scenarios 1–12 (13 test cases).
+    - Achieved **96/96 passing automated tests (100% pass rate)** across all 9 test suites running sequentially (`--test-concurrency=1`).
+    - Verified clean TypeScript compilation (`npm run lint` -> 0 errors) and Vite production build (`npm run build`).
+    - Authored comprehensive technical report `PHASE_9_SHARED_MODULES.md`.

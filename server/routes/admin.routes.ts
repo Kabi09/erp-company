@@ -2,11 +2,72 @@ import bcrypt from 'bcryptjs';
 import { Router } from 'express';
 import { env } from '../config/environment';
 import { requireAuth, requirePerm, type AuthenticatedRequest } from '../middleware/auth.middleware';
-import { ActivityLogModel, CompanySettingsModel, EmployeeModel, RoleModel, SessionModel } from '../models';
+import {
+  ActivityLogModel,
+  CompanySettingsModel,
+  DeliveryOrderModel,
+  EmployeeModel,
+  EnquiryModel,
+  MaterialModel,
+  MaterialRequestModel,
+  ProductionOrderModel,
+  RoleModel,
+  SalesOrderModel,
+  SessionModel,
+} from '../models';
 import { mongoERPRepository } from '../repositories/MongoERPRepository';
 import { generateId, sendError } from '../utils/routeUtils';
 
 export const adminRouter = Router();
+
+// GET /api/admin/summary - Super Admin high-level overview across all 4 departments
+adminRouter.get('/admin/summary', requireAuth, requirePerm('admin', 'view'), async (_req, res) => {
+  try {
+    const [
+      activeEmployees,
+      totalEmployees,
+      pendingEnquiries,
+      confirmedSalesOrders,
+      activeProductionOrders,
+      pendingMaterialRequests,
+      qcPending,
+      readyForDispatch,
+      pendingDeliveries,
+      recentActivities,
+      materials,
+    ] = await Promise.all([
+      EmployeeModel.countDocuments({ status: 'Active' }),
+      EmployeeModel.countDocuments(),
+      EnquiryModel.countDocuments({ status: { $in: ['New', 'Under Review'] } as any }),
+      SalesOrderModel.countDocuments(),
+      ProductionOrderModel.countDocuments({ status: { $in: ['Planned', 'Ready to Start', 'In Progress'] } as any }),
+      MaterialRequestModel.countDocuments({ status: { $in: ['Pending', 'Partially Issued'] } as any }),
+      ProductionOrderModel.countDocuments({ status: 'QC Pending' as any }),
+      ProductionOrderModel.countDocuments({ status: 'Completed' as any }),
+      DeliveryOrderModel.countDocuments({ status: { $in: ['Planned', 'In Transit'] } as any }),
+      ActivityLogModel.find().sort({ timestamp: -1 }).limit(10).lean(),
+      MaterialModel.find().lean(),
+    ]);
+
+    const lowStockMaterials = materials.filter((m) => (m.currentStock || 0) <= m.minStock).length;
+
+    res.json({
+      activeEmployees,
+      totalEmployees,
+      pendingEnquiries,
+      confirmedSalesOrders,
+      activeProductionOrders,
+      pendingMaterialRequests,
+      lowStockMaterials,
+      qcPending,
+      readyForDispatch,
+      pendingDeliveries,
+      recentActivities,
+    });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
 
 // POST /api/admin/employees
 adminRouter.post('/admin/employees', requireAuth, requirePerm('admin', 'create'), async (req: AuthenticatedRequest, res) => {

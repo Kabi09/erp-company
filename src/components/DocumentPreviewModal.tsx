@@ -1,7 +1,8 @@
-import React, { useRef } from 'react';
-import { Download, Printer } from 'lucide-react';
+import React, { useRef, useState } from 'react';
+import { Download, FileText, Printer } from 'lucide-react';
 import type { CompanySettings, DeliveryOrder, ProformaInvoice, Quotation, SupplierPO } from '../types/erp';
 import { formatCurrency } from '../utils/erpLogic';
+import { erpApi } from '../services/api';
 import { Button, Modal } from './ui';
 
 export type DocUnion =
@@ -34,8 +35,32 @@ export const DocumentPreviewModal: React.FC<{
             ? `Delivery Challan — ${payload.doc.deliveryChallanNo || payload.doc.docNo}`
             : `Delivery Order — ${payload.doc.docNo}`;
 
+  const [downloadingPdf, setDownloadingPdf] = useState(false);
+
   const handlePrint = () => {
     window.print();
+  };
+
+  const handleDownloadPdf = async () => {
+    try {
+      setDownloadingPdf(true);
+      const typeMap: Record<string, string> = {
+        quotation: 'quotation',
+        pi: 'proforma-invoice',
+        spo: 'supplier-po',
+        delivery_order: 'delivery-order',
+        delivery_challan: 'delivery-challan',
+      };
+      const docType = typeMap[payload.kind] || payload.kind;
+      const docNo = isLogistics
+        ? (payload.kind === 'delivery_challan' ? payload.doc.deliveryChallanNo || payload.doc.docNo : payload.doc.docNo)
+        : payload.doc.docNo;
+      await erpApi.downloadDocumentPDF(docType, payload.doc.id, docNo);
+    } catch (err: any) {
+      alert(`PDF Download Error: ${err.message}`);
+    } finally {
+      setDownloadingPdf(false);
+    }
   };
 
   const handleDownloadHtml = () => {
@@ -58,17 +83,21 @@ export const DocumentPreviewModal: React.FC<{
       open={open}
       onClose={onClose}
       title={title}
-      subtitle="Print to PDF or download formatted enterprise document"
+      subtitle="Download official binary PDF or print formatted document"
       size="xl"
       footer={
         <>
           <Button variant="secondary" onClick={handleDownloadHtml}>
-            <Download className="w-4 h-4" />
-            Download Document
+            <FileText className="w-4 h-4" />
+            HTML Preview
           </Button>
-          <Button variant="primary" onClick={handlePrint}>
+          <Button variant="secondary" onClick={handlePrint}>
             <Printer className="w-4 h-4" />
-            Print / Save as PDF
+            Print
+          </Button>
+          <Button variant="primary" loading={downloadingPdf} onClick={handleDownloadPdf}>
+            <Download className="w-4 h-4" />
+            Download PDF
           </Button>
         </>
       }

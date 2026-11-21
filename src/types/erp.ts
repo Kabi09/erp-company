@@ -67,6 +67,14 @@ export interface CompanySettings {
   defaultWarranty: string;
   currencySymbol: string;
   demoMode: boolean;
+  state?: string;
+  country?: string;
+  upiId?: string;
+  defaultQuotationTerms?: string;
+  authorizedSignatoryName?: string;
+  authorizedSignatoryDesignation?: string;
+  documentPrefixes?: Record<string, string>;
+  taxConfigurations?: Array<{ name: string; rate: number }>;
 }
 
 export interface NotificationItem {
@@ -78,6 +86,24 @@ export interface NotificationItem {
   link?: string;
   readBy: string[];
   createdAt: string;
+  recipientEmployeeId?: string;
+  relatedModule?: string;
+  relatedDocumentId?: string;
+  dedupKey?: string;
+}
+
+export interface AttachmentRecord {
+  id: string;
+  originalName: string;
+  storageKey: string;
+  mimeType: string;
+  fileSize: number;
+  module: PermissionModule | 'admin';
+  recordId: string;
+  recordDocNo?: string;
+  uploadedBy: string;
+  uploadedAt: string;
+  isMigrated?: boolean;
 }
 
 export interface ActivityLog {
@@ -915,4 +941,5 @@ export interface ERPDatabase {
   productionReturns?: ProductionReturn[];
   deliveryOrders: DeliveryOrder[];
   deliveryIssues: DeliveryIssue[];
+  attachments?: AttachmentRecord[];
 }

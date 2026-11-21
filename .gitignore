@@ -8,4 +8,5 @@ coverage/
 !.env.example
 .aistudio/
 data/replica_test_db/
+uploads/
 

@@ -22,6 +22,7 @@ import {
 } from 'lucide-react';
 import { DEPARTMENTS, inferDepartmentFromPath, OPERATIONAL_DEPARTMENTS } from '../config/navigation';
 import { useERP } from '../context/ERPContext';
+import { erpApi } from '../services/api';
 import type { Department } from '../types/erp';
 import { ErrorBanner, LoadingSkeleton, Modal, ToastContainer } from './ui';
 
@@ -34,7 +35,45 @@ export const AppLayout: React.FC = () => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [globalQuery, setGlobalQuery] = useState('');
+  const [serverResults, setServerResults] = useState<Array<{ label: string; sub: string; path: string; dept: string }>>([]);
   const [mobileSheet, setMobileSheet] = useState<'work' | 'create' | 'more' | null>(null);
+
+  // Keyboard shortcut: Ctrl+K / Cmd+K to open global search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setSearchOpen((prev) => !prev);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
+
+  // Server-side debounced global search
+  useEffect(() => {
+    if (globalQuery.trim().length >= 2) {
+      const timer = setTimeout(() => {
+        erpApi.globalSearch(globalQuery.trim())
+          .then((res) => {
+            if (res.results && Array.isArray(res.results)) {
+              setServerResults(
+                res.results.map((r: any) => ({
+                  label: r.title,
+                  sub: r.subtitle,
+                  path: r.path,
+                  dept: r.module,
+                })),
+              );
+            }
+          })
+          .catch(() => {});
+      }, 250);
+      return () => clearTimeout(timer);
+    } else {
+      setServerResults([]);
+    }
+  }, [globalQuery]);
 
   const isSuperAdmin = user?.department === 'admin' || can('admin', 'view');
 
@@ -118,6 +157,8 @@ export const AppLayout: React.FC = () => {
     }
     return out.slice(0, 12);
   }, [data, globalQuery, can]);
+
+  const activeSearchResults = serverResults.length > 0 ? serverResults : searchResults;
 
   const breadcrumbs = useMemo(() => {
     const parts = location.pathname.split('/').filter(Boolean);
@@ -645,11 +686,11 @@ export const AppLayout: React.FC = () => {
             placeholder="Search by document ID (SO-0001, PROD-0002, ENQ-0001), customer, or material..."
             className="w-full px-3 py-2 text-sm bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 rounded-md focus:outline-none focus:ring-2 focus:ring-teal-500"
           />
-          {globalQuery.trim() && searchResults.length === 0 && (
+          {globalQuery.trim() && activeSearchResults.length === 0 && (
             <p className="text-xs text-slate-500 py-4 text-center">No matching records found.</p>
           )}
           <div className="divide-y divide-slate-200 dark:divide-slate-800">
-            {searchResults.map((r, i) => (
+            {activeSearchResults.map((r, i) => (
               <button
                 key={`${r.path}-${i}`}
                 type="button"

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2,
@@ -44,10 +44,23 @@ import type {
 export const AdminDashboard: React.FC = () => {
   const { data: db } = useERP();
   const navigate = useNavigate();
+  const [summary, setSummary] = useState<any>(null);
+
+  useEffect(() => {
+    erpApi.getAdminSummary().then((res) => setSummary(res)).catch(() => {});
+  }, []);
+
   if (!db) return null;
 
-  const activeEmployees = db.employees.filter((e) => e.status === 'Active').length;
-  const lowStockCount = db.materials.filter((m) => (db.stockMap[m.id] || 0) <= m.minStock).length;
+  const activeEmployees = summary?.activeEmployees ?? db.employees.filter((e) => e.status === 'Active').length;
+  const totalEmployees = summary?.totalEmployees ?? db.employees.length;
+  const lowStockCount = summary?.lowStockMaterials ?? db.materials.filter((m) => (db.stockMap[m.id] || 0) <= m.minStock).length;
+  const confirmedOrders = summary?.confirmedSalesOrders ?? db.salesOrders.length;
+  const activeProd = summary?.activeProductionOrders ?? db.productionOrders.filter((p) => p.status === 'In Progress' || p.status === 'Ready to Start').length;
+  const pendingMRs = summary?.pendingMaterialRequests ?? db.materialRequests.filter((m) => m.status === 'Pending').length;
+  const qcPending = summary?.qcPending ?? db.productionOrders.filter((p) => p.status === 'QC Pending').length;
+  const readyDispatch = summary?.readyForDispatch ?? db.productionOrders.filter((p) => p.status === 'Completed').length;
+  const pendingDeliveries = summary?.pendingDeliveries ?? db.deliveryOrders.filter((d) => ['Planned', 'In Transit'].includes(d.status)).length;
 
   return (
     <div className="space-y-6">
@@ -64,28 +77,55 @@ export const AdminDashboard: React.FC = () => {
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard
           label="Active Employees"
-          value={`${activeEmployees} / ${db.employees.length}`}
+          value={`${activeEmployees} / ${totalEmployees}`}
           hint="Across 4 departments + Admin"
           onClick={() => navigate('/admin/employees')}
         />
         <StatCard
-          label="Configured Roles"
-          value={db.roles.length}
-          hint="RBAC permission sets"
-          onClick={() => navigate('/admin/roles')}
+          label="Confirmed Sales Orders"
+          value={confirmedOrders}
+          hint={`${activeProd} production orders active`}
+          onClick={() => navigate('/tracking')}
         />
         <StatCard
-          label="Confirmed Orders"
-          value={db.salesOrders.length}
-          hint={`${db.productionOrders.length} production orders`}
-          onClick={() => navigate('/tracking')}
+          label="Pending Material Requests"
+          value={pendingMRs}
+          tone={pendingMRs > 0 ? 'warning' : 'default'}
+          hint="Awaiting store issue"
+          onClick={() => navigate('/supply-chain/material-requests')}
         />
         <StatCard
           label="Low Stock Materials"
           value={lowStockCount}
           tone={lowStockCount > 0 ? 'warning' : 'success'}
-          hint="Monitor in Supply Chain"
+          hint="Below reorder threshold"
           onClick={() => navigate('/supply-chain/inventory')}
+        />
+        <StatCard
+          label="Active Production Orders"
+          value={activeProd}
+          hint="Floor manufacturing running"
+          onClick={() => navigate('/production/active')}
+        />
+        <StatCard
+          label="Quality Checks Pending"
+          value={qcPending}
+          tone={qcPending > 0 ? 'warning' : 'default'}
+          hint="Awaiting technical inspection"
+          onClick={() => navigate('/production/quality-check')}
+        />
+        <StatCard
+          label="Ready for Dispatch"
+          value={readyDispatch}
+          tone="success"
+          hint="QC accepted finished goods"
+          onClick={() => navigate('/logistics/ready')}
+        />
+        <StatCard
+          label="Deliveries In Progress"
+          value={pendingDeliveries}
+          hint="Planned / in transit shipments"
+          onClick={() => navigate('/logistics/delivery-orders')}
         />
       </div>
 
@@ -607,6 +647,16 @@ export const CompanyProfilePage: React.FC = () => {
           <Field label="Website">
             <Input value={form.website} onChange={(e) => setForm({ ...form, website: e.target.value })} />
           </Field>
+          <Field label="State & Country">
+            <Input
+              value={`${form.state || ''}${form.country ? `, ${form.country}` : ''}`}
+              placeholder="e.g. Karnataka, India"
+              onChange={(e) => {
+                const parts = e.target.value.split(',').map((p) => p.trim());
+                setForm({ ...form, state: parts[0] || '', country: parts[1] || 'India' });
+              }}
+            />
+          </Field>
         </div>
         <Field label="Registered Factory / Office Address">
           <Textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} />
@@ -614,7 +664,7 @@ export const CompanyProfilePage: React.FC = () => {
       </div>
 
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-4">
-        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Bank Details (Printed on Proforma Invoices)</h2>
+        <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Bank Details & Digital Remittance</h2>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <Field label="Bank Name">
             <Input value={form.bankName} onChange={(e) => setForm({ ...form, bankName: e.target.value })} />
@@ -631,6 +681,9 @@ export const CompanyProfilePage: React.FC = () => {
           <Field label="Branch">
             <Input value={form.bankBranch} onChange={(e) => setForm({ ...form, bankBranch: e.target.value })} />
           </Field>
+          <Field label="UPI ID (VPA)">
+            <Input value={form.upiId || ''} placeholder="e.g. cryo@sbi" onChange={(e) => setForm({ ...form, upiId: e.target.value })} />
+          </Field>
           <Field label="Default GST / Tax (%)">
             <Input
               type="number"
@@ -638,6 +691,22 @@ export const CompanyProfilePage: React.FC = () => {
               max="50"
               value={form.defaultTaxPercent}
               onChange={(e) => setForm({ ...form, defaultTaxPercent: Number(e.target.value) })}
+            />
+          </Field>
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <Field label="Authorized Signatory Name">
+            <Input
+              value={form.authorizedSignatoryName || ''}
+              placeholder="e.g. Rajesh Sharma"
+              onChange={(e) => setForm({ ...form, authorizedSignatoryName: e.target.value })}
+            />
+          </Field>
+          <Field label="Authorized Signatory Designation">
+            <Input
+              value={form.authorizedSignatoryDesignation || ''}
+              placeholder="e.g. Managing Director"
+              onChange={(e) => setForm({ ...form, authorizedSignatoryDesignation: e.target.value })}
             />
           </Field>
         </div>

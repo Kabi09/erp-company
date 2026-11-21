@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import {
   AlertCircle,
@@ -6,9 +6,11 @@ import {
   CheckCircle2,
   Circle,
   Clock,
+  Download,
   ExternalLink,
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
+import { erpApi } from '../../services/api';
 import {
   Button,
   DataTable,
@@ -197,6 +199,16 @@ export const OrderTrackingPage: React.FC = () => {
 export const OrderTrackingDetailPage: React.FC = () => {
   const { soId } = useParams<{ soId: string }>();
   const { data: db, can } = useERP();
+  const [remoteData, setRemoteData] = useState<any>(null);
+
+  useEffect(() => {
+    if (soId) {
+      erpApi.getOrderTrackingDetail(soId)
+        .then((res) => setRemoteData(res))
+        .catch(() => {});
+    }
+  }, [soId]);
+
   if (!db) return null;
 
   const so = db.salesOrders.find((s) => s.id === soId);
@@ -415,6 +427,23 @@ export const OrderTrackingDetailPage: React.FC = () => {
     },
   ];
 
+  const displaySteps = useMemo(() => {
+    if (remoteData?.stages && Array.isArray(remoteData.stages)) {
+      return remoteData.stages.map((s: any) => ({
+        key: `stage-${s.stageIndex}`,
+        label: `${s.stageIndex}. ${s.name}`,
+        department: s.department,
+        state: (s.status.toLowerCase() === 'in progress' ? 'active' : s.status.toLowerCase()) as any,
+        docNo: s.docNo,
+        summary: s.summary,
+        date: s.date,
+        link: s.link,
+        canLink: true,
+      }));
+    }
+    return steps;
+  }, [remoteData, steps]);
+
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-2">
@@ -432,6 +461,14 @@ export const OrderTrackingDetailPage: React.FC = () => {
           <div className="flex items-center gap-2">
             <StatusBadge status={so.fulfillmentStatus} />
             <StatusBadge status={paySummary.paymentStatus} />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => erpApi.downloadDocumentPDF('sales-order', so.id, so.docNo)}
+            >
+              <Download className="w-4 h-4" />
+              Download SO PDF
+            </Button>
           </div>
         }
       />
@@ -467,10 +504,10 @@ export const OrderTrackingDetailPage: React.FC = () => {
       {/* Vertical Lifecycle Timeline */}
       <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5">
         <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100 mb-4">
-          End-to-End Fulfillment Timeline
+          End-to-End Fulfillment Timeline (15 Stages)
         </h2>
         <ol className="relative space-y-4 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-px before:bg-slate-200 dark:before:bg-slate-800">
-          {steps.map((step) => {
+          {displaySteps.map((step: any) => {
             const Icon =
               step.state === 'completed'
                 ? CheckCircle2

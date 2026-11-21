@@ -404,4 +404,49 @@ export const erpApi = {
   getSupplyChainSummary: () => request<any>('/supply-chain/summary'),
   getProductionSummary: () => request<any>('/production/summary'),
   getLogisticsSummary: () => request<any>('/logistics/summary'),
+
+  // Phase 9: Shared Enterprise Integration Endpoints
+  getAdminSummary: () => request<any>('/admin/summary'),
+  getOrderTrackingDetail: (salesOrderId: string) => request<any>(`/tracking/${salesOrderId}`),
+  getTrackingOrders: (params?: PaginationParams & { status?: string }) =>
+    request<PaginatedResponse<SalesOrder>>(`/tracking${toQueryString(params)}`),
+  globalSearch: (q: string) => request<any>(`/search?q=${encodeURIComponent(q)}`),
+  getSharedReports: () => request<any>('/reports/cross-department'),
+  uploadFile: async (formData: FormData) => {
+    const token = getAuthToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch('/api/files/upload', {
+      method: 'POST',
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'File upload failed');
+    }
+    return res.json();
+  },
+  downloadDocumentPDF: async (type: string, id: string, docNo: string) => {
+    const token = getAuthToken();
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`/api/documents/${type}/${id}/pdf`, {
+      method: 'GET',
+      headers,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Failed to generate PDF document');
+    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${docNo.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  },
 };
