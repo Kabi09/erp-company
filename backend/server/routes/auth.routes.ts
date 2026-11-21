@@ -477,7 +477,7 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
           StockTransactionModel.find().sort({ timestamp: -1 }).limit(200).lean(),
         ]);
     } else if (dept === 'production') {
-      [productionOrders, boms, materialRequests, dailyUpdates, qualityChecks, reworkOrders, productionReturns, salesOrders, products, materials] =
+      [productionOrders, boms, materialRequests, dailyUpdates, qualityChecks, reworkOrders, productionReturns, salesOrders, products, materials, materialIssues] =
         await Promise.all([
           ProductionOrderModel.find().sort({ createdAt: -1 }).lean(),
           BOMModel.find().sort({ createdAt: -1 }).lean(),
@@ -506,6 +506,7 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
             .lean(),
           ProductModel.find().lean(),
           MaterialModel.find().lean(),
+          MaterialIssueModel.find().sort({ createdAt: -1 }).lean(),
         ]);
     } else if (dept === 'logistics') {
       [deliveryOrders, deliveryIssues, salesOrders, productionOrders, products] = await Promise.all([

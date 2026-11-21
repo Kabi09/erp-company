@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { CheckCircle2, Layers, PackageCheck, Plus, Send, Trash2 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
@@ -510,6 +510,22 @@ export const MaterialReceiptsPage: React.FC = () => {
   const [ackLines, setAckLines] = useState<AckReceiptLine[]>([]);
   const [discrepancyNotes, setDiscrepancyNotes] = useState('');
   const [saving, setSaving] = useState(false);
+  const [remoteIssues, setRemoteIssues] = useState<MaterialIssue[] | null>(null);
+
+  const fetchIssues = useCallback(async () => {
+    try {
+      const res = await erpApi.getMaterialReceipts();
+      if (Array.isArray(res)) {
+        setRemoteIssues(res);
+      }
+    } catch {
+      // fallback to db.materialIssues
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchIssues();
+  }, [fetchIssues]);
 
   if (!db) return null;
 
@@ -529,9 +545,11 @@ export const MaterialReceiptsPage: React.FC = () => {
     );
   };
 
+  const issuesSource = remoteIssues || db.materialIssues || [];
+
   const filteredIssues = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return db.materialIssues.filter((mi) => {
+    return issuesSource.filter((mi) => {
       const st = mi.receiptAcknowledged ? 'Acknowledged' : 'Pending Receipt';
       if (statusFilter !== 'All' && st !== statusFilter) return false;
       if (!q) return true;
@@ -541,7 +559,7 @@ export const MaterialReceiptsPage: React.FC = () => {
         mi.materialRequestDocNo.toLowerCase().includes(q)
       );
     });
-  }, [db.materialIssues, search, statusFilter]);
+  }, [issuesSource, search, statusFilter]);
 
   const handleAcknowledge = async () => {
     if (!ackTarget) return;
@@ -556,6 +574,7 @@ export const MaterialReceiptsPage: React.FC = () => {
         discrepancyNotes,
       });
       await refresh();
+      await fetchIssues();
       setAckTarget(null);
       setDiscrepancyNotes('');
       setAckLines([]);
@@ -660,43 +679,6 @@ export const MaterialReceiptsPage: React.FC = () => {
         subtitle="Verify physical receipt of materials issued by Supply Chain. Orders move to Ready to Start once all BOM materials are received."
       />
 
-      {activeMRs.length > 0 && (
-        <div className="mb-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
-          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
-            Material Request Fulfillment Status
-          </h2>
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {activeMRs.map((mr) => (
-              <div
-                key={mr.id}
-                className="p-3 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 space-y-2"
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">
-                    {mr.docNo} · {mr.productionOrderDocNo}
-                  </span>
-                  <StatusBadge status={mr.status} />
-                </div>
-                <div className="space-y-1 text-xs">
-                  {mr.items.map((it) => {
-                    const pending = round2(it.requiredQty - it.receivedQty);
-                    return (
-                      <div key={it.materialId} className="flex items-center justify-between gap-2 text-slate-700 dark:text-slate-300">
-                        <span className="truncate">{it.materialName}</span>
-                        <span className="font-mono shrink-0 text-[11px]">
-                          Rec {it.receivedQty}/{it.requiredQty} {it.unit}
-                          {pending > 0 ? ` (Pend ${pending})` : ''}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       <FilterBar
         search={search}
         onSearchChange={setSearch}
@@ -742,6 +724,43 @@ export const MaterialReceiptsPage: React.FC = () => {
           </div>
         )}
       />
+
+      {activeMRs.length > 0 && (
+        <div className="mt-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-slate-500 mb-3">
+            Material Request Fulfillment Status
+          </h2>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {activeMRs.map((mr) => (
+              <div
+                key={mr.id}
+                className="p-3 rounded-md border border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/60 space-y-2"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">
+                    {mr.docNo} · {mr.productionOrderDocNo}
+                  </span>
+                  <StatusBadge status={mr.status} />
+                </div>
+                <div className="space-y-1 text-xs">
+                  {mr.items.map((it) => {
+                    const pending = round2(it.requiredQty - it.receivedQty);
+                    return (
+                      <div key={it.materialId} className="flex items-center justify-between gap-2 text-slate-700 dark:text-slate-300">
+                        <span className="truncate">{it.materialName}</span>
+                        <span className="font-mono shrink-0 text-[11px]">
+                          Rec {it.receivedQty}/{it.requiredQty} {it.unit}
+                          {pending > 0 ? ` (Pend ${pending})` : ''}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <Modal
         open={Boolean(ackTarget)}

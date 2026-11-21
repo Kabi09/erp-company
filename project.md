@@ -402,3 +402,19 @@
     - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
     - Vite production build bundled cleanly in 685ms.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
+- **v2.9.2 (Production Material Receipts Data Availability & UI Layout Swap)**:
+  - Production Department Bootstrap Population:
+    - Updated `backend/server/routes/auth.routes.ts` bootstrap query for `dept === 'production'` to include `MaterialIssueModel.find().sort({ createdAt: -1 }).lean()`.
+    - Solved issue where Super Admin saw the material receipts table, but Production department employees (including Production Manager) received an empty array.
+    - Verified Production Manager (`prod.mgr@cryoerp.com`) now loads all 330 material issue vouchers on bootstrap.
+  - Client API & Direct Fetch Synchronization:
+    - Added `getMaterialReceipts` helper in `frontend/src/services/api.ts` pointing to `GET /production/material-receipts`.
+    - Updated `MaterialReceiptsPage` in `frontend/src/pages/production/BomReceiptsPage.tsx` with dynamic fallback fetching ensuring real-time sync upon shop-floor confirmation.
+  - UI Layout Swap:
+    - Re-ordered `MaterialReceiptsPage` layout so the **Material Receipts Table (`FilterBar` & `DataTable`) is displayed FIRST**.
+    - Positioned the **Material Request Fulfillment Status** summary cards below the receipts table.
+  - Verification & Test Results:
+    - **107/107 automated tests passing** (100% pass rate).
+    - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
+    - Vite production build bundled cleanly in 604ms.
+    - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.

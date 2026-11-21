@@ -317,6 +317,8 @@ export const erpApi = {
     request('/production/material-requests', { method: 'POST', body: JSON.stringify(payload) }),
   sendBOMRequest: (id: string) =>
     request(`/production/boms/${id}/send-request`, { method: 'POST' }),
+  getMaterialReceipts: (params?: Record<string, any>) =>
+    request<any[]>(`/production/material-receipts${toQueryString(params)}`),
   acknowledgeMaterialReceipt: (id: string, payload?: any) =>
     request(`/production/material-receipts/${id}/acknowledge`, {
       method: 'POST',
