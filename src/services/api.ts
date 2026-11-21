@@ -333,18 +333,25 @@ export const erpApi = {
     request(`/production/rework/${id}/complete`, { method: 'POST', body: JSON.stringify(payload) }),
 
   // Logistics
+  getReadyForDispatch: () => request<any[]>('/logistics/ready'),
+  getDeliveryOrderDetail: (id: string) => request<any>(`/logistics/delivery-orders/${id}`),
   createDeliveryOrder: (payload: any) =>
     request('/logistics/delivery-orders', { method: 'POST', body: JSON.stringify(payload) }),
+  cancelDeliveryOrder: (id: string, reason: string) =>
+    request(`/logistics/delivery-orders/${id}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
   updateDeliveryStatus: (id: string, payload: any) =>
     request(`/logistics/delivery-orders/${id}/status`, { method: 'PATCH', body: JSON.stringify(payload) }),
   confirmDispatch: (id: string, payload?: any) =>
     request(`/logistics/delivery-orders/${id}/dispatch`, { method: 'POST', body: JSON.stringify(payload || {}) }),
   confirmDelivery: (id: string, payload?: any) =>
     request(`/logistics/delivery-orders/${id}/deliver`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  getDeliveryIssues: (params?: any) =>
+    request<any[]>(`/logistics/issues${toQueryString(params)}`),
   reportDeliveryIssue: (payload: any) =>
     request('/logistics/issues', { method: 'POST', body: JSON.stringify(payload) }),
   resolveDeliveryIssue: (id: string, payload: any) =>
     request(`/logistics/issues/${id}/resolve`, { method: 'POST', body: JSON.stringify(payload) }),
+  getLogisticsReports: () => request<any>('/logistics/reports'),
 
   // Admin
   createEmployee: (payload: any) =>

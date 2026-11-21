@@ -49,6 +49,7 @@ const ReworkPage = React.lazy(() => import('./pages/production/DailyQualityRewor
 // Logistics & Delivery Management (Code-split)
 const DeliveryIssuesPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.DeliveryIssuesPage })));
 const DeliveryOrdersPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.DeliveryOrdersPage })));
+const DeliveryOrderDetailPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.DeliveryOrderDetailPage })));
 const LogisticsDashboard = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.LogisticsDashboard })));
 const LogisticsReportsPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.LogisticsReportsPage })));
 const ReadyForDispatchPage = React.lazy(() => import('./pages/logistics/LogisticsPages').then((m) => ({ default: m.ReadyForDispatchPage })));
@@ -465,6 +466,14 @@ export function App() {
               element={
                 <RequireModule module="logistics">
                   <DeliveryOrdersPage mode="all" />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/logistics/delivery-orders/:id"
+              element={
+                <RequireModule module="logistics">
+                  <DeliveryOrderDetailPage />
                 </RequireModule>
               }
             />

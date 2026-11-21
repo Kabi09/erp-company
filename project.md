@@ -56,13 +56,14 @@
 - **Production Reports** (`/production/reports`): Output metrics, QC pass/fail rates, rework summary.
 
 ### Department 4: Logistics & Delivery Management (`/logistics`, Teal Accent)
-- **Dashboard** (`/logistics`): Ready-for-dispatch count, planned deliveries, in-transit shipments, delivered orders, open issues.
-- **Ready for Dispatch** (`/logistics/ready`): Strict QC-gating—only `Completed` QC-accepted production orders appear here. Supports conditional transport fields:
+- **Dashboard** (`/logistics`): Ready-for-dispatch count, planned deliveries, scheduled dispatches, in-transit shipments, partially delivered orders, delivered orders, overdue deliveries, and open delivery issues with direct clickable filter routing and operational CSV export.
+- **Ready for Dispatch** (`/logistics/ready`): Strict QC-gating—only `Completed` QC-accepted production orders with remaining unallocated quantities appear here. Streamlined "Create Delivery Order" modal with real-time stock allocation checks, document auto-generation (`DEL-XXXX`), and conditional transport fields:
   - **Own Vehicle**: Vehicle Number, Driver Name, Driver Phone.
-  - **Courier**: Courier Company, Tracking/AWB Number, Courier Contact.
-- **Delivery Orders / In Transit / Completed / History** (`/logistics/delivery-orders`, `/logistics/in-transit`, `/logistics/completed`, `/logistics/history`): Dispatch confirmation (Challan & Courier AWB validation) and final Delivery Confirmation (Received By, POD upload, Good condition, or Delivery Issue reporting). Delivery updates SO fulfillment status without falsely marking unpaid balances as Paid.
-- **Delivery Issues** (`/logistics/issues`): Exception tracking (`Delay`, `Failed Attempt`, `Damage`, `Shortage`) with resolution and transit retry.
-- **Logistics Reports** (`/logistics/reports`): Fleet vs. Courier breakdown and delivery completion totals.
+  - **Courier**: Courier Company, Tracking/AWB Number, Courier Contact Phone.
+- **Delivery Orders / In Transit / Completed / History** (`/logistics/delivery-orders`, `/logistics/in-transit`, `/logistics/completed`, `/logistics/history`): Dispatch confirmation (Challan & Courier AWB validation), Pre-dispatch cancellation with automatic quantity unallocation, and final Delivery Confirmation (Received By, package condition check, partial delivery handling, and POD upload). Delivery updates SO fulfillment status without falsely marking unpaid balances as Paid.
+- **Delivery Order Detail** (`/logistics/delivery-orders/:id`): Centralized 3-column operational cockpit detailing Order Overview, Consignee Info, Products & Serials, Transport & Dispatch Tracking, Attached Proof of Delivery (POD), linked Delivery Issues, and full chronological History timeline. Supports in-modal printable/downloadable Delivery Order & Delivery Challan generation.
+- **Delivery Issues** (`/logistics/issues`): Exception tracking across 9 standard issue types (`Customer Unavailable`, `Address Not Found`, `Customer Refused Delivery`, `Package Damaged in Transit`, `Vehicle Breakdown`, `Weather Delay`, `Incorrect Items Shipped`, `Transit Loss`, `Customs / Checkpost Delay`). Interactive resolution modal supporting 5 business outcomes (`Retry Delivery`, `Reschedule Delivery`, `Delivery Confirmed`, `Returned to CRYO`, `Requires Further Action`).
+- **Logistics Reports** (`/logistics/reports`): Transportation method breakdown (Own Vehicle vs Courier), delivery status distribution, delay analytics, delivery issue summary, and operational CSV export.
 
 ### Shared Supporting & Administration Modules
 - **Centralized Order Tracking** (`/tracking`, `/tracking/:soId`): 12-stage visual end-to-end timeline linking Enquiry through final Delivery with permission-gated deep links.
@@ -159,13 +160,31 @@
     - Connected Dashboard StatCards to active filter routes, added interactive Stock Audit modal, and built CSV exports for issues, ledger history, and reports.
     - Built comprehensive 12-scenario automated test suite `server/tests/supply-chain-workflow.test.ts`.
     - Achieved 49/49 passing automated tests across all 6 test suites with zero TypeScript errors and clean production build.
-- **Known Issues & Technical Debt (Analyzed for Phase 7)**:
+  - Phase 7 Production Management Workflow, Manufacturing Integrity & UI/UX Refinement:
+    - End-to-end manufacturing lifecycle: `Confirmed SO → Received Sales Orders → Create Production Order & Duration Plan → BOM Preparation → Send Request to Supply Chain → Material Issue → Physical Material Receipt → Start Production → Daily Production Updates → Complete Manufacturing → Quality Check → Accept / Reject → Rework if rejected → Repeat Quality Check → Production Completed → Logistics Release`.
+    - Strict Sales Order allocation guard checking $quantity \le remainingSOAllocatableQty$ with optimistic concurrency control (`__v`) preventing duplicate allocations.
+    - Multi-point Quality Check checklist with partial outcome support ($\text{Accepted} + \text{Rejected} = \text{Inspected}$), auto-rework generation (`RW-XXXX`), and inspection history.
+    - Condition-aware material returns distinguishing `Usable` store stock increments from quarantined/scrap `Damaged` returns.
+    - 65/65 automated tests passing across 7 test suites with 0 TypeScript errors.
+  - Phase 8 Logistics & Delivery Management Workflow, Business Logic & UI/UX Refinement:
+    - End-to-end delivery lifecycle: `Production Completed → Quality Check Accepted → Ready for Dispatch → Create Delivery Order → Own Vehicle / Courier Assignment → Confirm Dispatch → In Transit → Delivery Confirmation → Delivered → Sales Order Fulfillment Updated`.
+    - Strict QC-accepted allocation gate & OCC: `createDeliveryOrderTx` in `MongoERPRepository.ts` verifies $quantity \le availableQCQuantity$ with optimistic concurrency control (`__v`) on `ProductionOrderModel`, completely preventing duplicate or over-allocation.
+    - Pre-dispatch cancellation workflow (`POST /api/logistics/delivery-orders/:id/cancel`): allows cancelling un-dispatched (`Planned`) orders with mandatory cancellation reason and actor, automatically releasing allocated quantities back to PO available pool. Post-dispatch cancellation is strictly blocked.
+    - Dispatch confirmation: enforces vehicle number + driver phone for Own Vehicle, or courier company + tracking/AWB number for Courier. Validates optional dispatch attachments ($\le 5\text{MB}$), generates Delivery Challan number, updates status to `In Transit`, increments `PO.dispatchedQty`, and syncs SO fulfillment to `In Transit`. Duplicate dispatch is strictly blocked.
+    - Delivery confirmation: supports full or partial delivery, package condition verification (`Good`, `Damaged`, `Tampered`, `Partial`), proof of delivery (POD) attachment metadata (format and $\le 5\text{MB}$ ceiling), and recipient attribution. Automatically transitions delivery order to `Delivered` (or `Partially Delivered`), increments `PO.deliveredQty` by delivered delta, and syncs SO fulfillment to `Delivered`.
+    - Commercial & Payment balance independence: delivery completion updates `SalesOrder.fulfillmentStatus = 'Delivered'` while financial payment status (`Unpaid`, `Partial`, `Paid`) and outstanding balances remain strictly governed by verified payment entries.
+    - Comprehensive delivery issue management: supports all 9 standard industry issue types (`Customer Unavailable`, `Address Not Found`, `Customer Refused Delivery`, `Package Damaged in Transit`, `Vehicle Breakdown`, `Weather Delay`, `Incorrect Items Shipped`, `Transit Loss`, `Customs / Checkpost Delay`). Interactive resolution modal supports 5 business outcomes (`Retry Delivery`, `Reschedule Delivery`, `Delivery Confirmed`, `Returned to CRYO`, `Requires Further Action`) with full history tracking.
+    - Centralized 3-column `DeliveryOrderDetailPage.tsx` (`/logistics/delivery-orders/:id`): integrated Order Overview, Consignee Info, Products & Serial Numbers, Transport & Dispatch Tracking, Attached Proof of Delivery (POD), linked Delivery Issues, and chronological Audit History timeline. Document preview modal (`DocumentPreviewModal.tsx`) extended to support print/download for both Delivery Orders and Delivery Challans.
+    - Automated test suite `server/tests/logistics-workflow.test.ts` covering Scenarios 1–17 (18 test cases).
+    - Achieved 83/83 passing automated tests (100% pass rate) across all 8 test suites, clean TypeScript check (`npm run lint`), and clean production build (`npm run build`).
+- **Known Issues & Technical Debt (Analyzed for Phase 9)**:
   - *H-02 (Storage)*: Client-side base64 Data URL file attachments stored in database fields. Needs cloud object storage (S3/GCS/MinIO) with signed URLs in future hardening.
   - *H-04 (Documents)*: HTML/Print-based simulated PDF generation. Needs server-side binary PDF generation in future hardening.
-- **Pending Work for Phase 7 (Production Management Workflow & Shop Floor Execution)**:
-  - Production order lifecycle hardening, stage transitions, and floor issue tracking.
-  - Duration plan calculations, daily production logs, and rework loop back to QC.
-  - Final Quality Check gate with dispatch release authorization to Logistics.
+- **Pending Work for Phase 9 (Centralized Tracking, Notifications, Administration & End-to-End Polish)**:
+  - Centralized Order Tracking (`/tracking`, `/tracking/:soId`) 12-stage visual end-to-end timeline verification linking Enquiry through final Delivery.
+  - Department notification handoff flows & alert center.
+  - System Administration (`/admin/*`), Employee CRUD, dynamic Role-Based Access Control matrix, and clean database reset.
+  - Activity audit logging, dark/light mode polish, mobile touch interactions, and final production certification.
 
 ---
 
@@ -257,3 +276,25 @@
     - Achieved 65/65 passing automated tests (100% pass rate) across all 7 test suites running sequentially (`--test-concurrency=1`).
     - Verified clean TypeScript compilation (`tsc --noEmit`) and Vite production build (`vite build`).
     - Authored comprehensive technical report `PHASE_7_PRODUCTION_MANAGEMENT.md`.
+- **v2.7.0 (Phase 8 – Logistics & Delivery Management Workflow, Business Logic & UI/UX Refinement)**:
+  - Implemented end-to-end industrial delivery lifecycle: `Production Completed → Quality Check Accepted → Ready for Dispatch → Create Delivery Order → Own Vehicle / Courier Assignment → Confirm Dispatch → In Transit → Delivery Confirmation → Delivered → Sales Order Fulfillment Updated`.
+  - Concurrency & Transaction Safety:
+    - Implemented `createDeliveryOrderTx` in `MongoERPRepository.ts` verifying $quantity \le availableQCQuantity$ with atomic optimistic concurrency control (`__v`) on `ProductionOrderModel`, completely preventing duplicate or over-allocation of completed production units.
+    - Implemented `cancelDeliveryOrderTx` allowing pre-dispatch cancellation for `Planned` delivery orders with mandatory actor and reason tracking, automatically releasing allocated quantities back to the PO ready-to-dispatch balance. Post-dispatch cancellation is strictly rejected.
+    - Implemented atomic dispatch confirmation via `POST /api/logistics/delivery-orders/:id/dispatch` with transport mode validation (vehicle number and driver phone for Own Vehicle; courier name and tracking/AWB number for Courier), delivery challan number generation, and `PO.dispatchedQty` tracking. Duplicate dispatch is strictly blocked.
+    - Implemented delivery confirmation via `POST /api/logistics/delivery-orders/:id/deliver` supporting full and partial delivery, package condition verification (`Good`, `Damaged`, `Tampered`, `Partial`), proof of delivery (POD) attachment metadata ($\le 5\text{MB}$ and supported formats), and `PO.deliveredQty` tracking.
+    - Enforced Sales Order financial independence: updating `SalesOrder.fulfillmentStatus = 'Delivered'` strictly leaves commercial payment status (`Unpaid`, `Partial`, `Paid`) and outstanding balances determined exclusively by verified payment entries.
+  - Comprehensive Delivery Issues & Resolution Workflow:
+    - Expanded delivery issue types to cover all 9 industry standards (`Customer Unavailable`, `Address Not Found`, `Customer Refused Delivery`, `Package Damaged in Transit`, `Vehicle Breakdown`, `Weather Delay`, `Incorrect Items Shipped`, `Transit Loss`, `Customs / Checkpost Delay`).
+    - Implemented interactive resolution outcomes (`POST /api/logistics/delivery-issues/:id/resolve`): `Retry Delivery` (reverts status to `In Transit`), `Reschedule Delivery` (resets to `Planned` with new delivery date), `Delivery Confirmed` (marks order `Delivered`), `Returned to CRYO` (marks order `Returned`), and `Requires Further Action` with audit history logging.
+  - UI/UX Refinement (Teal Accent System):
+    - `LogisticsDashboard`: 8 interactive StatCards linked to active filtered routes, live shipments in transit with overdue delay badges, and operational CSV export.
+    - `ReadyForDispatchPage`: Lists QC-accepted production units with available vs allocated counts, and streamlined "Create Delivery Order" modal with conditional vehicle/courier inputs.
+    - `DeliveryOrdersPage`: Mode-based views (`All`, `In Transit`, `Completed`, `History`), multi-field filtering, direct links to centralized detail page, and quick contextual actions (Dispatch, Deliver, Cancel, Document Print).
+    - `DeliveryOrderDetailPage`: Centralized 3-column operational cockpit (`/logistics/delivery-orders/:id`) detailing Overview, Consignee, Products & Serials, Transport & Dispatch Tracking, Attached Proof of Delivery (POD), linked Delivery Issues, and chronological Audit History timeline.
+    - `DocumentPreviewModal.tsx`: Extended to support printable and downloadable Delivery Orders and Delivery Challans with professional CRYO layout.
+  - Automated Testing & Quality:
+    - Authored dedicated test suite `server/tests/logistics-workflow.test.ts` covering Scenarios 1–17 (18 test cases).
+    - Achieved 83/83 passing automated tests (100% pass rate) across all 8 test suites running sequentially (`--test-concurrency=1`).
+    - Verified clean TypeScript compilation (`npm run lint`) and Vite production build (`npm run build`).
+    - Authored comprehensive technical report `PHASE_8_LOGISTICS_DELIVERY_MANAGEMENT.md`.

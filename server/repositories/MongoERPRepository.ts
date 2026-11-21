@@ -501,13 +501,46 @@ export class MongoERPRepository implements IERPRepository {
   }
 
   public async getPaginatedDeliveryOrders(query: PaginationQuery): Promise<PaginatedResult<DeliveryOrder>> {
+    const q = query as Record<string, any>;
     const filter: Record<string, any> = {};
-    if (query.status) {
-      filter.status = query.status;
+    if (q.status && q.status !== 'All') {
+      if (q.status === 'in_transit') {
+        filter.status = { $in: ['In Transit', 'Dispatched', 'Partially Delivered'] };
+      } else {
+        filter.status = q.status;
+      }
     }
-    if (query.search?.trim()) {
-      const s = new RegExp(query.search.trim(), 'i');
-      filter.$or = [{ docNo: s }, { salesOrderDocNo: s }, { customerName: s }, { trackingNumber: s }];
+    if (q.transportMethod) {
+      filter.transportMethod = q.transportMethod;
+    }
+    if (q.customerId) {
+      filter.customerId = q.customerId;
+    }
+    if (q.salesOrderId) {
+      filter.salesOrderId = q.salesOrderId;
+    }
+    if (q.productionOrderId) {
+      filter.productionOrderId = q.productionOrderId;
+    }
+    if (q.dateFrom || q.dateTo) {
+      const dateFilter: Record<string, any> = {};
+      if (q.dateFrom) dateFilter.$gte = q.dateFrom;
+      if (q.dateTo) dateFilter.$lte = q.dateTo;
+      filter.plannedDispatchDate = dateFilter;
+    }
+    if (q.search?.trim()) {
+      const s = new RegExp(q.search.trim(), 'i');
+      filter.$or = [
+        { docNo: s },
+        { salesOrderDocNo: s },
+        { productionOrderDocNo: s },
+        { customerName: s },
+        { productName: s },
+        { trackingNumber: s },
+        { vehicleNumber: s },
+        { driverName: s },
+        { deliveryChallanNo: s },
+      ];
     }
     return this.paginate<DeliveryOrder>(DeliveryOrderModel, filter, query);
   }
@@ -788,17 +821,48 @@ export class MongoERPRepository implements IERPRepository {
   }
 
   public async getLogisticsSummary() {
-    const [deliveryOrders, issues] = await Promise.all([
+    const today = new Date().toISOString().slice(0, 10);
+    const [deliveryOrders, completedPOs, openIssuesCount] = await Promise.all([
       DeliveryOrderModel.find().lean(),
-      DeliveryIssueModel.countDocuments({ resolved: false }),
+      ProductionOrderModel.find({ status: 'Completed', qcAcceptedQty: { $gt: 0 } }).lean(),
+      DeliveryIssueModel.countDocuments({ status: 'Open' }),
     ]);
 
+    const activeAllocationsMap = new Map<string, number>();
+    for (const d of deliveryOrders) {
+      if (d.status !== 'Cancelled') {
+        activeAllocationsMap.set(d.productionOrderId, (activeAllocationsMap.get(d.productionOrderId) || 0) + d.quantity);
+      }
+    }
+
+    const readyToDispatch = completedPOs.filter((po) => {
+      const allocated = activeAllocationsMap.get(po.id) || 0;
+      return (po.qcAcceptedQty - allocated) > 0;
+    }).length;
+
+    const planned = deliveryOrders.filter((d) => d.status === 'Planned');
+    const scheduledToday = planned.filter((d) => d.plannedDispatchDate === today);
+    const inTransit = deliveryOrders.filter((d) => d.status === 'In Transit' || d.status === 'Dispatched');
+    const partiallyDelivered = deliveryOrders.filter((d) => d.status === 'Partially Delivered');
+    const delivered = deliveryOrders.filter((d) => d.status === 'Delivered');
+    const overdueDeliveries = deliveryOrders.filter((d) =>
+      ['Planned', 'In Transit', 'Dispatched', 'Partially Delivered'].includes(d.status) &&
+      d.expectedDeliveryDate < today
+    );
+
     return {
+      readyToDispatch,
+      pendingDeliveryOrders: planned.length,
+      scheduledDispatches: scheduledToday.length || planned.length,
+      inTransit: inTransit.length,
+      partiallyDelivered: partiallyDelivered.length,
+      delivered: delivered.length,
+      overdueDeliveries: overdueDeliveries.length,
+      deliveryIssues: openIssuesCount,
+      // Backward compatibility aliases
       totalDeliveryOrders: deliveryOrders.length,
       dispatched: deliveryOrders.filter((d) => d.status === 'Dispatched').length,
-      inTransit: deliveryOrders.filter((d) => d.status === 'In Transit').length,
-      delivered: deliveryOrders.filter((d) => d.status === 'Delivered').length,
-      unresolvedIssues: issues,
+      unresolvedIssues: openIssuesCount,
     };
   }
 
@@ -1308,6 +1372,197 @@ export class MongoERPRepository implements IERPRepository {
   }
 
   /**
+   * Atomically allocate QC-approved production quantity and create Delivery Order with OCC protection
+   */
+  public async createDeliveryOrderTx(
+    params: {
+      productionOrderId: string;
+      quantity: number;
+      transportMethod: 'Own Vehicle' | 'Courier';
+      vehicleNumber?: string;
+      driverName?: string;
+      driverPhone?: string;
+      courierCompany?: string;
+      trackingNumber?: string;
+      courierContact?: string;
+      deliveryAddress?: string;
+      plannedDispatchDate?: string;
+      expectedDeliveryDate?: string;
+      serialNumbers?: string[];
+      remarks?: string;
+    },
+    actor: { id: string; name: string },
+  ): Promise<DeliveryOrder> {
+    return withTransaction(async (session) => {
+      const po = await ProductionOrderModel.findOne({ id: params.productionOrderId }).session(session || null);
+      if (!po) throw new Error('NOT_FOUND:Production order not found.');
+      if (po.status !== 'Completed' || po.qcAcceptedQty <= 0) {
+        throw new Error('Only QC-accepted Completed production orders can be dispatched.');
+      }
+
+      // Check current active allocations
+      const existingDeliveries = await DeliveryOrderModel.find({
+        productionOrderId: po.id,
+        status: { $ne: 'Cancelled' },
+      }).session(session || null).lean();
+
+      const allocated = existingDeliveries.reduce((sum, d) => sum + d.quantity, 0);
+      const available = Math.max(0, po.qcAcceptedQty - allocated);
+      const qty = Number(params.quantity);
+
+      if (!qty || qty <= 0) {
+        throw new Error('Delivery quantity must be a positive number.');
+      }
+      if (qty > available) {
+        throw new Error(`Cannot allocate ${qty} unit(s); only ${available} available for ${po.docNo}.`);
+      }
+
+      // Optimistic concurrency control check if running without multi-doc transaction
+      if (!session) {
+        const updatedPO = await ProductionOrderModel.findOneAndUpdate(
+          { id: po.id, __v: po.__v },
+          { $inc: { __v: 1 } },
+        );
+        if (!updatedPO) {
+          throw new Error('CONCURRENCY_CONFLICT:Production order modified concurrently during delivery allocation.');
+        }
+      }
+
+      const transportMethod = params.transportMethod === 'Courier' ? 'Courier' : 'Own Vehicle';
+      if (transportMethod === 'Own Vehicle') {
+        if (!params.vehicleNumber?.trim() || !params.driverName?.trim() || !params.driverPhone?.trim()) {
+          throw new Error('Vehicle number, driver name, and driver phone are required for Own Vehicle.');
+        }
+      } else {
+        if (!params.courierCompany?.trim()) {
+          throw new Error('Courier company name is required for Courier transport.');
+        }
+      }
+
+      const so = await SalesOrderModel.findOne({ id: po.salesOrderId }).session(session || null).lean();
+      const docNo = await this.getNextDocNo('DEL');
+      const now = new Date().toISOString();
+
+      const selectedSerials = Array.isArray(params.serialNumbers) && params.serialNumbers.length > 0
+        ? params.serialNumbers
+        : (po.serialNumbers || []).slice(0, qty);
+
+      const delData = {
+        id: generateId('del'),
+        docNo,
+        salesOrderId: po.salesOrderId,
+        salesOrderDocNo: po.salesOrderDocNo,
+        productionOrderId: po.id,
+        productionOrderDocNo: po.docNo,
+        customerId: po.customerId,
+        customerName: po.customerName,
+        productName: `${po.productName} (${po.model})`,
+        quantity: qty,
+        serialNumbers: selectedSerials,
+        deliveryAddress: params.deliveryAddress?.trim() || so?.deliveryAddress || '',
+        transportMethod,
+        vehicleNumber: transportMethod === 'Own Vehicle' ? params.vehicleNumber?.trim() : undefined,
+        driverName: transportMethod === 'Own Vehicle' ? params.driverName?.trim() : undefined,
+        driverPhone: transportMethod === 'Own Vehicle' ? params.driverPhone?.trim() : undefined,
+        courierCompany: transportMethod === 'Courier' ? params.courierCompany?.trim() : undefined,
+        trackingNumber: transportMethod === 'Courier' ? params.trackingNumber?.trim() || '' : undefined,
+        courierContact: transportMethod === 'Courier' ? params.courierContact?.trim() || '' : undefined,
+        plannedDispatchDate: params.plannedDispatchDate || now.slice(0, 10),
+        expectedDeliveryDate: params.expectedDeliveryDate || now.slice(0, 10),
+        deliveredQty: 0,
+        status: 'Planned' as const,
+        history: [
+          {
+            timestamp: now,
+            action: 'Delivery Order Created',
+            actorName: actor.name,
+            details: `Created ${docNo} (${transportMethod}) for ${qty}x ${po.productName}.`,
+            status: 'Planned' as const,
+          },
+        ],
+        remarks: params.remarks?.trim() || '',
+        createdBy: actor.name,
+        createdAt: now,
+        updatedAt: now,
+      };
+
+      const del = new DeliveryOrderModel(delData);
+      await del.save({ session: session || undefined });
+
+      await this.addActivity(
+        {
+          actorId: actor.id,
+          actorName: actor.name,
+          department: 'logistics',
+          action: 'Created Delivery Order',
+          entityType: 'DeliveryOrder',
+          entityId: del.id,
+          entityDocNo: del.docNo,
+          details: `Created ${del.docNo} (${transportMethod}) for ${qty}x ${del.productName}.`,
+        },
+        session || undefined,
+      );
+
+      return del.toObject() as unknown as DeliveryOrder;
+    });
+  }
+
+  /**
+   * Atomically cancel a Delivery Order before dispatch and release allocated quantity
+   */
+  public async cancelDeliveryOrderTx(
+    deliveryOrderId: string,
+    reason: string,
+    actor: { id: string; name: string },
+  ): Promise<DeliveryOrder> {
+    return withTransaction(async (session) => {
+      const del = await DeliveryOrderModel.findOne({ id: deliveryOrderId }).session(session || null);
+      if (!del) throw new Error('NOT_FOUND:Delivery order not found.');
+      if (del.status !== 'Planned') {
+        throw new Error(`Delivery order ${del.docNo} cannot be cancelled because it is already ${del.status}. Only Planned delivery orders can be cancelled.`);
+      }
+      if (!reason?.trim()) {
+        throw new Error('Cancellation reason is mandatory.');
+      }
+
+      const now = new Date().toISOString();
+      del.status = 'Cancelled';
+      del.cancellationReason = reason.trim();
+      del.cancelledBy = actor.name;
+      del.cancelledAt = now;
+      del.updatedAt = now;
+      if (!del.history) del.history = [];
+      del.history.push({
+        timestamp: now,
+        action: 'Delivery Order Cancelled',
+        actorName: actor.name,
+        details: `Cancelled: ${reason.trim()}`,
+        status: 'Cancelled',
+      });
+
+      await del.save({ session: session || undefined });
+
+      await syncSalesOrderFulfillmentMongo(del.salesOrderId, session || undefined);
+
+      await this.addActivity(
+        {
+          actorId: actor.id,
+          actorName: actor.name,
+          department: 'logistics',
+          action: 'Cancelled Delivery Order',
+          entityType: 'DeliveryOrder',
+          entityId: del.id,
+          entityDocNo: del.docNo,
+          details: `Cancelled ${del.docNo}: ${reason.trim()}`,
+        },
+        session || undefined,
+      );
+
+      return del.toObject() as unknown as DeliveryOrder;
+    });
+  }
+
+  /**
    * Atomically confirm delivery and synchronize Sales Order fulfillment
    */
   public async confirmDelivery(
@@ -1319,15 +1574,56 @@ export class MongoERPRepository implements IERPRepository {
       const del = await DeliveryOrderModel.findOne({ id: deliveryOrderId }).session(session);
       if (!del) throw new Error('NOT_FOUND:Delivery Order not found.');
       if (del.status === 'Delivered') throw new Error('Delivery Order is already confirmed as Delivered.');
+      if (del.status !== 'In Transit' && del.status !== 'Dispatched' && del.status !== 'Partially Delivered') {
+        throw new Error(`Delivery must be In Transit before confirming delivery (current: ${del.status}).`);
+      }
 
       const now = new Date().toISOString();
-      del.status = 'Delivered';
-      del.actualDeliveryDate = body.actualDeliveryDate || now.slice(0, 10);
-      del.receivedBy = body.receivedBy?.trim() || del.customerName;
-      del.deliveredQty = Number(body.deliveredQty ?? del.quantity);
+      const prevDelivered = del.deliveredQty || 0;
+      const remainingToDeliver = del.quantity - prevDelivered;
+      const deliveredNow = Number(body.deliveredQty ?? remainingToDeliver);
+
+      if (!deliveredNow || deliveredNow <= 0) {
+        throw new Error('Delivered quantity must be a positive number.');
+      }
+      if (deliveredNow > remainingToDeliver) {
+        throw new Error(`Cannot deliver ${deliveredNow} unit(s); only ${remainingToDeliver} unit(s) remaining for ${del.docNo}.`);
+      }
+
+      const newDelivered = del.quantity ? Math.min(del.quantity, prevDelivered + deliveredNow) : deliveredNow;
+      const delta = newDelivered - prevDelivered;
+
+      del.actualDeliveryDate = body.actualDeliveryDate || body.deliveryDate || now.slice(0, 10);
+      del.receivedBy = body.receivedBy?.trim() || del.receivedBy || del.customerName;
+      del.deliveredQty = newDelivered;
       del.deliveryCondition = body.deliveryCondition || 'Good';
+      del.podName = body.podName || del.podName;
+      del.podDataUrl = body.podDataUrl || del.podDataUrl;
+      del.podFileType = body.podFileType || del.podFileType;
+      del.podFileSize = body.podFileSize || del.podFileSize;
+      del.podUploadedBy = body.podUploadedBy || (body.podName ? actor.name : undefined);
+      del.podUploadedAt = body.podUploadedAt || (body.podName ? now : undefined);
+      del.deliveryRemarks = body.remarks?.trim() || del.deliveryRemarks || '';
+      del.status = newDelivered >= del.quantity ? 'Delivered' : 'Partially Delivered';
       del.updatedAt = now;
+
+      if (!del.history) del.history = [];
+      del.history.push({
+        timestamp: now,
+        action: del.status === 'Delivered' ? 'Delivery Completed' : 'Partial Delivery Confirmed',
+        actorName: actor.name,
+        details: `Confirmed delivery of ${deliveredNow} unit(s) (Total: ${newDelivered}/${del.quantity}). Received by: ${del.receivedBy}.`,
+        status: del.status,
+      });
+
       await del.save({ session: session || undefined });
+
+      const po = await ProductionOrderModel.findOne({ id: del.productionOrderId }).session(session || null);
+      if (po) {
+        po.deliveredQty = (po.deliveredQty || 0) + delta;
+        po.updatedAt = now;
+        await po.save({ session: session || undefined });
+      }
 
       const updatedSO = await syncSalesOrderFulfillmentMongo(del.salesOrderId, session || undefined);
 
@@ -1347,11 +1643,11 @@ export class MongoERPRepository implements IERPRepository {
 
       await this.addNotification(
         {
-          title: 'Delivery Completed',
-          message: `Delivery Order ${del.docNo} for Sales Order ${del.salesOrderDocNo} has been delivered.`,
+          title: del.status === 'Delivered' ? 'Delivery Completed' : 'Partial Delivery Recorded',
+          message: `Delivery Order ${del.docNo} for Sales Order ${del.salesOrderDocNo} (${del.deliveredQty}/${del.quantity} units) received by ${del.receivedBy}.`,
           department: 'sales',
           severity: 'success',
-          link: '/sales/orders',
+          link: `/tracking/${del.salesOrderId}`,
         },
         session || undefined,
       );

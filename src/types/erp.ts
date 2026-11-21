@@ -757,6 +757,14 @@ export type DeliveryStatus =
   | 'Issue'
   | 'Cancelled';
 
+export interface DeliveryHistoryEntry {
+  timestamp: string;
+  action: string;
+  actorName: string;
+  details: string;
+  status: DeliveryStatus;
+}
+
 export interface DeliveryOrder {
   id: string;
   docNo: string;
@@ -790,13 +798,43 @@ export interface DeliveryOrder {
   deliveryCondition?: 'Good' | 'Damaged';
   podName?: string;
   podDataUrl?: string;
+  podFileType?: string;
+  podFileSize?: number;
+  podUploadedBy?: string;
+  podUploadedAt?: string;
   deliveryRemarks?: string;
   status: DeliveryStatus;
+  cancellationReason?: string;
+  cancelledBy?: string;
+  cancelledAt?: string;
+  history?: DeliveryHistoryEntry[];
   remarks: string;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
 }
+
+export type DeliveryIssueType =
+  | 'Customer Unavailable'
+  | 'Incorrect Address'
+  | 'Delivery Delayed'
+  | 'Vehicle Breakdown'
+  | 'Courier Delay'
+  | 'Product Damaged'
+  | 'Customer Rejected Delivery'
+  | 'Partial Delivery'
+  | 'Other'
+  | 'Failed Attempt'
+  | 'Delay'
+  | 'Damage'
+  | 'Shortage';
+
+export type DeliveryIssueResolution =
+  | 'Retry Delivery'
+  | 'Reschedule Delivery'
+  | 'Delivery Confirmed'
+  | 'Returned to CRYO'
+  | 'Requires Further Action';
 
 export interface DeliveryIssue {
   id: string;
@@ -804,7 +842,7 @@ export interface DeliveryIssue {
   deliveryOrderDocNo: string;
   salesOrderDocNo: string;
   customerName: string;
-  issueType: 'Failed Attempt' | 'Delay' | 'Damage' | 'Shortage';
+  issueType: DeliveryIssueType;
   affectedQty: number;
   reason: string;
   reportedDate: string;
@@ -812,7 +850,10 @@ export interface DeliveryIssue {
   correctiveAction: string;
   nextAttemptDate?: string;
   status: 'Open' | 'Resolved';
+  resolutionOutcome?: DeliveryIssueResolution;
   resolutionNotes?: string;
+  resolvedBy?: string;
+  resolvedAt?: string;
   createdAt: string;
 }
 
