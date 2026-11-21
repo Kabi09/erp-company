@@ -4,6 +4,8 @@ import { env } from '../config/environment';
 import { requireAuth, requirePerm, type AuthenticatedRequest } from '../middleware/auth.middleware';
 import {
   ActivityLogModel,
+  ApprovalRequestModel,
+  ApprovalWorkflowModel,
   CompanySettingsModel,
   DeliveryOrderModel,
   EmployeeModel,
@@ -16,7 +18,9 @@ import {
   SessionModel,
 } from '../models';
 import { mongoERPRepository } from '../repositories/MongoERPRepository';
+import { resolveEffectivePermissions } from '../utils/rbacLogic';
 import { generateId, sendError } from '../utils/routeUtils';
+import { ensureDefaultApprovalWorkflows } from './approval.routes';
 
 export const adminRouter = Router();
 
@@ -358,6 +362,356 @@ adminRouter.post('/admin/reset-demo', requireAuth, requirePerm('admin', 'manage'
     }
     const { mode } = req.body as { mode?: 'seed' | 'clean' };
     res.json({ ok: true, mode: mode || 'seed' });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// GET /api/admin/roles
+adminRouter.get('/admin/roles', requireAuth, requirePerm('admin', 'view'), async (_req, res) => {
+  try {
+    const roles = await RoleModel.find().lean();
+    res.json(roles);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// POST /api/admin/roles
+adminRouter.post('/admin/roles', requireAuth, requirePerm('admin', 'create'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { name, department, description, permissions } = req.body;
+    if (!name?.trim()) throw new Error('Role name is required.');
+    const existing = await RoleModel.findOne({ name: name.trim() });
+    if (existing) throw new Error(`A role with name "${name.trim()}" already exists.`);
+
+    const role = {
+      id: generateId('role'),
+      name: name.trim(),
+      department: department || 'sales',
+      description: description?.trim() || '',
+      permissions: permissions || {},
+    };
+
+    await RoleModel.create(role);
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'admin',
+      action: 'Created Role',
+      entityType: 'Role',
+      entityId: role.id,
+      entityDocNo: role.name,
+      details: `Created new role ${role.name} for department ${role.department}.`,
+    });
+
+    res.status(201).json(role);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// DELETE /api/admin/roles/:id
+adminRouter.delete('/admin/roles/:id', requireAuth, requirePerm('admin', 'delete'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const roleId = req.params.id as string;
+    const coreRoles = [
+      'role-super-admin',
+      'role-sales-manager',
+      'role-sales-exec',
+      'role-scm-manager',
+      'role-stores-exec',
+      'role-production-manager',
+      'role-prod-planner',
+      'role-qc-inspector',
+      'role-logistics-manager',
+      'role-dispatch-exec',
+    ];
+    if (coreRoles.includes(roleId)) {
+      throw new Error('FORBIDDEN: Built-in core system roles cannot be deleted.');
+    }
+
+    const assignedCount = await EmployeeModel.countDocuments({ roleId });
+    if (assignedCount > 0) {
+      throw new Error(`CONFLICT: Cannot delete role assigned to ${assignedCount} active employee(s). Reassign them first.`);
+    }
+
+    const role = await RoleModel.findOneAndDelete({ id: roleId });
+    if (!role) throw new Error('NOT_FOUND:Role not found.');
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'admin',
+      action: 'Deleted Role',
+      entityType: 'Role',
+      entityId: role.id,
+      entityDocNo: role.name,
+      details: `Deleted custom role ${role.name}.`,
+    });
+
+    res.json({ ok: true, deletedRoleId: role.id });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// GET /api/admin/employees/:id/permissions
+adminRouter.get('/admin/employees/:id/permissions', requireAuth, requirePerm('admin', 'view'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const emp = await EmployeeModel.findOne({ id: req.params.id }).lean();
+    if (!emp) throw new Error('NOT_FOUND:Employee not found.');
+
+    const role = await RoleModel.findOne({ id: emp.roleId }).lean();
+    if (!role) throw new Error('NOT_FOUND:Role not found.');
+
+    const effectivePermissions = resolveEffectivePermissions(role.permissions, emp.permissionOverrides);
+
+    res.json({
+      employeeId: emp.id,
+      employeeDocNo: emp.employeeId,
+      name: emp.name,
+      department: emp.department,
+      role,
+      overrides: emp.permissionOverrides || {},
+      effectivePermissions,
+    });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// PUT /api/admin/employees/:id/permissions
+adminRouter.put('/admin/employees/:id/permissions', requireAuth, requirePerm('admin', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const emp = await EmployeeModel.findOne({ id: req.params.id });
+    if (!emp) throw new Error('NOT_FOUND:Employee not found.');
+
+    // Self-escalation check: non-super-admin user cannot edit their own permissions
+    if (emp.id === req.user!.id && req.user!.roleId !== 'role-super-admin') {
+      throw new Error('FORBIDDEN: You cannot modify your own permission overrides.');
+    }
+
+    const { overrides } = req.body;
+    emp.permissionOverrides = overrides || {};
+    await emp.save();
+
+    const role = await RoleModel.findOne({ id: emp.roleId }).lean();
+    const effectivePermissions = resolveEffectivePermissions(role?.permissions || {}, emp.permissionOverrides);
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'admin',
+      action: 'Updated Employee Overrides',
+      entityType: 'Employee',
+      entityId: emp.id,
+      entityDocNo: emp.employeeId,
+      details: `Updated permission overrides for employee ${emp.name} (${emp.employeeId}).`,
+    });
+
+    res.json({
+      ok: true,
+      employeeId: emp.id,
+      overrides: emp.permissionOverrides,
+      effectivePermissions,
+    });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// POST /api/admin/employees/:id/permissions/reset
+adminRouter.post('/admin/employees/:id/permissions/reset', requireAuth, requirePerm('admin', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const emp = await EmployeeModel.findOne({ id: req.params.id });
+    if (!emp) throw new Error('NOT_FOUND:Employee not found.');
+
+    if (emp.id === req.user!.id && req.user!.roleId !== 'role-super-admin') {
+      throw new Error('FORBIDDEN: You cannot reset your own permission overrides.');
+    }
+
+    emp.permissionOverrides = {};
+    await emp.save();
+
+    const role = await RoleModel.findOne({ id: emp.roleId }).lean();
+    const effectivePermissions = resolveEffectivePermissions(role?.permissions || {}, {});
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'admin',
+      action: 'Reset Employee Overrides',
+      entityType: 'Employee',
+      entityId: emp.id,
+      entityDocNo: emp.employeeId,
+      details: `Reset permission overrides to role defaults for ${emp.name} (${emp.employeeId}).`,
+    });
+
+    res.json({
+      ok: true,
+      employeeId: emp.id,
+      overrides: {},
+      effectivePermissions,
+    });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// GET /api/admin/approval-workflows
+adminRouter.get('/admin/approval-workflows', requireAuth, requirePerm('admin', 'view'), async (_req, res) => {
+  try {
+    const workflows = await ensureDefaultApprovalWorkflows();
+    res.json(workflows);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// POST /api/admin/approval-workflows
+adminRouter.post('/admin/approval-workflows', requireAuth, requirePerm('admin', 'create'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { name, department, module, triggerAction, description, enabled, allowSelfApproval, approvalLevels } = req.body;
+    if (!name?.trim() || !module?.trim()) {
+      throw new Error('Workflow name and target module are required.');
+    }
+    if (!Array.isArray(approvalLevels) || approvalLevels.length === 0) {
+      throw new Error('At least one approval level is required.');
+    }
+
+    const wf = {
+      id: generateId('wf'),
+      name: name.trim(),
+      department: department || 'sales',
+      module: module.trim(),
+      triggerAction: triggerAction?.trim() || 'submit',
+      description: description?.trim() || '',
+      enabled: enabled !== undefined ? Boolean(enabled) : true,
+      allowSelfApproval: Boolean(allowSelfApproval),
+      approvalLevels: approvalLevels.map((lvl: any, idx: number) => ({
+        levelNumber: lvl.levelNumber || idx + 1,
+        levelName: lvl.levelName?.trim() || `Level ${idx + 1}`,
+        approverType: lvl.approverType || 'role',
+        eligibleRoleIds: Array.isArray(lvl.eligibleRoleIds) ? lvl.eligibleRoleIds : [],
+        eligibleEmployeeIds: Array.isArray(lvl.eligibleEmployeeIds) ? lvl.eligibleEmployeeIds : [],
+        requiredApprovalCount: Number(lvl.requiredApprovalCount) || 1,
+      })),
+    };
+
+    await ApprovalWorkflowModel.create(wf);
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'admin',
+      action: 'Created Approval Workflow',
+      entityType: 'ApprovalWorkflow',
+      entityId: wf.id,
+      entityDocNo: wf.name,
+      details: `Created approval policy ${wf.name} with ${wf.approvalLevels.length} level(s).`,
+    });
+
+    res.status(201).json(wf);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// PUT /api/admin/approval-workflows/:id
+adminRouter.put('/admin/approval-workflows/:id', requireAuth, requirePerm('admin', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const wf = await ApprovalWorkflowModel.findOne({ id: req.params.id });
+    if (!wf) throw new Error('NOT_FOUND:Approval workflow not found.');
+
+    const body = req.body;
+    if (body.name?.trim()) wf.name = body.name.trim();
+    if (body.description !== undefined) wf.description = body.description.trim();
+    if (body.enabled !== undefined) wf.enabled = Boolean(body.enabled);
+    if (body.allowSelfApproval !== undefined) wf.allowSelfApproval = Boolean(body.allowSelfApproval);
+    if (Array.isArray(body.approvalLevels) && body.approvalLevels.length > 0) {
+      wf.approvalLevels = body.approvalLevels.map((lvl: any, idx: number) => ({
+        levelNumber: lvl.levelNumber || idx + 1,
+        levelName: lvl.levelName?.trim() || `Level ${idx + 1}`,
+        approverType: lvl.approverType || 'role',
+        eligibleRoleIds: Array.isArray(lvl.eligibleRoleIds) ? lvl.eligibleRoleIds : [],
+        eligibleEmployeeIds: Array.isArray(lvl.eligibleEmployeeIds) ? lvl.eligibleEmployeeIds : [],
+        requiredApprovalCount: Number(lvl.requiredApprovalCount) || 1,
+      }));
+    }
+
+    await wf.save();
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'admin',
+      action: 'Updated Approval Workflow',
+      entityType: 'ApprovalWorkflow',
+      entityId: wf.id,
+      entityDocNo: wf.name,
+      details: `Updated approval policy ${wf.name} (Enabled: ${wf.enabled}, Self-approval: ${wf.allowSelfApproval}).`,
+    });
+
+    res.json(wf.toObject());
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// PATCH /api/admin/approval-workflows/:id/toggle
+adminRouter.patch('/admin/approval-workflows/:id/toggle', requireAuth, requirePerm('admin', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const wf = await ApprovalWorkflowModel.findOne({ id: req.params.id });
+    if (!wf) throw new Error('NOT_FOUND:Approval workflow not found.');
+
+    wf.enabled = !wf.enabled;
+    await wf.save();
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'admin',
+      action: 'Toggled Approval Workflow',
+      entityType: 'ApprovalWorkflow',
+      entityId: wf.id,
+      entityDocNo: wf.name,
+      details: `${wf.enabled ? 'Enabled' : 'Disabled'} approval workflow ${wf.name}.`,
+    });
+
+    res.json({ ok: true, id: wf.id, enabled: wf.enabled });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// DELETE /api/admin/approval-workflows/:id
+adminRouter.delete('/admin/approval-workflows/:id', requireAuth, requirePerm('admin', 'delete'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const pendingCount = await ApprovalRequestModel.countDocuments({
+      workflowId: req.params.id,
+      status: 'pending',
+    });
+    if (pendingCount > 0) {
+      throw new Error(`CONFLICT: Cannot delete workflow with ${pendingCount} active pending approval request(s).`);
+    }
+
+    const deleted = await ApprovalWorkflowModel.findOneAndDelete({ id: req.params.id });
+    if (!deleted) throw new Error('NOT_FOUND:Approval workflow not found.');
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'admin',
+      action: 'Deleted Approval Workflow',
+      entityType: 'ApprovalWorkflow',
+      entityId: deleted.id,
+      entityDocNo: deleted.name,
+      details: `Deleted approval workflow policy ${deleted.name}.`,
+    });
+
+    res.json({ ok: true, deletedId: deleted.id });
   } catch (err) {
     sendError(res, err);
   }

@@ -154,7 +154,7 @@ const QuotationSchema = new Schema<Quotation>(
     remarks: { type: String, default: '' },
     status: {
       type: String,
-      enum: ['Draft', 'Sent', 'Pending', 'Negotiation', 'Superseded', 'Accepted', 'Rejected', 'Expired'],
+      enum: ['Draft', 'Sent', 'Pending', 'Negotiation', 'Superseded', 'Accepted', 'Rejected', 'Expired', 'Pending Approval', 'Approved', 'Changes Requested'],
       default: 'Draft',
       index: true,
     },

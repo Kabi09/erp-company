@@ -65,6 +65,9 @@ const AppSettingsPage = React.lazy(() => import('./pages/shared/AdminPages').the
 const CompanyProfilePage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.CompanyProfilePage })));
 const EmployeesPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.EmployeesPage })));
 const RolesPermissionsPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.RolesPermissionsPage })));
+const EmployeeAccessPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.EmployeeAccessPage })));
+const ApprovalWorkflowsPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.ApprovalWorkflowsPage })));
+const ApprovalInboxPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.ApprovalInboxPage })));
 
 const HomeRedirect: React.FC = () => {
   const { user, loading } = useERP();
@@ -561,6 +564,34 @@ export function App() {
                 <RequireModule module="admin">
                   <RolesPermissionsPage />
                 </RequireModule>
+              }
+            />
+            <Route
+              path="/admin/employee-access"
+              element={
+                <RequireModule module="admin">
+                  <EmployeeAccessPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/admin/approval-workflows"
+              element={
+                <RequireModule module="admin">
+                  <ApprovalWorkflowsPage />
+                </RequireModule>
+              }
+            />
+            <Route
+              path="/admin/approvals"
+              element={
+                <ApprovalInboxPage />
+              }
+            />
+            <Route
+              path="/approvals"
+              element={
+                <ApprovalInboxPage />
               }
             />
             <Route

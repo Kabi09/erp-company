@@ -1,5 +1,8 @@
 import type {
   ActivityLog,
+  ApprovalDecisionType,
+  ApprovalRequest,
+  ApprovalWorkflow,
   AuthUser,
   DeliveryOrder,
   Enquiry,
@@ -9,6 +12,7 @@ import type {
   MaterialRequest,
   ProductionOrder,
   Quotation,
+  Role,
   SalesOrder,
   SupplierPO,
 } from '../types/erp';
@@ -365,8 +369,52 @@ export const erpApi = {
     request(`/admin/employees/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
   deleteEmployee: (id: string) =>
     request(`/admin/employees/${id}`, { method: 'DELETE' }),
+  getRoles: () => request<Role[]>('/admin/roles'),
+  createRole: (payload: any) =>
+    request<Role>('/admin/roles', { method: 'POST', body: JSON.stringify(payload) }),
   updateRole: (id: string, payload: any) =>
-    request(`/admin/roles/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+    request<Role>(`/admin/roles/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  deleteRole: (id: string) =>
+    request<{ ok: boolean; deletedRoleId: string }>(`/admin/roles/${id}`, { method: 'DELETE' }),
+
+  // Employee Access Overrides
+  getEmployeePermissions: (id: string) =>
+    request<any>(`/admin/employees/${id}/permissions`),
+  updateEmployeePermissions: (id: string, overrides: any) =>
+    request<any>(`/admin/employees/${id}/permissions`, { method: 'PUT', body: JSON.stringify({ overrides }) }),
+  resetEmployeePermissions: (id: string) =>
+    request<any>(`/admin/employees/${id}/permissions/reset`, { method: 'POST' }),
+
+  // Approval Workflows Policy
+  getApprovalWorkflows: () =>
+    request<ApprovalWorkflow[]>('/admin/approval-workflows'),
+  createApprovalWorkflow: (payload: any) =>
+    request<ApprovalWorkflow>('/admin/approval-workflows', { method: 'POST', body: JSON.stringify(payload) }),
+  updateApprovalWorkflow: (id: string, payload: any) =>
+    request<ApprovalWorkflow>(`/admin/approval-workflows/${id}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  toggleApprovalWorkflow: (id: string) =>
+    request<{ ok: boolean; id: string; enabled: boolean }>(`/admin/approval-workflows/${id}/toggle`, { method: 'PATCH' }),
+  deleteApprovalWorkflow: (id: string) =>
+    request<{ ok: boolean; deletedId: string }>(`/admin/approval-workflows/${id}`, { method: 'DELETE' }),
+
+  // Approval Inbox & Decisions
+  getApprovalInbox: () =>
+    request<{ pending: ApprovalRequest[]; mySubmissions: ApprovalRequest[]; history: ApprovalRequest[]; all?: ApprovalRequest[] }>('/approvals/inbox'),
+  getApprovalRequest: (id: string) =>
+    request<{ request: ApprovalRequest; workflow?: ApprovalWorkflow; canDecide: boolean; decideBlockReason?: string }>(`/approvals/requests/${id}`),
+  decideApprovalRequest: (id: string, decision: ApprovalDecisionType, remarks?: string) =>
+    request<{ ok: boolean; request: ApprovalRequest }>(`/approvals/requests/${id}/decide`, {
+      method: 'POST',
+      body: JSON.stringify({ decision, remarks }),
+    }),
+  withdrawApprovalRequest: (id: string) =>
+    request<{ ok: boolean; request: ApprovalRequest }>(`/approvals/requests/${id}/withdraw`, { method: 'POST' }),
+
+  // Quotation & Supplier PO Submissions
+  submitQuotationForApproval: (id: string) =>
+    request<{ ok: boolean; approvalRequired: boolean; quotation: any; approvalRequest?: any }>(`/sales/quotations/${id}/submit-approval`, { method: 'POST' }),
+  submitSupplierPOForApproval: (id: string) =>
+    request<{ ok: boolean; approvalRequired: boolean; supplierPO: any; approvalRequest?: any }>(`/supply-chain/supplier-pos/${id}/submit-approval`, { method: 'POST' }),
   updateCompany: (payload: any) =>
     request('/admin/company', { method: 'PUT', body: JSON.stringify(payload) }),
   resetDemoData: (mode: 'seed' | 'clean') =>

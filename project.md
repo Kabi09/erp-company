@@ -14,7 +14,7 @@
 - **Shared Domain Layer (`shared/`)**: Pure, zero-dependency domain definitions (`shared/types/erp.ts`) and deterministic calculation formulas (`shared/utils/erpLogic.ts`) shared between frontend and backend without database or backend secret leakage.
 - **Authentication & Authorization**: Dual JWT Bearer access (15m) and rotating refresh tokens (7d), bcrypt password hashing (`bcryptjs`), and module-by-action Role-Based Access Control (RBAC) enforced on both Express API middleware and React route guards.
 - **Persistence**: Production-ready MongoDB + Mongoose 9 persistence layer with connection pooling, graceful shutdown, replica set/Atlas auto-detection, and atomic document numbering via `$inc` on `DocCounterModel`. Historical JSON snapshot preserved in `backend/data/cryo-erp-db.json` and timestamped backups in `backend/data/backups/`. Normal operations execute 100% on MongoDB without JSON fallback.
-- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 10 test suites totaling **107 passing automated tests (100% pass rate)**.
+- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 11 test suites totaling **114 passing automated tests (100% pass rate)**.
 
 ---
 
@@ -401,6 +401,31 @@
     - **107/107 automated tests passing** (100% success rate across all 10 backend test suites).
     - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
     - Vite production build bundled cleanly in 685ms.
+- **v2.9.3 (Universal Dynamic Access Control, Employee Overrides & Approval Workflows)**:
+  - Universal RBAC & Granular Permission Matrix:
+    - Expanded domain definitions with `UniversalAction` (`view`, `create`, `edit`, `delete`, `submit`, `approve`, `verify`, `confirm`, `export`, `manage`) and `ERP_MODULE_CATALOG` across Sales, Supply Chain, Production, Logistics, and Administration.
+    - Updated `RolesPermissionsPage` (`AdminPages.tsx`) with search, department filtering, select/clear all, and real-time custom role creation and deletion.
+    - Added core system role deletion protection safeguard (HTTP 403 Forbidden for built-in roles: `role-super-admin`, `role-sales-manager`, etc.).
+  - Employee-Specific Permission Overrides & Resolution Hierarchy:
+    - Created `EmployeeAccessPage` (`/admin/employee-access`) with an interactive 3-way toggle matrix (`Inherit`, `Allow`, `Deny`) per module action.
+    - Implemented deterministic 3-tier resolution engine (`resolveEffectivePermissions`) in `shared/utils/rbacLogic.ts`, `backend/server/utils/rbacLogic.ts`, and `frontend/src/utils/rbacLogic.ts`.
+    - Integrated permission override schema (`permissionOverrides`) in `backend/server/models/auth.model.ts`.
+    - Updated `auth.middleware.ts` to compute and attach `effectivePermissions` to session and verify permissions via `checkPermission`.
+    - Added override reset endpoint (`POST /api/admin/employees/:id/permissions/reset`) and non-admin self-escalation blocks (HTTP 403).
+  - Configurable Multi-Level Approval Workflows:
+    - Created `ApprovalWorkflowModel` and `ApprovalRequestModel` in `backend/server/models/approval.model.ts`.
+    - Created `ApprovalWorkflowsPage` (`/admin/approval-workflows`) for building sequential 1..N level approval policies with configurable approvers (`role`, `employee`, `either`), activation toggles, and self-approval prevention.
+    - Implemented strict self-approval prevention gate (HTTP 403 Forbidden when submitter attempts to approve their own document).
+    - Added Quotation approval workflow integration (`POST /api/sales/quotations/:id/submit-approval`) and downstream execution gates blocking sending and customer acceptance while pending approval.
+    - Added Supplier PO approval workflow integration (`POST /api/supply-chain/supplier-pos/:id/submit-approval`) and downstream execution gate blocking Goods Receipt (GRN) while pending approval.
+    - Maintained document version immutability (`documentVersion: 'V1'`, `V2`, etc.) ensuring revisions require re-approval.
+  - Universal Approval Inbox:
+    - Created `ApprovalInboxPage` (`/approvals` and `/admin/approvals`) featuring 4 dedicated tabs: `Pending My Decision` (with active badge count), `My Submissions`, `Approval History`, and `All Requests`.
+    - Integrated document snapshot inspection, multi-level progress stepper, decision audit trail, mandatory remarks validation for Rejections/Changes Requested, and submitter withdrawal capability.
+  - Verification & Test Results:
+    - **114/114 automated tests passing (100% pass rate across all 11 backend test suites)**, including 7 new dedicated integration tests in `server/tests/universal-rbac-approvals.test.ts`.
+    - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
+    - Production Vite bundle built cleanly in 593ms.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
 - **v2.9.2 (Production Material Receipts Data Availability & UI Layout Swap)**:
   - Production Department Bootstrap Population:
@@ -417,4 +442,29 @@
     - **107/107 automated tests passing** (100% pass rate).
     - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
     - Vite production build bundled cleanly in 604ms.
+- **v2.9.3 (Universal Dynamic Access Control, Employee Overrides & Approval Workflows)**:
+  - Universal RBAC & Granular Permission Matrix:
+    - Expanded domain definitions with `UniversalAction` (`view`, `create`, `edit`, `delete`, `submit`, `approve`, `verify`, `confirm`, `export`, `manage`) and `ERP_MODULE_CATALOG` across Sales, Supply Chain, Production, Logistics, and Administration.
+    - Updated `RolesPermissionsPage` (`AdminPages.tsx`) with search, department filtering, select/clear all, and real-time custom role creation and deletion.
+    - Added core system role deletion protection safeguard (HTTP 403 Forbidden for built-in roles: `role-super-admin`, `role-sales-manager`, etc.).
+  - Employee-Specific Permission Overrides & Resolution Hierarchy:
+    - Created `EmployeeAccessPage` (`/admin/employee-access`) with an interactive 3-way toggle matrix (`Inherit`, `Allow`, `Deny`) per module action.
+    - Implemented deterministic 3-tier resolution engine (`resolveEffectivePermissions`) in `shared/utils/rbacLogic.ts`, `backend/server/utils/rbacLogic.ts`, and `frontend/src/utils/rbacLogic.ts`.
+    - Integrated permission override schema (`permissionOverrides`) in `backend/server/models/auth.model.ts`.
+    - Updated `auth.middleware.ts` to compute and attach `effectivePermissions` to session and verify permissions via `checkPermission`.
+    - Added override reset endpoint (`POST /api/admin/employees/:id/permissions/reset`) and non-admin self-escalation blocks (HTTP 403).
+  - Configurable Multi-Level Approval Workflows:
+    - Created `ApprovalWorkflowModel` and `ApprovalRequestModel` in `backend/server/models/approval.model.ts`.
+    - Created `ApprovalWorkflowsPage` (`/admin/approval-workflows`) for building sequential 1..N level approval policies with configurable approvers (`role`, `employee`, `either`), activation toggles, and self-approval prevention.
+    - Implemented strict self-approval prevention gate (HTTP 403 Forbidden when submitter attempts to approve their own document).
+    - Added Quotation approval workflow integration (`POST /api/sales/quotations/:id/submit-approval`) and downstream execution gates blocking sending and customer acceptance while pending approval.
+    - Added Supplier PO approval workflow integration (`POST /api/supply-chain/supplier-pos/:id/submit-approval`) and downstream execution gate blocking Goods Receipt (GRN) while pending approval.
+    - Maintained document version immutability (`documentVersion: 'V1'`, `V2`, etc.) ensuring revisions require re-approval.
+  - Universal Approval Inbox:
+    - Created `ApprovalInboxPage` (`/approvals` and `/admin/approvals`) featuring 4 dedicated tabs: `Pending My Decision` (with active badge count), `My Submissions`, `Approval History`, and `All Requests`.
+    - Integrated document snapshot inspection, multi-level progress stepper, decision audit trail, mandatory remarks validation for Rejections/Changes Requested, and submitter withdrawal capability.
+  - Verification & Test Results:
+    - **114/114 automated tests passing (100% pass rate across all 11 backend test suites)**, including 7 new dedicated integration tests in `server/tests/universal-rbac-approvals.test.ts`.
+    - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
+    - Production Vite bundle built cleanly in 593ms.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.

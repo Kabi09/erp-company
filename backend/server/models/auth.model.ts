@@ -27,6 +27,7 @@ const EmployeeSchema = new Schema<Employee>(
     designation: { type: String, default: 'Executive' },
     status: { type: String, enum: ['Active', 'Inactive'], default: 'Active', index: true },
     passwordHash: { type: String, required: true },
+    permissionOverrides: { type: Schema.Types.Mixed, default: {} },
   },
   { timestamps: true },
 );

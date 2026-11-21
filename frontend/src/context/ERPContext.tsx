@@ -9,6 +9,7 @@ import {
   type ERPBootstrapPayload,
 } from '../services/api';
 import type { AuthUser, Department, PermissionAction, PermissionModule } from '../types/erp';
+import { checkPermission } from '../utils/rbacLogic';
 
 export interface ToastMessage {
   id: string;
@@ -182,8 +183,7 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const can = useCallback(
     (module: PermissionModule, action: PermissionAction = 'view') => {
       if (!user) return false;
-      const perms = user.permissions[module] || [];
-      return perms.includes(action) || perms.includes('manage');
+      return checkPermission(user.permissions, module, action);
     },
     [user],
   );

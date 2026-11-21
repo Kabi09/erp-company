@@ -1,6 +1,16 @@
 export type Department = 'sales' | 'supply_chain' | 'production' | 'logistics' | 'admin';
 
-export type PermissionAction = 'view' | 'create' | 'edit' | 'delete' | 'approve' | 'export' | 'manage';
+export type PermissionAction =
+  | 'view'
+  | 'create'
+  | 'edit'
+  | 'delete'
+  | 'submit'
+  | 'approve'
+  | 'verify'
+  | 'confirm'
+  | 'export'
+  | 'manage';
 
 export type PermissionModule =
   | 'sales'
@@ -9,9 +19,10 @@ export type PermissionModule =
   | 'logistics'
   | 'admin'
   | 'tracking'
-  | 'reports';
+  | 'reports'
+  | string;
 
-export type RolePermissionMap = Record<PermissionModule, PermissionAction[]>;
+export type RolePermissionMap = Record<string, PermissionAction[]>;
 
 export interface Role {
   id: string;
@@ -20,6 +31,9 @@ export interface Role {
   description: string;
   permissions: RolePermissionMap;
 }
+
+export type OverrideEffect = 'inherit' | 'allow' | 'deny';
+export type EmployeePermissionOverrides = Record<string, Record<string, 'allow' | 'deny'>>;
 
 export interface Employee {
   id: string;
@@ -32,6 +46,7 @@ export interface Employee {
   designation: string;
   status: 'Active' | 'Inactive';
   passwordHash?: string;
+  permissionOverrides?: EmployeePermissionOverrides;
   createdAt: string;
 }
 
@@ -46,6 +61,156 @@ export interface AuthUser {
   roleName: string;
   designation: string;
   permissions: RolePermissionMap;
+  effectivePermissions?: Record<string, PermissionAction[]>;
+  permissionOverrides?: EmployeePermissionOverrides;
+}
+
+// ==========================================
+// UNIVERSAL MODULE REGISTRY & CATALOG
+// ==========================================
+
+export interface ModuleDef {
+  id: string;
+  name: string;
+  department: Department | 'shared' | 'admin';
+  description: string;
+  actions: PermissionAction[];
+}
+
+export const ERP_MODULE_CATALOG: ModuleDef[] = [
+  // Sales Department
+  { id: 'sales_dashboard', name: 'Sales Dashboard', department: 'sales', description: 'Department KPIs, enquiry metrics, pipeline summaries', actions: ['view', 'export'] },
+  { id: 'customers', name: 'Customer Directory', department: 'sales', description: 'Customer profiles, GSTINs, and contact information', actions: ['view', 'create', 'edit', 'delete', 'export'] },
+  { id: 'products', name: 'Product Catalog', department: 'sales', description: 'Finished equipment models, specifications, and BOM links', actions: ['view', 'create', 'edit', 'delete', 'export'] },
+  { id: 'enquiries', name: 'Customer Enquiries', department: 'sales', description: 'Inbound RFQs, requirements intake, and follow-ups', actions: ['view', 'create', 'edit', 'delete', 'submit', 'verify', 'export'] },
+  { id: 'quotations', name: 'Price Quotations', department: 'sales', description: 'Commercial offers, pricing revisions, and terms', actions: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'] },
+  { id: 'proforma_invoices', name: 'Proforma Invoices', department: 'sales', description: 'Advance proforma billing and banking instructions', actions: ['view', 'create', 'edit', 'delete', 'submit', 'confirm', 'export'] },
+  { id: 'customer_pos', name: 'Customer PO Records', department: 'sales', description: 'Received customer purchase orders and document audit', actions: ['view', 'create', 'edit', 'delete', 'verify', 'export'] },
+  { id: 'payments', name: 'Payment Entries', department: 'sales', description: 'Payment reconciliations and ledger entries', actions: ['view', 'create', 'edit', 'delete', 'verify', 'confirm', 'export'] },
+  { id: 'sales_orders', name: 'Sales Orders', department: 'sales', description: 'Binding sales order bookings and fulfillment tracking', actions: ['view', 'create', 'edit', 'delete', 'confirm', 'export'] },
+  { id: 'sales_reports', name: 'Sales Reports', department: 'sales', description: 'Sales analytics, revenue breakdowns, and exports', actions: ['view', 'export'] },
+
+  // Supply Chain Department
+  { id: 'supply_chain_dashboard', name: 'Supply Chain Dashboard', department: 'supply_chain', description: 'Stock levels, procurement metrics, and alerts', actions: ['view', 'export'] },
+  { id: 'materials', name: 'Material Master', department: 'supply_chain', description: 'Raw material codes, reorder thresholds, and specs', actions: ['view', 'create', 'edit', 'delete', 'export'] },
+  { id: 'inventory', name: 'Inventory & Stock Map', department: 'supply_chain', description: 'Real-time bin balances and store valuations', actions: ['view', 'edit', 'export'] },
+  { id: 'material_requests', name: 'Material Requests', department: 'supply_chain', description: 'Production floor requisition indent orders', actions: ['view', 'create', 'edit', 'delete', 'submit', 'verify', 'export'] },
+  { id: 'material_issues', name: 'Material Issues', department: 'supply_chain', description: 'Store store issue vouchers and delivery handovers', actions: ['view', 'create', 'edit', 'delete', 'verify', 'confirm', 'export'] },
+  { id: 'suppliers', name: 'Supplier Directory', department: 'supply_chain', description: 'Approved vendor accounts, terms, and contacts', actions: ['view', 'create', 'edit', 'delete', 'export'] },
+  { id: 'supplier_pos', name: 'Supplier POs', department: 'supply_chain', description: 'External procurement purchase orders to vendors', actions: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'] },
+  { id: 'grn', name: 'Goods Receipt Notes (GRN)', department: 'supply_chain', description: 'Gate inbound receipts and QC physical check', actions: ['view', 'create', 'edit', 'delete', 'verify', 'confirm', 'export'] },
+  { id: 'supplier_returns', name: 'Supplier Returns', department: 'supply_chain', description: 'Rejection debit notes and supplier return vouchers', actions: ['view', 'create', 'edit', 'delete', 'submit', 'confirm', 'export'] },
+  { id: 'stock_adjustments', name: 'Stock Adjustments', department: 'supply_chain', description: 'Inventory cycle count alignments and ledger audit', actions: ['view', 'create', 'verify', 'confirm', 'export'] },
+  { id: 'stock_history', name: 'Stock Ledger History', department: 'supply_chain', description: 'Immutable transaction ledger of all bin movements', actions: ['view', 'export'] },
+  { id: 'supply_chain_reports', name: 'Supply Chain Reports', department: 'supply_chain', description: 'Procurement and stock movement reports', actions: ['view', 'export'] },
+
+  // Production Department
+  { id: 'production_dashboard', name: 'Production Dashboard', department: 'production', description: 'Shop floor KPIs, work in progress, and output metrics', actions: ['view', 'export'] },
+  { id: 'received_orders', name: 'Received Sales Orders', department: 'production', description: 'Sales bookings ready for engineering release', actions: ['view', 'confirm', 'export'] },
+  { id: 'production_orders', name: 'Production Orders', department: 'production', description: 'Shop work orders, execution stages, and targets', actions: ['view', 'create', 'edit', 'delete', 'submit', 'confirm', 'export'] },
+  { id: 'production_planning', name: 'Production Planning', department: 'production', description: 'Batch scheduling, machine allocation, and dates', actions: ['view', 'create', 'edit', 'export'] },
+  { id: 'bom', name: 'Bills of Materials (BOM)', department: 'production', description: 'Multi-level engineering recipes and material specs', actions: ['view', 'create', 'edit', 'delete', 'export'] },
+  { id: 'material_receipts', name: 'Material Receipts', department: 'production', description: 'Physical store issue acceptance and verification', actions: ['view', 'verify', 'confirm', 'export'] },
+  { id: 'daily_updates', name: 'Daily Production Logs', department: 'production', description: 'Shift manufacturing logs, machine hours, and output', actions: ['view', 'create', 'edit', 'export'] },
+  { id: 'quality_checks', name: 'Quality Inspections (QC)', department: 'production', description: 'Stage-gate inspections and technical test reports', actions: ['view', 'create', 'edit', 'verify', 'confirm', 'export'] },
+  { id: 'rework', name: 'Rework Orders', department: 'production', description: 'Non-conforming unit rework loops and re-inspection', actions: ['view', 'create', 'edit', 'confirm', 'export'] },
+  { id: 'completed_production', name: 'Finished Goods Handoff', department: 'production', description: 'QC-passed units ready for logistics dispatch', actions: ['view', 'confirm', 'export'] },
+  { id: 'production_reports', name: 'Production Reports', department: 'production', description: 'Manufacturing efficiency, yields, and cycle times', actions: ['view', 'export'] },
+
+  // Logistics Department
+  { id: 'logistics_dashboard', name: 'Logistics Dashboard', department: 'logistics', description: 'Dispatch volume, transit tracking, and on-time rate', actions: ['view', 'export'] },
+  { id: 'ready_dispatch', name: 'Ready for Dispatch', department: 'logistics', description: 'Completed FG units awaiting vehicle assignment', actions: ['view', 'create', 'confirm', 'export'] },
+  { id: 'delivery_orders', name: 'Delivery Challans (DC)', department: 'logistics', description: 'Shipment manifests, e-way bills, and transit tracking', actions: ['view', 'create', 'edit', 'delete', 'submit', 'confirm', 'export'] },
+  { id: 'in_transit', name: 'In-Transit Shipments', department: 'logistics', description: 'Live shipment tracking, driver contact, and GPS check', actions: ['view', 'edit', 'confirm', 'export'] },
+  { id: 'completed_deliveries', name: 'Completed Deliveries', department: 'logistics', description: 'Customer sign-off, signed POD records, and archive', actions: ['view', 'export'] },
+  { id: 'delivery_issues', name: 'Delivery Incidents', department: 'logistics', description: 'Transit damages, customer refusal, and rerouting', actions: ['view', 'create', 'edit', 'confirm', 'export'] },
+  { id: 'delivery_history', name: 'Dispatch History Archive', department: 'logistics', description: 'Historical shipment records and search', actions: ['view', 'export'] },
+  { id: 'logistics_reports', name: 'Logistics Reports', department: 'logistics', description: 'Carrier performance, delivery SLAs, and freight cost', actions: ['view', 'export'] },
+
+  // Shared & Admin
+  { id: 'tracking', name: 'Centralized Order Tracking', department: 'shared', description: 'End-to-end 15-stage order lifecycle visibility', actions: ['view', 'export'] },
+  { id: 'notifications', name: 'System Notifications', department: 'shared', description: 'Cross-department alerts and broadcast announcements', actions: ['view', 'create', 'edit', 'delete'] },
+  { id: 'documents', name: 'Document Vault & Attachments', department: 'shared', description: 'Signed POs, test certificates, and file storage', actions: ['view', 'create', 'delete', 'export'] },
+  { id: 'admin_dashboard', name: 'Administration Overview', department: 'admin', description: 'System health, global audit, and enterprise metrics', actions: ['view', 'export'] },
+  { id: 'employees', name: 'Employee Directory', department: 'admin', description: 'Staff directory, account credentials, and departments', actions: ['view', 'create', 'edit', 'delete', 'export'] },
+  { id: 'roles', name: 'Roles & Permissions Matrix', department: 'admin', description: 'Role permission policies and security boundaries', actions: ['view', 'create', 'edit', 'delete', 'manage'] },
+  { id: 'employee_access', name: 'Employee Access Overrides', department: 'admin', description: 'Per-employee granular Inherit/Allow/Deny overrides', actions: ['view', 'create', 'edit', 'delete', 'manage'] },
+  { id: 'approval_workflows', name: 'Approval Workflows Policy', department: 'admin', description: 'Multi-level approval rules, triggers, and approvers', actions: ['view', 'create', 'edit', 'delete', 'manage'] },
+  { id: 'approval_inbox', name: 'Universal Approval Inbox', department: 'admin', description: 'Centralized review, approval, and decision history', actions: ['view', 'approve', 'confirm', 'export'] },
+  { id: 'company', name: 'Company Profile & Banking', department: 'admin', description: 'Enterprise GSTIN, banking, and document letterheads', actions: ['view', 'edit'] },
+  { id: 'settings', name: 'Application Settings', department: 'admin', description: 'Document numbering prefixes and tax rate defaults', actions: ['view', 'edit'] },
+  { id: 'audit_logs', name: 'Immutable Audit Trail', department: 'admin', description: 'Security activity logs and user compliance trail', actions: ['view', 'export'] },
+  { id: 'admin_reports', name: 'Executive Master Reports', department: 'admin', description: 'Consolidated cross-department operational reports', actions: ['view', 'export'] },
+];
+
+// ==========================================
+// APPROVAL WORKFLOW ENGINE TYPES
+// ==========================================
+
+export type ApprovalStatus = 'pending' | 'approved' | 'rejected' | 'changes_requested' | 'withdrawn';
+export type ApprovalDecisionType = 'approved' | 'rejected' | 'changes_requested';
+
+export interface ApprovalLevelConfig {
+  levelNumber: number;
+  levelName: string;
+  approverType: 'role' | 'employee' | 'either';
+  eligibleRoleIds: string[];
+  eligibleEmployeeIds: string[];
+  requiredApprovalCount: number;
+}
+
+export interface ApprovalWorkflow {
+  id: string;
+  name: string;
+  department: Department;
+  module: string;
+  triggerAction: string;
+  description: string;
+  enabled: boolean;
+  allowSelfApproval: boolean;
+  approvalLevels: ApprovalLevelConfig[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ApprovalDecisionRecord {
+  levelNumber: number;
+  levelName: string;
+  decidedBy: {
+    id: string;
+    name: string;
+    employeeId: string;
+    roleName: string;
+  };
+  decision: ApprovalDecisionType;
+  remarks: string;
+  decidedAt: string;
+}
+
+export interface ApprovalRequest {
+  id: string;
+  workflowId: string;
+  workflowName: string;
+  department: Department;
+  module: string;
+  documentId: string;
+  documentDocNo: string;
+  documentVersion: string;
+  submittedBy: {
+    id: string;
+    name: string;
+    employeeId: string;
+    roleId: string;
+    department: Department;
+  };
+  submittedAt: string;
+  documentSnapshot: any;
+  currentLevel: number;
+  totalLevels: number;
+  status: ApprovalStatus;
+  decisions: ApprovalDecisionRecord[];
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface CompanySettings {
@@ -231,6 +396,9 @@ export interface QuotationItem {
 
 export type QuotationStatus =
   | 'Draft'
+  | 'Pending Approval'
+  | 'Approved'
+  | 'Changes Requested'
   | 'Sent'
   | 'Pending'
   | 'Negotiation'
@@ -506,7 +674,7 @@ export interface SupplierPO {
   taxPercent: number;
   taxAmount: number;
   totalAmount: number;
-  status: 'Draft' | 'Ordered' | 'Partially Received' | 'Received' | 'Closed' | 'Cancelled';
+  status: 'Draft' | 'Pending Approval' | 'Approved' | 'Changes Requested' | 'Ordered' | 'Partially Received' | 'Received' | 'Closed' | 'Cancelled' | 'Rejected';
   remarks: string;
   createdBy: string;
   createdAt: string;
@@ -942,4 +1110,6 @@ export interface ERPDatabase {
   deliveryOrders: DeliveryOrder[];
   deliveryIssues: DeliveryIssue[];
   attachments?: AttachmentRecord[];
+  approvalWorkflows?: ApprovalWorkflow[];
+  approvalRequests?: ApprovalRequest[];
 }

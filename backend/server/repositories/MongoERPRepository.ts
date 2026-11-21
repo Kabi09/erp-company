@@ -49,6 +49,8 @@ import {
 import { withTransaction } from '../config/database';
 import {
   ActivityLogModel,
+  ApprovalRequestModel,
+  ApprovalWorkflowModel,
   BOMModel,
   CompanySettingsModel,
   CustomerModel,
@@ -174,6 +176,8 @@ export class MongoERPRepository implements IERPRepository {
       deliveryIssues,
       notifications,
       activityLogs,
+      approvalWorkflows,
+      approvalRequests,
     ] = await Promise.all([
       RoleModel.find().lean(),
       EmployeeModel.find().lean(),
@@ -206,6 +210,8 @@ export class MongoERPRepository implements IERPRepository {
       DeliveryIssueModel.find().sort({ createdAt: -1 }).lean(),
       NotificationModel.find().sort({ createdAt: -1 }).lean(),
       ActivityLogModel.find().sort({ timestamp: -1 }).lean(),
+      ApprovalWorkflowModel.find().lean(),
+      ApprovalRequestModel.find().sort({ createdAt: -1 }).lean(),
     ]);
 
     const counters: Record<string, number> = {};
@@ -266,6 +272,8 @@ export class MongoERPRepository implements IERPRepository {
       deliveryIssues: deliveryIssues as unknown as DeliveryIssue[],
       notifications: notifications as unknown as NotificationItem[],
       activityLogs: activityLogs as unknown as ActivityLog[],
+      approvalWorkflows: approvalWorkflows as any,
+      approvalRequests: approvalRequests as any,
     };
   }
 

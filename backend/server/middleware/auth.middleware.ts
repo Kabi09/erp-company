@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 import type { AuthUser, PermissionAction, PermissionModule } from '../../src/types/erp';
 import { env } from '../config/environment';
 import { EmployeeModel, RoleModel } from '../models';
+import { checkPermission, resolveEffectivePermissions } from '../utils/rbacLogic';
 
 export interface AuthenticatedRequest extends Request {
   user?: AuthUser;
@@ -30,6 +31,9 @@ export async function resolveAuthUser(employeeDbId: string): Promise<AuthUser | 
   if (!emp || emp.status !== 'Active') return null;
   const role = await RoleModel.findOne({ id: emp.roleId }).lean();
   if (!role) return null;
+
+  const effectivePermissions = resolveEffectivePermissions(role.permissions, emp.permissionOverrides);
+
   return {
     id: emp.id,
     employeeId: emp.employeeId,
@@ -40,7 +44,9 @@ export async function resolveAuthUser(employeeDbId: string): Promise<AuthUser | 
     roleId: role.id,
     roleName: role.name,
     designation: emp.designation,
-    permissions: role.permissions,
+    permissions: effectivePermissions as any,
+    effectivePermissions,
+    permissionOverrides: emp.permissionOverrides,
   };
 }
 
@@ -82,8 +88,8 @@ export function requirePerm(module: PermissionModule, action: PermissionAction) 
       res.status(401).json({ error: 'Authentication required.' });
       return;
     }
-    const allowed = user.permissions[module] || [];
-    if (!allowed.includes(action) && !allowed.includes('manage')) {
+    const isAllowed = checkPermission(user.permissions, module, action);
+    if (!isAllowed) {
       res.status(403).json({
         error: `Access denied: missing '${action}' permission for ${module.replace('_', ' ')} module.`,
       });

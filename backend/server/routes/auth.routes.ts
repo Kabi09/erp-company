@@ -13,6 +13,8 @@ import {
 } from '../middleware/auth.middleware';
 import {
   ActivityLogModel,
+  ApprovalRequestModel,
+  ApprovalWorkflowModel,
   BOMModel,
   CompanySettingsModel,
   CustomerModel,
@@ -537,12 +539,19 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
       ]);
     }
 
-    const [notifications, activityLogs] = await Promise.all([
+    const [notifications, activityLogs, approvalWorkflows, approvalRequests] = await Promise.all([
       NotificationModel.find({ $or: [{ department: dept }, { department: 'all' }] })
         .sort({ createdAt: -1 })
         .limit(50)
         .lean(),
       ActivityLogModel.find({ department: dept }).sort({ timestamp: -1 }).limit(50).lean(),
+      ApprovalWorkflowModel.find().lean(),
+      ApprovalRequestModel.find({
+        $or: [{ 'submittedBy.id': user.id }, { department: dept }],
+      })
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .lean(),
     ]);
 
     res.json({
@@ -580,6 +589,8 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
       deliveryIssues,
       notifications,
       activityLogs,
+      approvalWorkflows,
+      approvalRequests,
       stockMap,
       currentUser: user,
     });

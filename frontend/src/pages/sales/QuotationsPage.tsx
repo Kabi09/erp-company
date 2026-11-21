@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Eye, FileSpreadsheet, GitBranch, Plus, Trash2 } from 'lucide-react';
+import { Clock, Eye, FileSpreadsheet, GitBranch, Plus, Send, Trash2 } from 'lucide-react';
 import { DocumentPreviewModal } from '../../components/DocumentPreviewModal';
 import {
   Button,
@@ -285,7 +285,33 @@ export const QuotationsPage: React.FC = () => {
               <Eye className="w-3.5 h-3.5" />
               PDF
             </Button>
-            {r.status === 'Draft' && can('sales', 'edit') && (
+            {(r.status === 'Draft' || r.status === 'Changes Requested') && can('sales', 'create') && (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={async () => {
+                  try {
+                    const res = await erpApi.submitQuotationForApproval(r.id);
+                    if (res.approvalRequired) {
+                      toast('info', `Quotation ${r.docNo} submitted for approval`);
+                    } else {
+                      toast('success', `Quotation ${r.docNo} approved directly`);
+                    }
+                    await refresh();
+                  } catch (e) {
+                    toast('error', 'Submission failed', (e as Error).message);
+                  }
+                }}
+              >
+                <Send className="w-3.5 h-3.5" /> Submit for Approval
+              </Button>
+            )}
+            {r.status === 'Pending Approval' && (
+              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-600 px-2 py-1 rounded bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800">
+                <Clock className="w-3 h-3" /> Awaiting Review
+              </span>
+            )}
+            {(r.status === 'Approved' || r.status === 'Draft') && can('sales', 'edit') && (
               <Button variant="secondary" size="sm" onClick={() => handleStatusChange(r, 'Sent')}>
                 Mark Sent
               </Button>
@@ -344,7 +370,7 @@ export const QuotationsPage: React.FC = () => {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search quotation number, enquiry, or customer..."
-        statuses={['All', 'Draft', 'Sent', 'Negotiation', 'Accepted', 'Superseded', 'Rejected']}
+        statuses={['All', 'Draft', 'Pending Approval', 'Approved', 'Changes Requested', 'Sent', 'Negotiation', 'Accepted', 'Superseded', 'Rejected']}
         activeStatus={statusFilter}
         onStatusChange={setStatusFilter}
       />

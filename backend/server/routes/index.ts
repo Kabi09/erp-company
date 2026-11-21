@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { adminRouter } from './admin.routes';
+import { approvalRouter } from './approval.routes';
 import { authRouter } from './auth.routes';
 import { documentRouter } from './document.routes';
 import { fileRouter } from './file.routes';
@@ -20,6 +21,7 @@ apiRouter.use(supplyChainRouter);
 apiRouter.use(productionRouter);
 apiRouter.use(logisticsRouter);
 apiRouter.use(adminRouter);
+apiRouter.use(approvalRouter);
 apiRouter.use(trackingRouter);
 apiRouter.use(notificationRouter);
 apiRouter.use(documentRouter);

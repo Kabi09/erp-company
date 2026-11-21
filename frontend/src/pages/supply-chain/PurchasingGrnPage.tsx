@@ -156,7 +156,29 @@ export const SupplierPOsPage: React.FC = () => {
             <Eye className="w-3.5 h-3.5" />
             PDF
           </Button>
-          {(r.status === 'Ordered' || r.status === 'Partially Received') && can('supply_chain', 'create') && (
+          {(r.status === 'Draft' || r.status === 'Changes Requested') && can('supply_chain', 'edit') && (
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={async () => {
+                try {
+                  await erpApi.submitSupplierPOForApproval(r.id);
+                  toast('success', 'Submitted Supplier PO for approval.');
+                  refresh();
+                } catch (e: any) {
+                  toast('error', e.message || 'Failed to submit for approval');
+                }
+              }}
+            >
+              Submit Approval
+            </Button>
+          )}
+          {r.status === 'Pending Approval' && (
+            <span className="text-xs px-2 py-1 rounded bg-amber-500/10 text-amber-600 dark:text-amber-400 font-medium border border-amber-500/20">
+              Awaiting Review
+            </span>
+          )}
+          {(r.status === 'Ordered' || r.status === 'Partially Received' || r.status === 'Approved') && can('supply_chain', 'create') && (
             <Button variant="secondary" size="sm" onClick={() => navigate(`/supply-chain/grn?create=1&poId=${r.id}`)}>
               <PackagePlus className="w-3.5 h-3.5" />
               Create GRN
@@ -186,7 +208,7 @@ export const SupplierPOsPage: React.FC = () => {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search PO number, supplier, or MR..."
-        statuses={['All', 'Ordered', 'Partially Received', 'Received', 'Closed']}
+        statuses={['All', 'Draft', 'Pending Approval', 'Approved', 'Ordered', 'Partially Received', 'Received', 'Closed']}
         activeStatus={statusFilter}
         onStatusChange={setStatusFilter}
       />
@@ -205,9 +227,25 @@ export const SupplierPOsPage: React.FC = () => {
               <span>{r.items.length} line(s)</span>
               <span className="font-mono font-semibold">{formatCurrency(r.totalAmount)}</span>
             </div>
-            <div className="flex gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
+            <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100 dark:border-slate-800">
               <Button variant="secondary" size="sm" onClick={() => setPreviewPO(r)}>PDF</Button>
-              {(r.status === 'Ordered' || r.status === 'Partially Received') && (
+              {(r.status === 'Draft' || r.status === 'Changes Requested') && can('supply_chain', 'edit') && (
+                <Button
+                  size="sm"
+                  onClick={async () => {
+                    try {
+                      await erpApi.submitSupplierPOForApproval(r.id);
+                      toast('success', 'Submitted Supplier PO for approval.');
+                      refresh();
+                    } catch (e: any) {
+                      toast('error', e.message || 'Failed to submit for approval');
+                    }
+                  }}
+                >
+                  Submit Approval
+                </Button>
+              )}
+              {(r.status === 'Ordered' || r.status === 'Partially Received' || r.status === 'Approved') && (
                 <Button size="sm" onClick={() => navigate(`/supply-chain/grn?create=1&poId=${r.id}`)}>Record GRN</Button>
               )}
             </div>

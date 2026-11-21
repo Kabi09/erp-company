@@ -185,7 +185,10 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
     nav: [
       { label: 'Admin Dashboard', path: '/admin', icon: LayoutDashboard },
       { label: 'Employees', path: '/admin/employees', icon: Users },
-      { label: 'Departments & Roles', path: '/admin/roles', icon: ShieldCheck },
+      { label: 'Employee Access', path: '/admin/employee-access', icon: UserCheck },
+      { label: 'Roles & Permissions', path: '/admin/roles', icon: ShieldCheck },
+      { label: 'Approval Workflows', path: '/admin/approval-workflows', icon: FileCheck2 },
+      { label: 'Approval Inbox', path: '/admin/approvals', icon: ClipboardCheck },
       { label: 'Company Profile', path: '/admin/company', icon: Building2 },
       { label: 'Application Settings', path: '/admin/settings', icon: Settings },
       { label: 'Activity Logs', path: '/admin/logs', icon: History },
@@ -209,6 +212,7 @@ export function inferDepartmentFromPath(pathname: string, fallback: Department):
 }
 
 export const SHARED_NAV_LINKS: NavItem[] = [
+  { label: 'Approval Inbox', path: '/admin/approvals', icon: ClipboardCheck },
   { label: 'Order Tracking', path: '/tracking', icon: Activity },
   { label: 'Notifications', path: '/notifications', icon: Bell },
 ];

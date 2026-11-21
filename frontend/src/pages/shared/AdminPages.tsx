@@ -2,13 +2,21 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Building2,
+  Check,
+  CheckCircle2,
   Database,
+  Lock,
   Plus,
   RotateCcw,
   Save,
+  Search,
+  Shield,
   ShieldCheck,
   Trash2,
+  UserCheck,
   UserPlus,
+  Users,
+  X,
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { erpApi } from '../../services/api';
@@ -36,6 +44,7 @@ import type {
   PermissionModule,
   Role,
 } from '../../types/erp';
+import { ERP_MODULE_CATALOG } from '../../types/erp';
 
 // ==========================================
 // 1. ADMIN DASHBOARD
@@ -454,39 +463,87 @@ export const EmployeesPage: React.FC = () => {
 // 3. DEPARTMENTS & ROLES / PERMISSIONS MATRIX
 // ==========================================
 
-const ALL_MODULES: PermissionModule[] = [
-  'sales',
-  'supply_chain',
-  'production',
-  'logistics',
-  'tracking',
-  'reports',
-  'admin',
+const ALL_ACTIONS: PermissionAction[] = [
+  'view',
+  'create',
+  'edit',
+  'delete',
+  'submit',
+  'approve',
+  'verify',
+  'confirm',
+  'export',
+  'manage',
 ];
-const ALL_ACTIONS: PermissionAction[] = ['view', 'create', 'edit', 'delete', 'approve', 'export', 'manage'];
 
 export const RolesPermissionsPage: React.FC = () => {
   const { data: db, refresh, toast } = useERP();
   const [selectedRoleId, setSelectedRoleId] = useState<string>('');
   const [draftPerms, setDraftPerms] = useState<Role['permissions'] | null>(null);
   const [saving, setSaving] = useState(false);
+  const [deptFilter, setDeptFilter] = useState('All');
+  const [search, setSearch] = useState('');
+
+  // Custom Role Creation Modal
+  const [createRoleModalOpen, setCreateRoleModalOpen] = useState(false);
+  const [newRoleName, setNewRoleName] = useState('');
+  const [newRoleDept, setNewRoleDept] = useState<Department>('sales');
+  const [newRoleDesc, setNewRoleDesc] = useState('');
+  const [templateRoleId, setTemplateRoleId] = useState('');
+  const [creatingRole, setCreatingRole] = useState(false);
+
+  // Delete Role Confirm
+  const [deleteRoleTarget, setDeleteRoleTarget] = useState<Role | null>(null);
 
   if (!db) return null;
 
   const activeRole = db.roles.find((r) => r.id === selectedRoleId) || db.roles[0];
-  const currentPerms = draftPerms || activeRole?.permissions;
+  const currentPerms = draftPerms || activeRole?.permissions || {};
 
   const selectRole = (role: Role) => {
     setSelectedRoleId(role.id);
-    setDraftPerms(JSON.parse(JSON.stringify(role.permissions)));
+    setDraftPerms(JSON.parse(JSON.stringify(role.permissions || {})));
   };
 
-  const togglePerm = (mod: PermissionModule, action: PermissionAction) => {
+  const togglePerm = (mod: string, action: PermissionAction) => {
     if (!activeRole) return;
-    const base = draftPerms ? JSON.parse(JSON.stringify(draftPerms)) : JSON.parse(JSON.stringify(activeRole.permissions));
+    const base = draftPerms
+      ? JSON.parse(JSON.stringify(draftPerms))
+      : JSON.parse(JSON.stringify(activeRole.permissions || {}));
     const list: PermissionAction[] = base[mod] || [];
     base[mod] = list.includes(action) ? list.filter((a) => a !== action) : [...list, action];
     setDraftPerms(base);
+  };
+
+  const toggleRowAll = (mod: string, actions: PermissionAction[]) => {
+    const base = draftPerms
+      ? JSON.parse(JSON.stringify(draftPerms))
+      : JSON.parse(JSON.stringify(activeRole.permissions || {}));
+    const currentList: PermissionAction[] = base[mod] || [];
+    const allSelected = actions.every((a) => currentList.includes(a));
+
+    if (allSelected) {
+      base[mod] = [];
+    } else {
+      base[mod] = Array.from(new Set([...currentList, ...actions]));
+    }
+    setDraftPerms(base);
+  };
+
+  const selectAllForRole = () => {
+    const next: Record<string, PermissionAction[]> = {};
+    for (const mod of ERP_MODULE_CATALOG) {
+      next[mod.id] = [...mod.actions, 'manage'];
+    }
+    // Also include coarse department keys
+    for (const dept of ['sales', 'supply_chain', 'production', 'logistics', 'admin', 'tracking', 'reports']) {
+      next[dept] = ['view', 'create', 'edit', 'delete', 'approve', 'export', 'manage'];
+    }
+    setDraftPerms(next as any);
+  };
+
+  const clearAllForRole = () => {
+    setDraftPerms({} as any);
   };
 
   const saveRole = async () => {
@@ -504,90 +561,351 @@ export const RolesPermissionsPage: React.FC = () => {
     }
   };
 
+  const handleCreateRole = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newRoleName.trim()) return toast('error', 'Role name is required');
+    setCreatingRole(true);
+    try {
+      let initialPerms = {};
+      if (templateRoleId) {
+        const t = db.roles.find((r) => r.id === templateRoleId);
+        if (t) initialPerms = JSON.parse(JSON.stringify(t.permissions || {}));
+      }
+
+      const created = await erpApi.createRole({
+        name: newRoleName.trim(),
+        department: newRoleDept,
+        description: newRoleDesc.trim(),
+        permissions: initialPerms,
+      });
+
+      await refresh();
+      setSelectedRoleId(created.id);
+      setDraftPerms(null);
+      setCreateRoleModalOpen(false);
+      setNewRoleName('');
+      setNewRoleDesc('');
+      toast('success', `Created custom role ${created.name}`);
+    } catch (err) {
+      toast('error', 'Role creation failed', (err as Error).message);
+    } finally {
+      setCreatingRole(false);
+    }
+  };
+
+  const handleDeleteRole = async () => {
+    if (!deleteRoleTarget) return;
+    try {
+      await erpApi.deleteRole(deleteRoleTarget.id);
+      await refresh();
+      setSelectedRoleId(db.roles[0]?.id || '');
+      setDraftPerms(null);
+      toast('success', `Deleted role ${deleteRoleTarget.name}`);
+    } catch (err) {
+      toast('error', 'Failed to delete role', (err as Error).message);
+    } finally {
+      setDeleteRoleTarget(null);
+    }
+  };
+
+  const isCoreRole = (roleId: string) => {
+    const core = [
+      'role-super-admin',
+      'role-sales-manager',
+      'role-sales-exec',
+      'role-scm-manager',
+      'role-stores-exec',
+      'role-production-manager',
+      'role-prod-planner',
+      'role-qc-inspector',
+      'role-logistics-manager',
+      'role-dispatch-exec',
+    ];
+    return core.includes(roleId);
+  };
+
+  const filteredCatalog = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return ERP_MODULE_CATALOG.filter((m) => {
+      if (deptFilter !== 'All' && m.department !== deptFilter) return false;
+      if (!q) return true;
+      return (
+        m.name.toLowerCase().includes(q) ||
+        m.id.toLowerCase().includes(q) ||
+        m.description.toLowerCase().includes(q)
+      );
+    });
+  }, [deptFilter, search]);
+
   return (
     <div className="space-y-5">
       <PageHeader
-        title="Departments & Role Permissions"
-        subtitle="Configure module-level RBAC matrices (View, Create, Edit, Delete, Approve, Export, Manage)."
+        title="Departments & Role Permissions Matrix"
+        subtitle="Manage base access roles and configure operational module actions (View, Create, Edit, Delete, Submit, Approve, Verify, Confirm, Export, Manage)."
         actions={
-          <Button onClick={saveRole} loading={saving} disabled={!draftPerms}>
-            <Save className="w-4 h-4" /> Save Permission Matrix
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button variant="secondary" onClick={() => setCreateRoleModalOpen(true)}>
+              <Plus className="w-4 h-4" /> Create Custom Role
+            </Button>
+            <Button onClick={saveRole} loading={saving} disabled={!draftPerms}>
+              <Save className="w-4 h-4" /> Save Permission Matrix
+            </Button>
+          </div>
         }
       />
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <div className="lg:col-span-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg divide-y divide-slate-200 dark:divide-slate-800">
-          {db.roles.map((r) => {
-            const isSel = r.id === activeRole?.id;
-            return (
-              <button
-                key={r.id}
-                type="button"
-                onClick={() => selectRole(r)}
-                className={`w-full text-left p-3.5 transition-colors cursor-pointer ${
-                  isSel ? 'bg-teal-50/70 dark:bg-teal-950/30' : 'hover:bg-slate-50 dark:hover:bg-slate-800/50'
-                }`}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <span className="text-sm font-semibold text-slate-900 dark:text-slate-100">{r.name}</span>
-                  <ShieldCheck className={`w-4 h-4 ${isSel ? 'text-teal-600' : 'text-slate-400'}`} />
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
+        {/* Roles Sidebar */}
+        <div className="lg:col-span-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs divide-y divide-slate-100 dark:divide-slate-800">
+          <div className="p-3 bg-slate-50 dark:bg-slate-950/60 font-semibold text-xs text-slate-500 uppercase tracking-wider flex items-center justify-between">
+            <span>Roles ({db.roles.length})</span>
+            <Button size="sm" variant="ghost" onClick={() => setCreateRoleModalOpen(true)} className="h-6 px-1.5 text-xs">
+              + New
+            </Button>
+          </div>
+          <div className="divide-y divide-slate-100 dark:divide-slate-800 max-h-[640px] overflow-y-auto">
+            {db.roles.map((r) => {
+              const isSel = r.id === activeRole?.id;
+              const isCore = isCoreRole(r.id);
+              return (
+                <div
+                  key={r.id}
+                  onClick={() => selectRole(r)}
+                  className={`w-full p-3 transition-colors cursor-pointer flex items-start justify-between gap-2 ${
+                    isSel ? 'bg-teal-50 dark:bg-teal-950/40 border-l-4 border-teal-600' : 'hover:bg-slate-50 dark:hover:bg-slate-800/40'
+                  }`}
+                >
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">{r.name}</span>
+                      {isCore && (
+                        <span title="Core System Role">
+                          <Lock className="w-3 h-3 text-slate-400 shrink-0" />
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] text-slate-400 capitalize mt-0.5">{r.department.replace('_', ' ')}</div>
+                    <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{r.description}</p>
+                  </div>
+
+                  {!isCore && (
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteRoleTarget(r);
+                      }}
+                      className="text-slate-300 hover:text-rose-500 p-1"
+                      title="Delete Role"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
-                <p className="text-xs text-slate-500 mt-0.5">{r.description}</p>
-              </button>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
 
-        <div className="lg:col-span-8 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
-          <div className="px-4 py-3 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+        {/* Matrix Area */}
+        <div className="lg:col-span-9 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden shadow-xs flex flex-col">
+          {/* Header Bar */}
+          <div className="px-5 py-4 border-b border-slate-200 dark:border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-3 bg-slate-50/50 dark:bg-slate-950/30">
             <div>
-              <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">{activeRole?.name}</div>
-              <div className="text-xs text-slate-500">{activeRole?.description}</div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">{activeRole?.name}</h3>
+                <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300 capitalize">
+                  {activeRole?.department.replace('_', ' ')}
+                </span>
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">{activeRole?.description}</p>
+            </div>
+
+            <div className="flex items-center gap-2 text-xs">
+              <Button size="sm" variant="secondary" onClick={selectAllForRole}>
+                Select All
+              </Button>
+              <Button size="sm" variant="secondary" onClick={clearAllForRole}>
+                Clear All
+              </Button>
             </div>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs">
+
+          {/* Filter Bar */}
+          <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
+              {['All', 'sales', 'supply_chain', 'production', 'logistics', 'admin', 'shared'].map((d) => (
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDeptFilter(d)}
+                  className={`px-2.5 py-1 text-xs font-medium rounded-full cursor-pointer transition-colors capitalize whitespace-nowrap ${
+                    deptFilter === d
+                      ? 'bg-teal-600 text-white font-semibold'
+                      : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                  }`}
+                >
+                  {d.replace('_', ' ')}
+                </button>
+              ))}
+            </div>
+
+            <div className="relative w-full sm:w-64">
+              <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search module..."
+                className="pl-8 text-xs h-7"
+              />
+            </div>
+          </div>
+
+          {/* Matrix Table */}
+          <div className="overflow-x-auto flex-1">
+            <table className="w-full text-xs text-left">
               <thead>
                 <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-200 dark:border-slate-800 text-slate-500">
-                  <th className="px-4 py-2.5 text-left font-medium">Module</th>
+                  <th className="px-4 py-2.5 font-semibold w-52">Operational Module</th>
                   {ALL_ACTIONS.map((act) => (
-                    <th key={act} className="px-2 py-2.5 text-center font-medium capitalize">
+                    <th key={act} className="px-2 py-2.5 text-center font-semibold capitalize w-14">
                       {act}
                     </th>
                   ))}
+                  <th className="px-3 py-2.5 text-center font-semibold w-16">All</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
-                {ALL_MODULES.map((mod) => (
-                  <tr key={mod}>
-                    <td className="px-4 py-3 font-medium uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                      {mod.replace('_', ' ')}
-                    </td>
-                    {ALL_ACTIONS.map((act) => {
-                      const checked = (currentPerms?.[mod] || []).includes(act);
-                      return (
-                        <td key={act} className="px-2 py-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={checked}
-                            onChange={() => togglePerm(mod, act)}
-                            aria-label={`${mod} ${act}`}
-                            className="w-4 h-4 rounded border-slate-300 text-teal-600 cursor-pointer"
-                          />
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
+              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredCatalog.map((mod) => {
+                  const modActions = (currentPerms?.[mod.id] || []) as PermissionAction[];
+                  const deptActions = (currentPerms?.[mod.department] || []) as PermissionAction[];
+                  const adminActions = (currentPerms?.['admin'] || []) as PermissionAction[];
+                  const isWildcardActive = modActions.includes('manage') || adminActions.includes('manage');
+
+                  return (
+                    <tr key={mod.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-800/30 transition-colors">
+                      <td className="px-4 py-2.5">
+                        <div className="font-semibold text-slate-900 dark:text-slate-100">{mod.name}</div>
+                        <div className="text-[10px] text-slate-400">{mod.description}</div>
+                      </td>
+
+                      {ALL_ACTIONS.map((act) => {
+                        const isApplicable = mod.actions.includes(act) || act === 'manage';
+                        const isDirectChecked = modActions.includes(act);
+                        const isInheritedChecked = deptActions.includes(act) || isWildcardActive;
+                        const isChecked = isDirectChecked || isInheritedChecked;
+
+                        return (
+                          <td key={act} className="px-2 py-2.5 text-center">
+                            {isApplicable ? (
+                              <input
+                                type="checkbox"
+                                checked={isChecked}
+                                onChange={() => togglePerm(mod.id, act)}
+                                aria-label={`${mod.name} ${act}`}
+                                className="w-4 h-4 rounded border-slate-300 text-teal-600 cursor-pointer focus:ring-teal-500"
+                              />
+                            ) : (
+                              <span className="text-slate-200 dark:text-slate-700 select-none">—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+
+                      <td className="px-3 py-2.5 text-center">
+                        <button
+                          type="button"
+                          onClick={() => toggleRowAll(mod.id, mod.actions)}
+                          className="text-[10px] font-semibold text-teal-600 hover:text-teal-700 cursor-pointer"
+                        >
+                          Toggle
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
       </div>
+
+      {/* Create Custom Role Modal */}
+      <Modal
+        open={createRoleModalOpen}
+        onClose={() => setCreateRoleModalOpen(false)}
+        title="Create Custom Access Role"
+        size="md"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setCreateRoleModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="create-role-form" loading={creatingRole}>
+              Create Role
+            </Button>
+          </>
+        }
+      >
+        <form id="create-role-form" onSubmit={handleCreateRole} className="space-y-4">
+          <Field label="Role Name" required>
+            <Input
+              value={newRoleName}
+              onChange={(e) => setNewRoleName(e.target.value)}
+              placeholder="e.g. Quality Assurance Specialist"
+              required
+            />
+          </Field>
+
+          <Field label="Department" required>
+            <Select value={newRoleDept} onChange={(e) => setNewRoleDept(e.target.value as Department)}>
+              <option value="sales">Sales Management</option>
+              <option value="supply_chain">Supply Chain Management</option>
+              <option value="production">Production Management</option>
+              <option value="logistics">Logistics & Delivery</option>
+              <option value="admin">Administration</option>
+            </Select>
+          </Field>
+
+          <Field label="Clone Permissions Template (Optional)">
+            <Select value={templateRoleId} onChange={(e) => setTemplateRoleId(e.target.value)}>
+              <option value="">Start Empty</option>
+              {db.roles.map((r) => (
+                <option key={r.id} value={r.id}>
+                  Copy from: {r.name} ({r.department})
+                </option>
+              ))}
+            </Select>
+          </Field>
+
+          <Field label="Description">
+            <Textarea
+              value={newRoleDesc}
+              onChange={(e) => setNewRoleDesc(e.target.value)}
+              placeholder="Responsibilities and permission boundaries..."
+              rows={2}
+            />
+          </Field>
+        </form>
+      </Modal>
+
+      {/* Delete Role Confirm */}
+      <ConfirmDialog
+        open={Boolean(deleteRoleTarget)}
+        title="Delete Custom Role?"
+        message={`Are you sure you want to permanently delete role "${deleteRoleTarget?.name}"? Employees assigned to this role must be reassigned first.`}
+        onConfirm={handleDeleteRole}
+        onClose={() => setDeleteRoleTarget(null)}
+        confirmLabel="Delete Role"
+      />
     </div>
   );
 };
+
+// Re-export new modular administration pages
+export { EmployeeAccessPage } from './EmployeeAccessPage';
+export { ApprovalWorkflowsPage } from './ApprovalWorkflowsPage';
+export { ApprovalInboxPage } from './ApprovalInboxPage';
 
 // ==========================================
 // 4. COMPANY PROFILE PAGE

@@ -126,7 +126,7 @@ test('CRYO ERP 2.0 Phase 5 — Sales Management Complete Workflow & Integrity Te
         email: 'ramesh@alphacryo.in',
         billingAddress: '45 Industrial Park, Whitefield, Bengaluru',
         shippingAddress: '45 Industrial Park, Whitefield, Bengaluru',
-        gstin: `29ABCDE${Math.floor(1000 + Math.random() * 9000)}F1Z5`,
+        gstin: `29ABCDE${Date.now().toString().slice(-4)}F1Z5`,
       },
     });
     assert.equal(custRes.status, 201, 'Customer created successfully');

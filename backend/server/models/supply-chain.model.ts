@@ -155,7 +155,7 @@ const SupplierPOSchema = new Schema<SupplierPO>(
     totalAmount: { type: Number, required: true, min: 0 },
     status: {
       type: String,
-      enum: ['Draft', 'Ordered', 'Partially Received', 'Received', 'Closed', 'Cancelled'],
+      enum: ['Draft', 'Pending Approval', 'Approved', 'Changes Requested', 'Ordered', 'Partially Received', 'Received', 'Closed', 'Cancelled'],
       default: 'Ordered',
       index: true,
     },

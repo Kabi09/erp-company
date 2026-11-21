@@ -10,6 +10,8 @@ import {
 } from '../../src/utils/erpLogic';
 import { requireAuth, requirePerm, type AuthenticatedRequest } from '../middleware/auth.middleware';
 import {
+  ApprovalRequestModel,
+  ApprovalWorkflowModel,
   GRNModel,
   MaterialIssueModel,
   MaterialModel,
@@ -541,6 +543,103 @@ const createSupplierPOHandler = async (req: AuthenticatedRequest, res: any) => {
 supplyChainRouter.post('/supply-chain/supplier-pos', requireAuth, requirePerm('supply_chain', 'create'), createSupplierPOHandler);
 supplyChainRouter.post('/supply-chain/purchase-orders', requireAuth, requirePerm('supply_chain', 'create'), createSupplierPOHandler);
 
+// --- Submit Supplier PO for Approval ---
+supplyChainRouter.post('/supply-chain/supplier-pos/:id/submit-approval', requireAuth, requirePerm('supply_chain', 'create'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const spo = await SupplierPOModel.findOne({ id: req.params.id });
+    if (!spo) throw new Error('NOT_FOUND:Supplier PO not found.');
+    if (spo.status === 'Cancelled') throw new Error('Cancelled POs cannot be submitted for approval.');
+    if (spo.status === 'Pending Approval') throw new Error('Purchase order is already pending approval.');
+
+    const wf = await ApprovalWorkflowModel.findOne({ module: 'supplier_pos', triggerAction: 'submit', enabled: true });
+
+    if (!wf) {
+      spo.status = 'Approved';
+      spo.updatedAt = new Date().toISOString();
+      await spo.save();
+
+      await mongoERPRepository.addActivity({
+        actorId: req.user!.id,
+        actorName: req.user!.name,
+        department: 'supply_chain',
+        action: 'Approved Supplier PO',
+        entityType: 'SupplierPO',
+        entityId: spo.id,
+        entityDocNo: spo.docNo,
+        details: `Supplier PO ${spo.docNo} approved directly (no workflow active).`,
+      });
+
+      res.json({ ok: true, approvalRequired: false, supplierPO: spo.toObject() });
+      return;
+    }
+
+    spo.status = 'Pending Approval';
+    spo.updatedAt = new Date().toISOString();
+    await spo.save();
+
+    const approvalReq = {
+      id: generateId('apr'),
+      workflowId: wf.id,
+      workflowName: wf.name,
+      department: 'supply_chain' as const,
+      module: 'supplier_pos',
+      documentId: spo.id,
+      documentDocNo: spo.docNo,
+      documentVersion: 'V1',
+      submittedBy: {
+        id: req.user!.id,
+        name: req.user!.name,
+        employeeId: req.user!.employeeId,
+        roleId: req.user!.roleId,
+        department: req.user!.department,
+      },
+      submittedAt: new Date().toISOString(),
+      documentSnapshot: {
+        docNo: spo.docNo,
+        supplierName: spo.supplierName,
+        purchaseType: spo.purchaseType,
+        itemsCount: spo.items.length,
+        items: spo.items,
+        subtotal: spo.subtotal,
+        taxAmount: spo.taxAmount,
+        totalAmount: spo.totalAmount,
+        remarks: spo.remarks,
+      },
+      currentLevel: 1,
+      totalLevels: wf.approvalLevels.length,
+      status: 'pending' as const,
+      decisions: [],
+    };
+
+    await ApprovalRequestModel.create(approvalReq);
+
+    await mongoERPRepository.addNotification({
+      title: `Approval Required: Supplier PO ${spo.docNo}`,
+      message: `${req.user!.name} submitted ${spo.docNo} (₹${spo.totalAmount.toLocaleString('en-IN')}) for procurement approval.`,
+      department: 'supply_chain',
+      severity: 'info',
+      link: '/admin/approvals',
+      relatedModule: 'supplier_pos',
+      relatedDocumentId: spo.id,
+    });
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'supply_chain',
+      action: 'Submitted Supplier PO for Approval',
+      entityType: 'SupplierPO',
+      entityId: spo.id,
+      entityDocNo: spo.docNo,
+      details: `Submitted supplier PO ${spo.docNo} for multi-level approval under ${wf.name}.`,
+    });
+
+    res.json({ ok: true, approvalRequired: true, supplierPO: spo.toObject(), approvalRequest: approvalReq });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // --- Phase 6: GRN Recording (with Replacement Receipt support) ---
 supplyChainRouter.post(['/supply-chain/grns', '/supply-chain/grn'], requireAuth, requirePerm('supply_chain', 'create'), async (req: AuthenticatedRequest, res) => {
   try {
@@ -551,6 +650,9 @@ supplyChainRouter.post(['/supply-chain/grns', '/supply-chain/grn'], requireAuth,
     }
     const spo = await SupplierPOModel.findOne({ id: body.supplierPoId });
     if (!spo) throw new Error('NOT_FOUND:Supplier PO not found.');
+    if (spo.status === 'Pending Approval' || spo.status === 'Changes Requested') {
+      throw new Error('GRN cannot be received for a Purchase Order that is pending approval or changes requested.');
+    }
 
     const supReturn = body.supplierReturnId
       ? await SupplierReturnModel.findOne({ id: body.supplierReturnId })

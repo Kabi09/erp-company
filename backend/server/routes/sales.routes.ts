@@ -8,6 +8,8 @@ import {
 } from '../../src/utils/erpLogic';
 import { requireAuth, requirePerm, type AuthenticatedRequest } from '../middleware/auth.middleware';
 import {
+  ApprovalRequestModel,
+  ApprovalWorkflowModel,
   CustomerModel,
   CustomerPOModel,
   EnquiryModel,
@@ -586,6 +588,12 @@ salesRouter.post(['/sales/quotations/:id/accept', '/sales/quotations/:id/accepte
     if (qt.status === 'Superseded') {
       throw new Error('Superseded quotation versions cannot be accepted.');
     }
+    if (qt.status === 'Pending Approval') {
+      throw new Error('Quotation cannot be accepted while pending approval.');
+    }
+    if (qt.status === 'Changes Requested') {
+      throw new Error('Quotation cannot be accepted while changes are requested.');
+    }
     if (qt.status === 'Accepted') {
       return res.json(qt.toObject());
     }
@@ -651,11 +659,118 @@ salesRouter.post(['/sales/quotations/:id/reject', '/sales/quotations/:id/rejecte
   }
 });
 
+salesRouter.post('/sales/quotations/:id/submit-approval', requireAuth, requirePerm('sales', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const qt = await QuotationModel.findOne({ id: req.params.id });
+    if (!qt) throw new Error('NOT_FOUND:Quotation not found.');
+    if (qt.status === 'Superseded') throw new Error('Superseded quotation versions cannot be submitted for approval.');
+    if (qt.status === 'Accepted') throw new Error('Quotation is already accepted.');
+    if (qt.status === 'Pending Approval') throw new Error('Quotation is already pending approval.');
+
+    const wf = await ApprovalWorkflowModel.findOne({ module: 'quotations', triggerAction: 'submit', enabled: true });
+
+    if (!wf) {
+      qt.status = 'Approved';
+      qt.updatedAt = new Date().toISOString();
+      await qt.save();
+
+      await mongoERPRepository.addActivity({
+        actorId: req.user!.id,
+        actorName: req.user!.name,
+        department: 'sales',
+        action: 'Approved Quotation',
+        entityType: 'Quotation',
+        entityId: qt.id,
+        entityDocNo: qt.docNo,
+        details: `Quotation ${qt.docNo} approved directly (no workflow active).`,
+      });
+
+      res.json({ ok: true, approvalRequired: false, quotation: qt.toObject() });
+      return;
+    }
+
+    qt.status = 'Pending Approval';
+    qt.updatedAt = new Date().toISOString();
+    await qt.save();
+
+    const approvalReq = {
+      id: generateId('apr'),
+      workflowId: wf.id,
+      workflowName: wf.name,
+      department: 'sales' as const,
+      module: 'quotations',
+      documentId: qt.id,
+      documentDocNo: qt.docNo,
+      documentVersion: `V${qt.version}`,
+      submittedBy: {
+        id: req.user!.id,
+        name: req.user!.name,
+        employeeId: req.user!.employeeId,
+        roleId: req.user!.roleId,
+        department: req.user!.department,
+      },
+      submittedAt: new Date().toISOString(),
+      documentSnapshot: {
+        docNo: qt.docNo,
+        customerName: qt.customerSnapshot?.name,
+        subtotal: qt.subtotal,
+        discountPercent: qt.discountPercent,
+        discountAmount: qt.discountAmount,
+        taxPercent: qt.taxPercent,
+        taxAmount: qt.taxAmount,
+        totalAmount: qt.totalAmount,
+        itemsCount: qt.items.length,
+        items: qt.items,
+        paymentTerms: qt.paymentTerms,
+        deliveryTerms: qt.deliveryTerms,
+        warranty: qt.warranty,
+      },
+      currentLevel: 1,
+      totalLevels: wf.approvalLevels.length,
+      status: 'pending' as const,
+      decisions: [],
+    };
+
+    await ApprovalRequestModel.create(approvalReq);
+
+    await mongoERPRepository.addNotification({
+      title: `Approval Required: Quotation ${qt.docNo}`,
+      message: `${req.user!.name} submitted ${qt.docNo} (₹${qt.totalAmount.toLocaleString('en-IN')}) for approval.`,
+      department: 'sales',
+      severity: 'info',
+      link: '/admin/approvals',
+      relatedModule: 'quotations',
+      relatedDocumentId: qt.id,
+    });
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'sales',
+      action: 'Submitted Quotation for Approval',
+      entityType: 'Quotation',
+      entityId: qt.id,
+      entityDocNo: qt.docNo,
+      details: `Submitted quotation ${qt.docNo} for multi-level approval under ${wf.name}.`,
+    });
+
+    res.json({ ok: true, approvalRequired: true, quotation: qt.toObject(), approvalRequest: approvalReq });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 salesRouter.post('/sales/quotations/:id/sent', requireAuth, requirePerm('sales', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
     const qt = await QuotationModel.findOne({ id: req.params.id });
     if (!qt) throw new Error('NOT_FOUND:Quotation not found.');
     if (qt.status === 'Superseded') throw new Error('Superseded quotation versions cannot be modified.');
+    if (qt.status === 'Pending Approval') {
+      throw new Error('Quotation cannot be sent to customer while pending approval.');
+    }
+    if (qt.status === 'Changes Requested') {
+      throw new Error('Quotation cannot be sent while changes are requested. Please revise and resubmit.');
+    }
     qt.status = 'Sent';
     qt.updatedAt = new Date().toISOString();
     await qt.save();
