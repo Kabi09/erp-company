@@ -47,6 +47,18 @@ productionRouter.get('/production/summary', requireAuth, requirePerm('production
   }
 });
 
+// --- Received Sales Orders for Production Scheduling ---
+productionRouter.get('/production/received-orders', requireAuth, requirePerm('production', 'view'), async (_req: AuthenticatedRequest, res) => {
+  try {
+    const orders = await SalesOrderModel.find({
+      fulfillmentStatus: { $in: ['Awaiting Production', 'In Production', 'Partially Delivered'] },
+    }).sort({ createdAt: -1 }).lean();
+    res.json({ items: orders, total: orders.length });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
 // --- Production Order Details (Centralized) ---
 productionRouter.get('/production/orders/:id', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
   try {
@@ -138,10 +150,10 @@ productionRouter.get('/production/boms/:id', requireAuth, requirePerm('productio
   }
 });
 
-productionRouter.post('/production/boms', requireAuth, requirePerm('production', 'create'), async (req: AuthenticatedRequest, res) => {
+productionRouter.post(['/production/boms', '/production/orders/:id/bom'], requireAuth, requirePerm('production', 'create'), async (req: AuthenticatedRequest, res) => {
   try {
-    const { productionOrderId, items, sendRequest } = req.body as {
-      productionOrderId: string;
+    const productionOrderId = req.body.productionOrderId || req.params.id;
+    const { items, sendRequest } = req.body as {
       items: Array<{ materialId: string; qtyPerUnit: number; remarks?: string }>;
       sendRequest?: boolean;
     };
@@ -295,7 +307,7 @@ productionRouter.post('/production/boms', requireAuth, requirePerm('production',
   }
 });
 
-productionRouter.post('/production/boms/:id/send-request', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
+productionRouter.post(['/production/boms/:id/send-request', '/production/bom/:id/submit-request', '/production/boms/:id/submit-request'], requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
     const bom = await BOMModel.findOne({ id: req.params.id });
     if (!bom) throw new Error('NOT_FOUND:BOM not found.');
@@ -370,89 +382,145 @@ productionRouter.get('/production/material-receipts', requireAuth, requirePerm('
   }
 });
 
-productionRouter.post('/production/material-receipts/:issueId/acknowledge', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
-  try {
-    const { discrepancyNotes, items: receivedItems } = (req.body || {}) as {
-      discrepancyNotes?: string;
-      items?: Array<{ materialId: string; receivedQty: number; discrepancyNotes?: string }>;
-    };
-    const mi = await MaterialIssueModel.findOne({ id: req.params.issueId });
-    if (!mi) throw new Error('NOT_FOUND:Material issue record not found.');
-    if (mi.receiptAcknowledged) {
-      throw new Error(`Material issue ${mi.docNo} receipt has already been acknowledged.`);
-    }
-    const mr = await MaterialRequestModel.findOne({ id: mi.materialRequestId });
-    if (!mr) throw new Error('NOT_FOUND:Linked material request not found.');
+productionRouter.post(
+  ['/production/material-receipts/:issueId/acknowledge', '/production/material-requests/:id/acknowledge-receipt'],
+  requireAuth,
+  requirePerm('production', 'edit'),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const { discrepancyNotes, items: receivedItems } = (req.body || {}) as {
+        discrepancyNotes?: string;
+        items?: Array<{ materialId: string; receivedQty: number; discrepancyNotes?: string }>;
+      };
+      const now = new Date().toISOString();
 
-    const now = new Date().toISOString();
-    let hasLineDiscrepancy = false;
+      if (req.params.id) {
+        const mr = await MaterialRequestModel.findOne({ id: req.params.id });
+        if (!mr) throw new Error('NOT_FOUND:Linked material request not found.');
+        const issues = await MaterialIssueModel.find({ materialRequestId: mr.id, receiptAcknowledged: false });
+        for (const mi of issues) {
+          mi.receiptAcknowledged = true;
+          mi.acknowledgedBy = req.user!.name;
+          mi.acknowledgedAt = now;
+          await mi.save();
+        }
+        if (Array.isArray(receivedItems)) {
+          for (const line of receivedItems) {
+            const mrItem = mr.items.find((x) => x.materialId === line.materialId);
+            if (mrItem) {
+              mrItem.receivedQty = round2((mrItem.receivedQty || 0) + Number(line.receivedQty || 0));
+            }
+          }
+        } else {
+          for (const mi of issues) {
+            for (const ii of mi.items) {
+              const mrItem = mr.items.find((x) => x.materialId === ii.materialId);
+              if (mrItem) {
+                mrItem.receivedQty = round2((mrItem.receivedQty || 0) + ii.issuedQty);
+              }
+            }
+          }
+        }
+        const derived = deriveMaterialRequestStatus(mr.toObject() as any);
+        mr.status = derived.status;
+        mr.receiptStatus = derived.receiptStatus;
+        mr.updatedAt = now;
+        await mr.save();
 
-    for (const ii of mi.items) {
-      const clientLine = Array.isArray(receivedItems)
-        ? receivedItems.find((x) => x.materialId === ii.materialId)
-        : undefined;
-      const recQty = clientLine !== undefined ? Number(clientLine.receivedQty) : ii.issuedQty;
+        const po = await ProductionOrderModel.findOne({ id: mr.productionOrderId });
+        if (po && (po.status === 'Awaiting Materials' || po.status === 'Planned') && mr.receiptStatus === 'Fully Received') {
+          po.status = 'Ready to Start';
+          po.updatedAt = now;
+          await po.save();
 
-      if (recQty < 0 || recQty > ii.issuedQty) {
-        throw new Error(`Received quantity for ${ii.materialName} must be between 0 and issued quantity (${ii.issuedQty}).`);
+          await mongoERPRepository.addNotification({
+            title: `${po.docNo} Ready to Start Production`,
+            message: `All BOM materials for ${po.docNo} (${po.productName}) have been received by Production.`,
+            department: 'production',
+            severity: 'success',
+            link: `/production/orders/${po.id}`,
+          });
+        }
+        return res.json({ ...mr.toObject(), receiptStatus: mr.receiptStatus });
       }
-      if (recQty < ii.issuedQty) {
-        hasLineDiscrepancy = true;
+
+      const mi = await MaterialIssueModel.findOne({ id: req.params.issueId });
+      if (!mi) throw new Error('NOT_FOUND:Material issue record not found.');
+      if (mi.receiptAcknowledged) {
+        throw new Error(`Material issue ${mi.docNo} receipt has already been acknowledged.`);
       }
-      ii.receivedQty = recQty;
+      const mr = await MaterialRequestModel.findOne({ id: mi.materialRequestId });
+      if (!mr) throw new Error('NOT_FOUND:Linked material request not found.');
 
-      const mrItem = mr.items.find((x) => x.materialId === ii.materialId);
-      if (mrItem) {
-        const prevRec = mrItem.receivedQty || 0;
-        mrItem.receivedQty = round2(prevRec + ii.receivedQty);
+      let hasLineDiscrepancy = false;
+
+      for (const ii of mi.items) {
+        const clientLine = Array.isArray(receivedItems)
+          ? receivedItems.find((x) => x.materialId === ii.materialId)
+          : undefined;
+        const recQty = clientLine !== undefined ? Number(clientLine.receivedQty) : ii.issuedQty;
+
+        if (recQty < 0 || recQty > ii.issuedQty) {
+          throw new Error(`Received quantity for ${ii.materialName} must be between 0 and issued quantity (${ii.issuedQty}).`);
+        }
+        if (recQty < ii.issuedQty) {
+          hasLineDiscrepancy = true;
+        }
+        ii.receivedQty = recQty;
+
+        const mrItem = mr.items.find((x) => x.materialId === ii.materialId);
+        if (mrItem) {
+          const prevRec = mrItem.receivedQty || 0;
+          mrItem.receivedQty = round2(prevRec + ii.receivedQty);
+        }
       }
-    }
 
-    mi.receiptAcknowledged = true;
-    mi.acknowledgedBy = req.user!.name;
-    mi.acknowledgedAt = now;
-    if (discrepancyNotes?.trim() || hasLineDiscrepancy) {
-      mi.receiptDiscrepancyNotes = discrepancyNotes?.trim() || 'Physical receipt discrepancy recorded on line item(s).';
-    }
-    await mi.save();
+      mi.receiptAcknowledged = true;
+      mi.acknowledgedBy = req.user!.name;
+      mi.acknowledgedAt = now;
+      if (discrepancyNotes?.trim() || hasLineDiscrepancy) {
+        mi.receiptDiscrepancyNotes = discrepancyNotes?.trim() || 'Physical receipt discrepancy recorded on line item(s).';
+      }
+      await mi.save();
 
-    const derived = deriveMaterialRequestStatus(mr.toObject() as any);
-    mr.status = derived.status;
-    mr.receiptStatus = derived.receiptStatus;
-    mr.updatedAt = now;
-    await mr.save();
+      const derived = deriveMaterialRequestStatus(mr.toObject() as any);
+      mr.status = derived.status;
+      mr.receiptStatus = derived.receiptStatus;
+      mr.updatedAt = now;
+      await mr.save();
 
-    const po = await ProductionOrderModel.findOne({ id: mi.productionOrderId });
-    if (po && (po.status === 'Awaiting Materials' || po.status === 'Planned') && mr.receiptStatus === 'Fully Received') {
-      po.status = 'Ready to Start';
-      po.updatedAt = now;
-      await po.save();
+      const po = await ProductionOrderModel.findOne({ id: mi.productionOrderId });
+      if (po && (po.status === 'Awaiting Materials' || po.status === 'Planned') && mr.receiptStatus === 'Fully Received') {
+        po.status = 'Ready to Start';
+        po.updatedAt = now;
+        await po.save();
 
-      await mongoERPRepository.addNotification({
-        title: `${po.docNo} Ready to Start Production`,
-        message: `All BOM materials for ${po.docNo} (${po.productName}) have been received by Production.`,
+        await mongoERPRepository.addNotification({
+          title: `${po.docNo} Ready to Start Production`,
+          message: `All BOM materials for ${po.docNo} (${po.productName}) have been received by Production.`,
+          department: 'production',
+          severity: 'success',
+          link: `/production/orders/${po.id}`,
+        });
+      }
+
+      await mongoERPRepository.addActivity({
+        actorId: req.user!.id,
+        actorName: req.user!.name,
         department: 'production',
-        severity: 'success',
-        link: `/production/orders/${po.id}`,
+        action: 'Acknowledged Material Receipt',
+        entityType: 'MaterialIssue',
+        entityId: mi.id,
+        entityDocNo: mi.docNo,
+        details: `Confirmed physical receipt of ${mi.docNo} for ${mi.productionOrderDocNo}.`,
       });
+
+      res.json({ ...mi.toObject(), receiptStatus: mr.receiptStatus });
+    } catch (err) {
+      sendError(res, err);
     }
-
-    await mongoERPRepository.addActivity({
-      actorId: req.user!.id,
-      actorName: req.user!.name,
-      department: 'production',
-      action: 'Acknowledged Material Receipt',
-      entityType: 'MaterialIssue',
-      entityId: mi.id,
-      entityDocNo: mi.docNo,
-      details: `Confirmed physical receipt of ${mi.docNo} for ${mi.productionOrderDocNo}.`,
-    });
-
-    res.json(mi.toObject());
-  } catch (err) {
-    sendError(res, err);
-  }
-});
+  },
+);
 
 // --- Start Production ---
 productionRouter.post('/production/orders/:id/start', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
@@ -505,35 +573,40 @@ productionRouter.get('/production/daily-updates', requireAuth, requirePerm('prod
   }
 });
 
-productionRouter.post('/production/daily-updates', requireAuth, requirePerm('production', 'create'), async (req: AuthenticatedRequest, res) => {
-  try {
-    const body = req.body;
-    if (!body.productionOrderId || !body.stage?.trim() || !body.workCompleted?.trim()) {
-      throw new Error('Production order, process stage, and work completed description are required.');
-    }
-    const po = await ProductionOrderModel.findOne({ id: body.productionOrderId });
-    if (!po) throw new Error('NOT_FOUND:Production order not found.');
-    if (po.status !== 'In Progress' && po.status !== 'Rework') {
-      throw new Error(`Daily updates can only be added for Active or Rework orders (current: ${po.status}).`);
-    }
-    const now = new Date().toISOString();
-    const du = {
-      id: generateId('du'),
-      productionOrderId: po.id,
-      productionOrderDocNo: po.docNo,
-      workDate: body.workDate || now.slice(0, 10),
-      stage: body.stage.trim(),
-      workCompleted: body.workCompleted.trim(),
-      completedQty: Math.min(po.quantity, Math.max(0, Number(body.completedQty) || 0)),
-      workHours: Math.max(0, Number(body.workHours) || 0),
-      stageStatus: body.stageStatus || 'In Progress',
-      issues: body.issues?.trim() || '',
-      remarks: body.remarks?.trim() || '',
-      photoName: body.photoName || undefined,
-      photoDataUrl: body.photoDataUrl || undefined,
-      employeeName: req.user!.name,
-      createdAt: now,
-    };
+productionRouter.post(
+  ['/production/daily-updates', '/production/orders/:id/daily-updates'],
+  requireAuth,
+  requirePerm('production', 'create'),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const body = req.body;
+      const poId = req.params.id || body.productionOrderId;
+      if (!poId || !body.stage?.trim() || !body.workCompleted?.trim()) {
+        throw new Error('Production order, process stage, and work completed description are required.');
+      }
+      const po = await ProductionOrderModel.findOne({ id: poId });
+      if (!po) throw new Error('NOT_FOUND:Production order not found.');
+      if (po.status !== 'In Progress' && po.status !== 'Rework') {
+        throw new Error(`Daily updates can only be added for Active or Rework orders (current: ${po.status}).`);
+      }
+      const now = new Date().toISOString();
+      const du = {
+        id: generateId('du'),
+        productionOrderId: po.id,
+        productionOrderDocNo: po.docNo,
+        workDate: body.workDate || now.slice(0, 10),
+        stage: body.stage.trim(),
+        workCompleted: body.workCompleted.trim(),
+        completedQty: Math.min(po.quantity, Math.max(0, Number(body.completedQty) || 0)),
+        workHours: Math.max(0, Number(body.workHours) || 0),
+        stageStatus: body.stageStatus || 'In Progress',
+        issues: body.issues?.trim() || '',
+        remarks: body.remarks?.trim() || '',
+        photoName: body.photoName || undefined,
+        photoDataUrl: body.photoDataUrl || undefined,
+        employeeName: body.employeeName || req.user!.name,
+        createdAt: now,
+      };
 
     await DailyProductionUpdateModel.create(du);
 
@@ -570,7 +643,7 @@ const completeManufacturingHandler = async (req: AuthenticatedRequest, res: any)
     if (updateCount === 0) {
       throw new Error('Record at least one daily production update before completing manufacturing.');
     }
-    const qty = Number(body.completedQty ?? po.quantity);
+    const qty = Number(body.completedQty ?? body.completedManufacturingQty ?? po.quantity);
     if (!qty || qty <= 0 || qty > po.quantity) {
       throw new Error(`Completed quantity must be between 1 and ${po.quantity}.`);
     }
@@ -643,13 +716,16 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
 
     const totalManufactured = po.completedManufacturingQty || po.quantity;
     const remainingToAccept = totalManufactured - (po.qcAcceptedQty || 0);
-    if (remainingToAccept <= 0) {
+    const isFullLotReinspection = Number(body.inspectedQty) > remainingToAccept && Number(body.inspectedQty) <= totalManufactured;
+    const maxAllowedInspect = isFullLotReinspection ? totalManufactured : (remainingToAccept > 0 ? remainingToAccept : totalManufactured);
+
+    if (remainingToAccept <= 0 && !isFullLotReinspection) {
       throw new Error('All units on this production order have already passed QC.');
     }
 
     const inspectedQty = Number(body.inspectedQty ?? remainingToAccept);
-    if (!inspectedQty || inspectedQty <= 0 || inspectedQty > remainingToAccept) {
-      throw new Error(`Inspected quantity must be between 1 and ${remainingToAccept}.`);
+    if (!inspectedQty || inspectedQty <= 0 || inspectedQty > maxAllowedInspect) {
+      throw new Error(`Inspected quantity must be between 1 and ${maxAllowedInspect}.`);
     }
 
     let acceptedQty: number;
@@ -710,7 +786,9 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
 
       po.status = 'Rework';
       po.qcRejectedQty = rejectedQty;
-      if (acceptedQty > 0) {
+      if (isFullLotReinspection) {
+        po.qcAcceptedQty = acceptedQty;
+      } else if (acceptedQty > 0) {
         po.qcAcceptedQty = round2((po.qcAcceptedQty || 0) + acceptedQty);
       }
       await po.save();
@@ -723,10 +801,18 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
         link: '/production/rework',
       });
     } else {
-      po.qcAcceptedQty = round2((po.qcAcceptedQty || 0) + acceptedQty);
+      if (isFullLotReinspection) {
+        po.qcAcceptedQty = acceptedQty;
+      } else {
+        po.qcAcceptedQty = Math.min(totalManufactured, round2((po.qcAcceptedQty || 0) + acceptedQty));
+      }
       po.qcRejectedQty = 0;
-      if (po.qcAcceptedQty >= po.quantity) {
+      if (po.qcAcceptedQty >= totalManufactured) {
         po.status = 'Completed';
+        await ReworkOrderModel.updateMany(
+          { productionOrderId: po.id, status: { $in: ['Open', 'Reinspection'] } },
+          { status: 'Completed', updatedAt: now },
+        );
       } else {
         po.status = 'QC Pending';
       }
@@ -788,7 +874,7 @@ productionRouter.post('/production/quality-checks', requireAuth, requirePerm('pr
 });
 
 // --- Rework Orders: Query & Complete ---
-productionRouter.get('/production/rework', requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
+productionRouter.get(['/production/rework', '/production/rework-orders'], requireAuth, requirePerm('production', 'view'), async (req: AuthenticatedRequest, res) => {
   try {
     const filter: Record<string, any> = {};
     if (req.query.productionOrderId) filter.productionOrderId = req.query.productionOrderId;
@@ -800,7 +886,7 @@ productionRouter.get('/production/rework', requireAuth, requirePerm('production'
   }
 });
 
-productionRouter.post('/production/rework/:id/complete', requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
+productionRouter.post(['/production/rework/:id/complete', '/production/rework-orders/:id/complete'], requireAuth, requirePerm('production', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
     const { completedWork, remarks, assignedEmployee } = (req.body || {}) as {
       completedWork: string;

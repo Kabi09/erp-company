@@ -1,7 +1,7 @@
 {
   "name": "react-example",
   "private": true,
-  "version": "2.8.0",
+  "version": "2.9.0",
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
-    "test": "tsx --test --test-concurrency=1 src/utils/erpLogic.test.ts server/tests/mongo-integration.test.ts server/tests/api-lifecycle.test.ts server/tests/security-auth.test.ts server/tests/sales-workflow.test.ts server/tests/supply-chain-workflow.test.ts server/tests/production-workflow.test.ts server/tests/logistics-workflow.test.ts server/tests/shared-modules.test.ts",
+    "test": "tsx --test --test-concurrency=1 src/utils/erpLogic.test.ts server/tests/mongo-integration.test.ts server/tests/api-lifecycle.test.ts server/tests/security-auth.test.ts server/tests/sales-workflow.test.ts server/tests/supply-chain-workflow.test.ts server/tests/production-workflow.test.ts server/tests/logistics-workflow.test.ts server/tests/shared-modules.test.ts server/tests/full-system-integration.test.ts",
+    "test:full": "tsx --test server/tests/full-system-integration.test.ts",
     "test:shared": "tsx --test server/tests/shared-modules.test.ts",
     "test:logistics": "tsx --test server/tests/logistics-workflow.test.ts",
     "test:production": "tsx --test server/tests/production-workflow.test.ts",

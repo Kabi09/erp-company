@@ -477,13 +477,19 @@ export const OrderTrackingDetailPage: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
         <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
           <div className="text-xs text-slate-500">Order Value & Payment</div>
-          <div className="text-xl font-mono font-semibold text-slate-900 dark:text-slate-100 mt-1">
-            {formatCurrency(so.totalAmount, db.company.currencySymbol)}
-          </div>
-          <div className="text-xs text-slate-600 dark:text-slate-400 mt-1 font-mono">
-            Paid: {formatCurrency(paySummary.verifiedReceived, db.company.currencySymbol)} · Bal:{' '}
-            {formatCurrency(paySummary.outstandingBalance, db.company.currencySymbol)}
-          </div>
+          {remoteData?.isCommercialRedacted ? (
+            <div className="text-sm font-medium text-slate-500 mt-2 italic">Commercial data redacted</div>
+          ) : (
+            <>
+              <div className="text-xl font-mono font-semibold text-slate-900 dark:text-slate-100 mt-1">
+                {formatCurrency(remoteData?.salesOrder?.totalAmount ?? so.totalAmount, db.company.currencySymbol)}
+              </div>
+              <div className="text-xs text-slate-600 dark:text-slate-400 mt-1 font-mono">
+                Paid: {formatCurrency(remoteData?.paymentSummary?.verifiedReceived ?? paySummary.verifiedReceived, db.company.currencySymbol)} · Bal:{' '}
+                {formatCurrency(remoteData?.paymentSummary?.outstandingBalance ?? paySummary.outstandingBalance, db.company.currencySymbol)}
+              </div>
+            </>
+          )}
         </div>
         <div className="p-4 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg">
           <div className="text-xs text-slate-500">Ordered Equipment</div>

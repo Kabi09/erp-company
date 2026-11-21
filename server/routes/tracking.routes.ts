@@ -128,7 +128,7 @@ trackingRouter.get('/tracking/:salesOrderId', requireAuth, async (req: Authentic
     const totalManufacturedQty = productionOrders.reduce((sum, p) => sum + (p.actualCompletionDate ? p.quantity : 0), 0);
     const totalQcAcceptedQty = productionOrders.reduce((sum, p) => sum + (p.status === 'Completed' ? p.quantity : (p.qcAcceptedQty || 0)), 0);
     const totalDispatchedQty = deliveries.reduce((sum, d) => sum + (['In Transit', 'Partially Delivered', 'Delivered'].includes(d.status) ? d.quantity : 0), 0);
-    const totalDeliveredQty = deliveries.reduce((sum, d) => sum + (d.deliveredQty || 0), 0);
+    const totalDeliveredQty = deliveries.reduce((sum, d) => sum + (d.deliveredQty || (d.status === 'Delivered' ? d.quantity : 0)), 0);
 
     const isFullyDelivered = totalDeliveredQty >= totalOrderedQty && totalOrderedQty > 0;
     const isPartiallyDelivered = totalDeliveredQty > 0 && !isFullyDelivered;
@@ -345,16 +345,26 @@ trackingRouter.get('/tracking/:salesOrderId', requireAuth, async (req: Authentic
 
     const lineProgress = (so.items || []).map((item) => {
       const lineOrdered = item.quantity || 0;
-      const lineProd = productionOrders.filter((p) => p.productName === item.productName || (p as any).productId === item.productId);
+      const lineProd = productionOrders.filter(
+        (p) =>
+          p.productName === item.productName ||
+          p.productName?.includes(item.productName) ||
+          item.productName?.includes(p.productName) ||
+          (p as any).productId === item.productId ||
+          (productionOrders.length === 1 && (so.items || []).length === 1),
+      );
       const lineMfg = lineProd.reduce((sum, p) => sum + (p.completedManufacturingQty || 0), 0);
       const lineQc = lineProd.reduce((sum, p) => sum + (p.qcAcceptedQty || 0), 0);
       const lineDels = deliveries.filter(
         (d) =>
           d.productName === item.productName ||
+          d.productName?.includes(item.productName) ||
+          item.productName?.includes(d.productName) ||
           (d as any).productId === item.productId ||
-          ((d as any).items || []).some((di: any) => di.productName === item.productName || di.productId === item.productId),
+          ((d as any).items || []).some((di: any) => di.productName === item.productName || di.productId === item.productId) ||
+          (deliveries.length === 1 && (so.items || []).length === 1),
       );
-      const lineDelivered = lineDels.reduce((sum, d) => sum + (d.deliveredQty ?? (d as any).quantity ?? 0), 0);
+      const lineDelivered = lineDels.reduce((sum, d) => sum + (d.deliveredQty || (d.status === 'Delivered' ? d.quantity : 0)), 0);
       return {
         productId: item.productId,
         productName: item.productName,

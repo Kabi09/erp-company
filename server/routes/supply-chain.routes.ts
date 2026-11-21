@@ -397,27 +397,42 @@ supplyChainRouter.put('/supply-chain/suppliers/:id', requireAuth, requirePerm('s
 });
 
 // --- Material Issues ---
-supplyChainRouter.post('/supply-chain/material-issues', requireAuth, requirePerm('supply_chain', 'create'), async (req: AuthenticatedRequest, res) => {
-  try {
-    const { materialRequestId, issueDate, items, remarks } = req.body as {
-      materialRequestId: string;
-      issueDate?: string;
-      items: Array<{ materialId: string; issuingQty: number }>;
-      remarks?: string;
-    };
-    if (!materialRequestId) throw new Error('materialRequestId is required.');
-    const mi = await mongoERPRepository.issueMaterial(
-      materialRequestId,
-      items || [],
-      remarks || '',
-      issueDate || '',
-      { id: req.user!.id, name: req.user!.name },
-    );
-    res.status(201).json(mi);
-  } catch (err) {
-    sendError(res, err);
-  }
-});
+supplyChainRouter.post(
+  ['/supply-chain/material-issues', '/supply-chain/material-requests/:id/issue'],
+  requireAuth,
+  requirePerm('supply_chain', 'create'),
+  async (req: AuthenticatedRequest, res) => {
+    try {
+      const { materialRequestId, issueDate, items, remarks } = req.body as {
+        materialRequestId?: string;
+        issueDate?: string;
+        items?: Array<{ materialId: string; issuingQty?: number; issuedQty?: number }>;
+        remarks?: string;
+      };
+      const reqId = req.params.id || materialRequestId;
+      if (!reqId) throw new Error('materialRequestId is required.');
+      const normalizedItems = (items || []).map((x) => ({
+        materialId: x.materialId,
+        issuingQty: Number(x.issuingQty ?? x.issuedQty ?? 0),
+      }));
+      const mi = await mongoERPRepository.issueMaterial(
+        reqId,
+        normalizedItems,
+        remarks || '',
+        issueDate || '',
+        { id: req.user!.id, name: req.user!.name },
+      );
+      const updatedMR = await MaterialRequestModel.findOne({ id: mi.materialRequestId }).lean();
+      res.status(201).json({
+        issue: mi,
+        materialRequest: updatedMR,
+        ...mi,
+      });
+    } catch (err) {
+      sendError(res, err);
+    }
+  },
+);
 
 // --- Phase 6: Supplier Purchase Orders (Request-Based vs Normal) ---
 const createSupplierPOHandler = async (req: AuthenticatedRequest, res: any) => {
@@ -527,10 +542,11 @@ supplyChainRouter.post('/supply-chain/supplier-pos', requireAuth, requirePerm('s
 supplyChainRouter.post('/supply-chain/purchase-orders', requireAuth, requirePerm('supply_chain', 'create'), createSupplierPOHandler);
 
 // --- Phase 6: GRN Recording (with Replacement Receipt support) ---
-supplyChainRouter.post('/supply-chain/grns', requireAuth, requirePerm('supply_chain', 'create'), async (req: AuthenticatedRequest, res) => {
+supplyChainRouter.post(['/supply-chain/grns', '/supply-chain/grn'], requireAuth, requirePerm('supply_chain', 'create'), async (req: AuthenticatedRequest, res) => {
   try {
     const body = req.body;
-    if (!body.supplierPoId || !body.invoiceOrChallanNo?.trim()) {
+    const invoiceOrChallan = (body.invoiceOrChallanNo || body.deliveryChallanNo)?.trim();
+    if (!body.supplierPoId || !invoiceOrChallan) {
       throw new Error('Supplier PO reference and invoice / delivery challan number are required.');
     }
     const spo = await SupplierPOModel.findOne({ id: body.supplierPoId });
@@ -598,7 +614,7 @@ supplyChainRouter.post('/supply-chain/grns', requireAuth, requirePerm('supply_ch
       supplierReturnId: supReturn?.id,
       supplierReturnDocNo: supReturn?.docNo,
       receivedDate: body.receivedDate || now.slice(0, 10),
-      invoiceOrChallanNo: body.invoiceOrChallanNo.trim(),
+      invoiceOrChallanNo: invoiceOrChallan,
       items: grnItems,
       attachmentName: body.attachmentName || undefined,
       attachmentDataUrl: body.attachmentDataUrl || undefined,
@@ -628,7 +644,7 @@ supplyChainRouter.post('/supply-chain/grns', requireAuth, requirePerm('supply_ch
 });
 
 // --- Phase 6: Material Verification (Double-Verification Block & Replacement Linking) ---
-supplyChainRouter.post('/supply-chain/grns/:id/verify', requireAuth, requirePerm('supply_chain', 'edit'), async (req: AuthenticatedRequest, res) => {
+supplyChainRouter.post(['/supply-chain/grns/:id/verify', '/supply-chain/grn/:id/verify'], requireAuth, requirePerm('supply_chain', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
     const { items, verificationRemarks } = req.body as {
       items: Array<{ materialId: string; acceptedQty: number; rejectedQty: number; rejectionReason?: string }>;
@@ -744,7 +760,7 @@ supplyChainRouter.post('/supply-chain/grns/:id/verify', requireAuth, requirePerm
 });
 
 // --- Phase 6: Supplier Returns ---
-supplyChainRouter.post('/supply-chain/supplier-returns', requireAuth, requirePerm('supply_chain', 'create'), async (req: AuthenticatedRequest, res) => {
+supplyChainRouter.post(['/supply-chain/supplier-returns', '/supply-chain/supplier-return'], requireAuth, requirePerm('supply_chain', 'create'), async (req: AuthenticatedRequest, res) => {
   try {
     const body = req.body;
     const grn = await GRNModel.findOne({ id: body.grnId });
@@ -766,7 +782,7 @@ supplyChainRouter.post('/supply-chain/supplier-returns', requireAuth, requirePer
     }
 
     const now = new Date().toISOString();
-    const replacementRequired = Boolean(body.replacementRequired);
+    const replacementRequired = Boolean(body.replacementRequired ?? body.replacementExpected);
     const srDocNo = await mongoERPRepository.getNextDocNo('SR');
     const sr = {
       id: generateId('sr'),

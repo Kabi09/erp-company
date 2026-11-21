@@ -345,11 +345,15 @@ salesRouter.post('/sales/enquiries', requireAuth, requirePerm('sales', 'create')
   }
 });
 
-salesRouter.post('/sales/enquiries/:id/status', requireAuth, requirePerm('sales', 'edit'), async (req: AuthenticatedRequest, res) => {
+salesRouter.post(['/sales/enquiries/:id/status', '/sales/enquiries/:id/qualify'], requireAuth, requirePerm('sales', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
-    const { status, rejectionReason } = req.body as { status: string; rejectionReason?: string };
+    const isQualifyRoute = req.originalUrl.includes('/qualify');
+    const bodyStatus = (req.body as any)?.status;
+    const rejectionReason = (req.body as any)?.rejectionReason;
+    const status = bodyStatus || (isQualifyRoute ? 'Qualified' : undefined);
     const enq = await EnquiryModel.findOne({ id: req.params.id });
     if (!enq) throw new Error('NOT_FOUND:Enquiry not found.');
+    if (!status) throw new Error('Status is required.');
     if (status === 'Rejected' && !rejectionReason?.trim()) {
       throw new Error('Rejection reason is required when rejecting an enquiry.');
     }
@@ -860,15 +864,16 @@ salesRouter.post('/sales/payments', requireAuth, requirePerm('sales', 'create'),
     const body = req.body;
     const amount = round2(Number(body.amount));
     if (!amount || amount <= 0) throw new Error('Payment amount must be greater than zero.');
-    if (!body.transactionRef?.trim()) throw new Error('Transaction reference is required.');
+    const ref = (body.transactionRef || body.referenceNumber)?.trim();
+    if (!ref) throw new Error('Transaction reference is required.');
 
-    const cleanRef = body.transactionRef.trim().toLowerCase();
+    const cleanRef = ref.toLowerCase();
     const existingRef = await PaymentEntryModel.findOne({
       transactionRef: new RegExp(`^${cleanRef}$`, 'i'),
       status: { $nin: ['Rejected', 'Reversed'] },
     });
     if (existingRef) {
-      throw new Error(`Duplicate transaction reference "${body.transactionRef.trim()}".`);
+      throw new Error(`Duplicate transaction reference "${ref}".`);
     }
 
     const pi = body.piId ? await ProformaInvoiceModel.findOne({ id: body.piId }) : null;
@@ -911,7 +916,7 @@ salesRouter.post('/sales/payments', requireAuth, requirePerm('sales', 'create'),
       paymentDate: body.paymentDate || now.slice(0, 10),
       method: body.method || 'Bank Transfer',
       paymentType: body.paymentType || 'Advance',
-      transactionRef: body.transactionRef.trim(),
+      transactionRef: ref,
       proofName: body.proofName || undefined,
       proofDataUrl: body.proofDataUrl || undefined,
       status: (canAutoVerify && body.autoVerify !== false ? 'Verified' : 'Pending') as 'Pending' | 'Verified',
@@ -947,7 +952,7 @@ salesRouter.post('/sales/payments/:id/verify', requireAuth, requirePerm('sales',
     const p = await PaymentEntryModel.findOne({ id: req.params.id });
     if (!p) throw new Error('NOT_FOUND:Payment not found.');
 
-    p.status = status;
+    p.status = status || 'Verified';
     p.verifiedBy = req.user!.name;
     p.verifiedAt = new Date().toISOString();
     if (remarks) p.remarks = `${p.remarks ? p.remarks + ' | ' : ''}${remarks}`;
@@ -961,7 +966,7 @@ salesRouter.post('/sales/payments/:id/verify', requireAuth, requirePerm('sales',
 
 // --- SALES ORDERS ---
 
-salesRouter.post(['/sales/orders/confirm', '/sales/sales-orders'], requireAuth, requirePerm('sales', 'create'), async (req: AuthenticatedRequest, res) => {
+salesRouter.post(['/sales/orders/confirm', '/sales/sales-orders/confirm', '/sales/sales-orders'], requireAuth, requirePerm('sales', 'create'), async (req: AuthenticatedRequest, res) => {
   try {
     const body = req.body;
     const pi = await ProformaInvoiceModel.findOne({ id: body.piId });
