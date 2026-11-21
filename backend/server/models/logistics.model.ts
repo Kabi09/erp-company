@@ -1,0 +1,117 @@
+import { Schema, model, type Model } from 'mongoose';
+import type { DeliveryIssue, DeliveryOrder } from '../../src/types/erp';
+
+// --- DELIVERY ORDER MODEL ---
+const DeliveryOrderSchema = new Schema<DeliveryOrder>(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    docNo: { type: String, required: true, unique: true, index: true },
+    salesOrderId: { type: String, required: true, index: true },
+    salesOrderDocNo: { type: String, required: true },
+    productionOrderId: { type: String, required: true, index: true },
+    productionOrderDocNo: { type: String, required: true },
+    customerId: { type: String, required: true, index: true },
+    customerName: { type: String, required: true },
+    productName: { type: String, required: true },
+    quantity: { type: Number, required: true, min: 1 },
+    serialNumbers: { type: [String], default: [] },
+    deliveryAddress: { type: String, required: true },
+    transportMethod: { type: String, enum: ['Own Vehicle', 'Courier'], required: true, index: true },
+    vehicleNumber: { type: String },
+    driverName: { type: String },
+    driverPhone: { type: String },
+    courierCompany: { type: String },
+    trackingNumber: { type: String, index: true },
+    courierContact: { type: String },
+    plannedDispatchDate: { type: String, required: true, index: true },
+    expectedDeliveryDate: { type: String, required: true },
+    actualDispatchDate: { type: String },
+    deliveryChallanNo: { type: String, index: true },
+    dispatchAttachmentName: { type: String },
+    dispatchAttachmentDataUrl: { type: String },
+    dispatchRemarks: { type: String },
+    actualDeliveryDate: { type: String },
+    receivedBy: { type: String },
+    deliveredQty: { type: Number, default: 0, min: 0 },
+    deliveryCondition: { type: String, enum: ['Good', 'Damaged'] },
+    podName: { type: String },
+    podDataUrl: { type: String },
+    podFileType: { type: String },
+    podFileSize: { type: Number },
+    podUploadedBy: { type: String },
+    podUploadedAt: { type: String },
+    deliveryRemarks: { type: String },
+    status: {
+      type: String,
+      enum: ['Planned', 'Dispatched', 'In Transit', 'Partially Delivered', 'Delivered', 'Issue', 'Cancelled'],
+      default: 'Planned',
+      index: true,
+    },
+    cancellationReason: { type: String },
+    cancelledBy: { type: String },
+    cancelledAt: { type: String },
+    history: [
+      {
+        timestamp: { type: String, required: true },
+        action: { type: String, required: true },
+        actorName: { type: String, required: true },
+        details: { type: String, required: true },
+        status: { type: String, required: true },
+      },
+    ],
+    remarks: { type: String, default: '' },
+    createdBy: { type: String, required: true },
+  },
+  { timestamps: true },
+);
+DeliveryOrderSchema.index({ salesOrderId: 1, status: 1 });
+DeliveryOrderSchema.index({ productionOrderId: 1, status: 1 });
+export const DeliveryOrderModel: Model<DeliveryOrder> = model<DeliveryOrder>('DeliveryOrder', DeliveryOrderSchema);
+
+// --- DELIVERY ISSUE MODEL ---
+const DeliveryIssueSchema = new Schema<DeliveryIssue>(
+  {
+    id: { type: String, required: true, unique: true, index: true },
+    deliveryOrderId: { type: String, required: true, index: true },
+    deliveryOrderDocNo: { type: String, required: true },
+    salesOrderDocNo: { type: String, required: true },
+    customerName: { type: String, required: true },
+    issueType: {
+      type: String,
+      enum: [
+        'Customer Unavailable',
+        'Incorrect Address',
+        'Delivery Delayed',
+        'Vehicle Breakdown',
+        'Courier Delay',
+        'Product Damaged',
+        'Customer Rejected Delivery',
+        'Partial Delivery',
+        'Other',
+        'Failed Attempt',
+        'Delay',
+        'Damage',
+        'Shortage',
+      ],
+      required: true,
+      index: true,
+    },
+    affectedQty: { type: Number, required: true, min: 1 },
+    reason: { type: String, required: true },
+    reportedDate: { type: String, required: true },
+    responsibleEmployee: { type: String, required: true },
+    correctiveAction: { type: String, default: '' },
+    nextAttemptDate: { type: String },
+    status: { type: String, enum: ['Open', 'Resolved'], default: 'Open', index: true },
+    resolutionOutcome: {
+      type: String,
+      enum: ['Retry Delivery', 'Reschedule Delivery', 'Delivery Confirmed', 'Returned to CRYO', 'Requires Further Action'],
+    },
+    resolutionNotes: { type: String },
+    resolvedBy: { type: String },
+    resolvedAt: { type: String },
+    createdAt: { type: String, required: true },
+  },
+  { timestamps: true },
+);
+export const DeliveryIssueModel: Model<DeliveryIssue> = model<DeliveryIssue>('DeliveryIssue', DeliveryIssueSchema);

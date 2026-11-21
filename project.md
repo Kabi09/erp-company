@@ -8,11 +8,13 @@
 ---
 
 ## 2. Architecture & Technology Stack
-- **Frontend**: React 19 + TypeScript + Vite + React Router v7 + Tailwind CSS v4 (`@custom-variant dark` light & dark modes) + Lucide Icons.
-- **Backend**: Express.js (`server.ts`, running on port 3000 with Vite middleware in development and static `dist/` serving in production).
-- **Authentication & Authorization**: JWT Bearer tokens (`jsonwebtoken`), bcrypt password hashing (`bcryptjs`), and module-by-action Role-Based Access Control (RBAC) enforced on both Express API middleware (`server/auth.ts`) and React route guards (`src/App.tsx`).
-- **Persistence**: Production-ready MongoDB + Mongoose 9 persistence layer with connection pooling, graceful shutdown, replica set/Atlas auto-detection, and atomic document numbering via `$inc` on `DocCounterModel`. Historical JSON snapshot preserved in `data/cryo-erp-db.json` and timestamped backups in `data/backups/`. Normal operations execute 100% on MongoDB without JSON fallback.
-- **Pure Business Logic & Unit Tests**: Decoupled deterministic calculators and validators in `src/utils/erpLogic.ts`, verified by `node:test` (`src/utils/erpLogic.test.ts`, `server/tests/mongo-integration.test.ts`, and `server/tests/api-lifecycle.test.ts`).
+- **Architecture Structure**: Fully decoupled multi-tier workspace architecture managed via npm workspaces (`frontend/`, `backend/`, and `shared/`).
+- **Frontend (`frontend/`)**: React 19 + TypeScript + Vite 8 + React Router v7 + Tailwind CSS v4 (`@custom-variant dark` light & dark modes) + Lucide Icons + Motion. Runs independently on port 5173 with `/api` reverse proxying to backend.
+- **Backend (`backend/`)**: Standalone Express 5 REST API server (`backend/server.ts`, running on port 5000 or `PORT`) with zero frontend/Vite dependencies, enterprise security headers, CORS middleware, 2MB body ceiling, NoSQL injection sanitization, and `/health` monitoring.
+- **Shared Domain Layer (`shared/`)**: Pure, zero-dependency domain definitions (`shared/types/erp.ts`) and deterministic calculation formulas (`shared/utils/erpLogic.ts`) shared between frontend and backend without database or backend secret leakage.
+- **Authentication & Authorization**: Dual JWT Bearer access (15m) and rotating refresh tokens (7d), bcrypt password hashing (`bcryptjs`), and module-by-action Role-Based Access Control (RBAC) enforced on both Express API middleware and React route guards.
+- **Persistence**: Production-ready MongoDB + Mongoose 9 persistence layer with connection pooling, graceful shutdown, replica set/Atlas auto-detection, and atomic document numbering via `$inc` on `DocCounterModel`. Historical JSON snapshot preserved in `backend/data/cryo-erp-db.json` and timestamped backups in `backend/data/backups/`. Normal operations execute 100% on MongoDB without JSON fallback.
+- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 10 test suites totaling **107 passing automated tests (100% pass rate)**.
 
 ---
 
@@ -356,3 +358,22 @@
     - `PHASE_10_ISSUE_REGISTER.md`
     - `CLIENT_UAT_CHECKLIST.md`
     - `DEPLOYMENT_READINESS.md`
+- **v2.9.0 (Architecture Restructuring — Decoupled Frontend & Backend Architecture)**:
+  - Architecture Decoupling:
+    - Successfully separated the monolithic fullstack application into two independent projects: `frontend/` (React 19 + Vite 8 SPA) and `backend/` (Express 5 + Mongoose 9 REST API server).
+    - Established an independent, zero-dependency `shared/` layer (`shared/types/erp.ts` and `shared/utils/erpLogic.ts`) containing domain type contracts and deterministic business calculation formulas, eliminating code duplication while preventing backend secret leakage.
+    - Configured npm workspaces in root `package.json` with concurrent dev execution (`npm run dev`), workspace linting (`npm run lint`), and centralized testing (`npm test`).
+  - Frontend Workspace Refinements:
+    - Dedicated `frontend/package.json`, `frontend/tsconfig.json`, and `frontend/vite.config.ts`.
+    - Vite dev server runs independently on `http://localhost:5173` with reverse proxy mapping `/api` to `http://localhost:5000`.
+    - Dynamic API client (`frontend/src/services/api.ts`) supporting both relative `/api` paths and configured `VITE_API_BASE_URL`.
+    - Clean production build: 358 kB client bundle with department code-splitting.
+  - Backend Workspace Refinements:
+    - Standalone Express entrypoint (`backend/server.ts`) completely decoupled from Vite, featuring `/health` check and `/` discovery endpoints.
+    - Default listening port configured to `5000` (configurable via `process.env.PORT`).
+    - Dedicated `backend/package.json`, `backend/tsconfig.json`, and `backend/.env.example`.
+    - Self-contained file upload storage in `backend/uploads/` with directory traversal protection.
+  - Quality & Verification:
+    - All 10 automated test suites executed with 100% pass rate (**107 / 107 passing tests**).
+    - Both workspaces typecheck cleanly with zero errors (`npm run lint` -> 0 errors).
+    - Authored comprehensive architecture documentation in `FRONTEND_BACKEND_SEPARATION.md`.
