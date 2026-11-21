@@ -497,6 +497,9 @@ documentRouter.get('/documents/:type/:id/pdf', requireAuth, async (req: Authenti
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Length', pdfBuffer.length);
     res.setHeader('Content-Disposition', `inline; filename="${docData.docNo.replace(/[^a-zA-Z0-9_-]/g, '_')}.pdf"`);
+    res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Cache-Control', 'private, no-cache, no-store, must-revalidate');
     res.send(pdfBuffer);
   } catch (err) {
     sendError(res, err);

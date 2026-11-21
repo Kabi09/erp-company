@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Calendar,
   CheckCircle2,
+  FileText,
   Play,
   Plus,
   RotateCcw,
@@ -29,8 +30,9 @@ import {
 } from '../../components/ui';
 import { useERP } from '../../context/ERPContext';
 import { erpApi } from '../../services/api';
-import { calculateProductionProgress, formatDate, isProductionOrderDelayed } from '../../utils/erpLogic';
+import { DocumentPreviewModal } from '../../components/DocumentPreviewModal';
 import type { ProductionOrder } from '../../types/erp';
+import { calculateProductionProgress, formatDate, isProductionOrderDelayed } from '../../utils/erpLogic';
 
 export const ProductionOrdersListPage: React.FC<{ filterPreset?: 'all' | 'active' | 'completed' }> = ({
   filterPreset = 'all',
@@ -200,6 +202,7 @@ export const ProductionOrderDetailPage: React.FC = () => {
   const [returnCondition, setReturnCondition] = useState<'Usable' | 'Damaged' | 'Unusable'>('Usable');
   const [returnReason, setReturnReason] = useState('');
   const [returnRemarks, setReturnRemarks] = useState('');
+  const [previewPO, setPreviewPO] = useState<ProductionOrder | null>(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -414,6 +417,13 @@ export const ProductionOrderDetailPage: React.FC = () => {
               </span>
             )}
             <StatusBadge status={po.status} />
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setPreviewPO(po)}
+            >
+              <FileText className="w-3.5 h-3.5" /> PDF
+            </Button>
             {can('production', 'edit') && po.status !== 'Completed' && (
               <Button
                 variant="secondary"
@@ -926,6 +936,13 @@ export const ProductionOrderDetailPage: React.FC = () => {
           </Field>
         </form>
       </Modal>
+
+      <DocumentPreviewModal
+        open={Boolean(previewPO)}
+        onClose={() => setPreviewPO(null)}
+        company={data.company}
+        payload={previewPO ? { kind: 'production_order', doc: previewPO } : null}
+      />
     </div>
   );
 };

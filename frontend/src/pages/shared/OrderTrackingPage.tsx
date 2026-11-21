@@ -8,9 +8,11 @@ import {
   Clock,
   Download,
   ExternalLink,
+  FileText,
 } from 'lucide-react';
 import { useERP } from '../../context/ERPContext';
 import { erpApi } from '../../services/api';
+import { DocumentPreviewModal } from '../../components/DocumentPreviewModal';
 import {
   Button,
   DataTable,
@@ -200,6 +202,7 @@ export const OrderTrackingDetailPage: React.FC = () => {
   const { soId } = useParams<{ soId: string }>();
   const { data: db, can } = useERP();
   const [remoteData, setRemoteData] = useState<any>(null);
+  const [previewSO, setPreviewSO] = useState<SalesOrder | null>(null);
 
   useEffect(() => {
     if (soId) {
@@ -464,6 +467,14 @@ export const OrderTrackingDetailPage: React.FC = () => {
             <Button
               variant="secondary"
               size="sm"
+              onClick={() => setPreviewSO(so)}
+            >
+              <FileText className="w-4 h-4" />
+              View SO PDF
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
               onClick={() => erpApi.downloadDocumentPDF('sales-order', so.id, so.docNo)}
             >
               <Download className="w-4 h-4" />
@@ -564,6 +575,13 @@ export const OrderTrackingDetailPage: React.FC = () => {
           })}
         </ol>
       </div>
+
+      <DocumentPreviewModal
+        open={Boolean(previewSO)}
+        onClose={() => setPreviewSO(null)}
+        company={db.company}
+        payload={previewSO ? { kind: 'so', doc: previewSO } : null}
+      />
     </div>
   );
 };

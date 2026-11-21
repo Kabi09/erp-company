@@ -377,3 +377,28 @@
     - All 10 automated test suites executed with 100% pass rate (**107 / 107 passing tests**).
     - Both workspaces typecheck cleanly with zero errors (`npm run lint` -> 0 errors).
     - Authored comprehensive architecture documentation in `FRONTEND_BACKEND_SEPARATION.md`.
+- **v2.9.1 (Executive PDF Document Viewer & Commercial Document Presentation Refinement)**:
+  - High-Fidelity Executive PDF Reader:
+    - Re-engineered `frontend/src/components/DocumentPreviewModal.tsx` from an unadorned HTML page into an executive-grade Document Viewer modeled after enterprise ERP document readers.
+    - Added dark reader canvas (`bg-slate-800/90`) hosting a realistic A4 document sheet (`max-w-[800px]`, `min-h-[1050px]`, `shadow-2xl`, borders, and margin padding).
+    - Integrated interactive Reader Toolbar with:
+      - Document title, docNo, and department badge.
+      - Zoom controls: Zoom In (`+`), Zoom Out (`-`), Reset (`100%`), with fluid scale transform.
+      - Instant browser Print formatted to standard A4 paper with dedicated print media queries (`@media print`).
+      - Download PDF button streaming the server-generated PDFKit binary `.pdf` file.
+      - Open in Tab button opening the authenticated direct stream.
+  - Multi-Document Departmental Support:
+    - Extended preview support across all 7 core document types: Commercial Quotation (with revision chains), Proforma Invoice, Sales Order Confirmation, Supplier PO, Production Manufacturing Order, Delivery Challan, and Delivery Order.
+    - Department-coded title banners (Teal for Sales Quotations, Indigo for Proforma Invoices, Emerald for Sales Orders, Amber for Supplier POs, Cyan for Delivery Challans, Purple for Production Orders).
+    - Complete commercial metadata: Company letterhead, GSTIN, CIN, bank remittance info, itemized tables with specification bullets, tax breakdown, and dual authorized signatory blocks.
+  - Raw PDF Streaming & Security Headers:
+    - Updated `backend/server/routes/document.routes.ts` with `Cross-Origin-Resource-Policy: cross-origin`, `Access-Control-Allow-Origin: *`, and `Cache-Control: private, no-cache, no-store, must-revalidate` to prevent Chromium iframe embedding blocks.
+    - Provided seamless toggle between "Document View" and "Raw PDF Stream".
+  - Cross-Department Integration:
+    - Added "View SO PDF" action in Centralized Order Tracking (`OrderTrackingPage.tsx`).
+    - Added "PDF" document action button on Production Order details page (`ProductionOrdersPage.tsx`).
+  - Verification & Test Results:
+    - **107/107 automated tests passing** (100% success rate across all 10 backend test suites).
+    - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
+    - Vite production build bundled cleanly in 685ms.
+    - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
