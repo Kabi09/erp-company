@@ -2,6 +2,8 @@ import { Router } from 'express';
 import { getAvailableDispatchQty, round2 } from '../../src/utils/erpLogic';
 import { requireAuth, requirePerm, type AuthenticatedRequest } from '../middleware/auth.middleware';
 import {
+  ApprovalRequestModel,
+  ApprovalWorkflowModel,
   DeliveryIssueModel,
   DeliveryOrderModel,
   ProductionOrderModel,
@@ -143,6 +145,71 @@ logisticsRouter.post('/logistics/delivery-orders', requireAuth, requirePerm('log
 logisticsRouter.post('/logistics/delivery-orders/:id/cancel', requireAuth, requirePerm('logistics', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
     const reason = req.body.reason || req.body.cancellationReason;
+    const del = await DeliveryOrderModel.findOne({ id: req.params.id });
+    if (!del) throw new Error('NOT_FOUND:Delivery order not found.');
+    if (del.status === 'Cancelled') throw new Error(`Delivery order ${del.docNo} is already cancelled.`);
+    if (del.status === 'Pending Cancellation') throw new Error(`Delivery order ${del.docNo} cancellation is already pending approval.`);
+
+    // Check if cancellation approval workflow is active
+    const wf = await ApprovalWorkflowModel.findOne({ module: 'delivery_orders', triggerAction: 'cancel', enabled: true });
+    const isLogisticsManager =
+      req.user!.roleId === 'role-logistics-manager' ||
+      req.user!.roleId === 'role-super-admin' ||
+      req.user!.permissions.logistics?.includes('approve') ||
+      req.user!.permissions.admin?.includes('manage');
+
+    if (wf && !isLogisticsManager) {
+      del.status = 'Pending Cancellation' as any;
+      del.updatedAt = new Date().toISOString();
+      await del.save();
+
+      const approvalReq = {
+        id: generateId('apr'),
+        workflowId: wf.id,
+        workflowName: wf.name,
+        department: 'logistics' as const,
+        module: 'delivery_orders',
+        documentId: del.id,
+        documentDocNo: del.docNo,
+        documentVersion: 'V1',
+        submittedBy: {
+          id: req.user!.id,
+          name: req.user!.name,
+          employeeId: req.user!.employeeId,
+          roleId: req.user!.roleId,
+          department: req.user!.department,
+        },
+        submittedAt: new Date().toISOString(),
+        documentSnapshot: {
+          docNo: del.docNo,
+          salesOrderDocNo: del.salesOrderDocNo,
+          customerName: del.customerName,
+          quantity: del.quantity,
+          transportMethod: del.transportMethod,
+          cancellationReason: reason || 'Pre-dispatch cancellation requested',
+        },
+        currentLevel: 1,
+        totalLevels: wf.approvalLevels.length,
+        status: 'pending' as const,
+        decisions: [],
+      };
+
+      await ApprovalRequestModel.create(approvalReq);
+
+      await mongoERPRepository.addNotification({
+        title: `Approval Required: Cancel ${del.docNo}`,
+        message: `${req.user!.name} requested cancellation for delivery order ${del.docNo}. Reason: ${reason || 'N/A'}.`,
+        department: 'logistics',
+        severity: 'warning',
+        link: '/admin/approvals',
+        relatedModule: 'delivery_orders',
+        relatedDocumentId: del.id,
+      });
+
+      res.json({ ok: true, approvalRequired: true, deliveryOrder: del.toObject(), approvalRequest: approvalReq });
+      return;
+    }
+
     const cancelled = await mongoERPRepository.cancelDeliveryOrderTx(req.params.id as string, reason, req.user!);
     res.json(cancelled);
   } catch (err) {
@@ -167,6 +234,9 @@ logisticsRouter.post('/logistics/delivery-orders/:id/dispatch', requireAuth, req
     }
     if (del.status === 'Cancelled') {
       throw new Error(`Cancelled delivery order ${del.docNo} cannot be dispatched.`);
+    }
+    if (del.status === 'Pending Cancellation') {
+      throw new Error(`Delivery order ${del.docNo} is currently pending cancellation approval and cannot be dispatched.`);
     }
     if (del.status !== 'Planned' && del.status !== 'Issue') {
       throw new Error(`Delivery order ${del.docNo} cannot be dispatched from status "${del.status}".`);

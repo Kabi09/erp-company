@@ -79,6 +79,13 @@ test('CRYO ERP 2.0 — Universal Role Permissions, Employee Overrides & Approval
   let salesExecUser: any = null;
 
   await t.test('Bootstrap & Authentication Setup', async () => {
+    // Ensure clean employee state
+    await EmployeeModel.updateOne(
+      { email: 'sales.exec@cryoerp.com' },
+      { $set: { roleId: 'role-sales-exec', permissionOverrides: {} } },
+    );
+    await RoleModel.deleteMany({ name: /^Junior Sales Specialist/ });
+
     // 1. Super Admin login
     const adminLogin = await apiRequest('/auth/login', {
       method: 'POST',
@@ -601,6 +608,205 @@ test('CRYO ERP 2.0 — Universal Role Permissions, Employee Overrides & Approval
     const adminInbox = await apiRequest('/approvals/inbox', { token: adminToken });
     assert.equal(adminInbox.status, 200);
     assert.ok(Array.isArray(adminInbox.data.all));
+  });
+
+  // ==========================================
+  // PART 6: COMPLETE 13-STEP VERIFICATION JOURNEY & SECURITY GATES
+  // ==========================================
+
+  await t.test('6. Complete 13-Step Verification Journey & Security Gates', async () => {
+    let jrRoleId = '';
+    try {
+      // 1. Admin creates custom role: Junior Sales Specialist
+      const roleName = `Junior Sales Specialist ${Date.now()}`;
+      const createRole = await apiRequest('/admin/roles', {
+        method: 'POST',
+        token: adminToken,
+        body: {
+          name: roleName,
+          department: 'sales',
+          description: 'Junior sales specialist with draft and submit privileges only',
+          permissions: {
+            sales: ['view'],
+            quotations: ['view', 'create', 'edit', 'submit'],
+            payments: [],
+          },
+        },
+      });
+      assert.equal(createRole.status, 201);
+      jrRoleId = createRole.data.id;
+
+      // 2. Assign role to salesExecUser (emp-3)
+      const assignRole = await apiRequest(`/admin/employees/${salesExecUser.id}`, {
+        method: 'PUT',
+        token: adminToken,
+        body: {
+          roleId: jrRoleId,
+        },
+      });
+      assert.equal(assignRole.status, 200);
+
+      // 3. Employee logs in, acquires session token and checks effective permissions
+      const empLogin = await apiRequest('/auth/login', {
+        method: 'POST',
+        body: { identifier: 'sales.exec@cryoerp.com', password: 'cryo123' },
+      });
+      assert.equal(empLogin.status, 200);
+      const empToken = empLogin.data.token;
+      const empPermissions = empLogin.data.user.permissions;
+
+      assert.equal(empPermissions.quotations.includes('create'), true);
+      assert.equal(empPermissions.quotations.includes('approve'), false);
+      assert.equal(empPermissions.payments?.includes('create') || false, false);
+
+      // 4. Employee creates a draft quotation
+      const customer = await CustomerModel.findOne({}).lean();
+      assert.ok(customer);
+      const product = await ProductModel.findOne({}).lean();
+      assert.ok(product);
+
+      const enq = await EnquiryModel.create({
+        id: `enq-journey-${Date.now()}`,
+        docNo: `ENQ-JRN-${Date.now()}`,
+        customerId: customer.id,
+        customerSnapshot: { name: customer.name, contactPerson: customer.contactPerson, phone: customer.phone, email: customer.email, gstin: customer.gstin },
+        source: 'Direct',
+        items: [{ id: 'i1', productId: product.id, productName: product.name, model: product.model, quantity: 1, requiredSpecifications: 'Specs', customerRequirements: 'Req' }],
+        expectedDeliveryDate: '2026-12-31',
+        notes: 'Journey Verification',
+        status: 'Qualified',
+        assignedTo: salesExecUser.name,
+        createdBy: salesExecUser.name,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      });
+
+      const createQt = await apiRequest('/sales/quotations', {
+        method: 'POST',
+        token: empToken,
+        body: {
+          enquiryId: enq.id,
+          items: [{ productId: product.id, productName: product.name, model: product.model, quantity: 1, unitPrice: 75000 }],
+        },
+      });
+      assert.equal(createQt.status, 201);
+      const qt = createQt.data;
+      assert.equal(qt.status, 'Draft');
+
+      // 5. Employee submits quotation for approval
+      const submitRes = await apiRequest(`/sales/quotations/${qt.id}/submit-approval`, {
+        method: 'POST',
+        token: empToken,
+      });
+      assert.equal(submitRes.status, 200);
+      const approvalReqId = submitRes.data.approvalRequest.id;
+
+      // 6. Manager approves quotation in Approval Inbox (Level 1)
+      const approveRes = await apiRequest(`/approvals/requests/${approvalReqId}/decide`, {
+        method: 'POST',
+        token: salesManagerToken,
+        body: { decision: 'approved', remarks: 'Approved by sales manager via inbox' },
+      });
+      assert.equal(approveRes.status, 200);
+
+      // Level 2 approval by Director / Super Admin to complete multi-level workflow
+      const approveL2Res = await apiRequest(`/approvals/requests/${approvalReqId}/decide`, {
+        method: 'POST',
+        token: adminToken,
+        body: { decision: 'approved', remarks: 'Director final commercial sign-off' },
+      });
+      assert.equal(approveL2Res.status, 200);
+
+      // 7. Verify quotation status is updated to Approved
+      const verifiedQt = await QuotationModel.findOne({ id: qt.id });
+      assert.equal(verifiedQt?.status, 'Approved');
+
+      // 8. Admin denies employee access to Payment Entries
+      const denyPayments = await apiRequest(`/admin/employees/${salesExecUser.id}/permissions`, {
+        method: 'PUT',
+        token: adminToken,
+        body: {
+          overrides: {
+            payments: {
+              view: 'deny',
+              create: 'deny',
+            },
+          },
+        },
+      });
+      assert.equal(denyPayments.status, 200);
+
+      // 9. Employee tries to view payments -> blocked with 403
+      const blockedPaymentsView = await apiRequest('/sales/payments', {
+        token: empToken,
+      });
+      assert.equal(blockedPaymentsView.status, 403);
+
+      // 10. Admin grants individual View override for Payment Entries
+      const allowPaymentsView = await apiRequest(`/admin/employees/${salesExecUser.id}/permissions`, {
+        method: 'PUT',
+        token: adminToken,
+        body: {
+          overrides: {
+            payments: {
+              view: 'allow',
+              create: 'deny',
+            },
+          },
+        },
+      });
+      assert.equal(allowPaymentsView.status, 200);
+
+      // 11. Employee can view payments, but cannot create payments
+      const allowedPaymentsView = await apiRequest('/sales/payments', {
+        token: empToken,
+      });
+      assert.equal(allowedPaymentsView.status, 200);
+      assert.ok(Array.isArray(allowedPaymentsView.data));
+
+      const blockedPaymentsCreate = await apiRequest('/sales/payments', {
+        method: 'POST',
+        token: empToken,
+        body: {
+          amount: 5000,
+        },
+      });
+      assert.equal(blockedPaymentsCreate.status, 403);
+
+      // 12. Security Check: Redaction of Commercial Figures for Non-Commercial Users
+      // SCM Manager fetching quotation approval request has financial amounts redacted
+      const scmFetchReq = await apiRequest(`/approvals/requests/${approvalReqId}`, {
+        token: scmManagerToken,
+      });
+      if (scmFetchReq.status === 200) {
+        assert.equal(scmFetchReq.data.documentSnapshot.totalAmount, '[REDACTED]');
+      }
+
+      // 13. Admin resets overrides to role defaults and restores employee role
+      const resetOverrides = await apiRequest(`/admin/employees/${salesExecUser.id}/permissions/reset`, {
+        method: 'POST',
+        token: adminToken,
+      });
+      assert.equal(resetOverrides.status, 200);
+      assert.deepEqual(resetOverrides.data.overrides, {});
+
+      const restoreRole = await apiRequest(`/admin/employees/${salesExecUser.id}`, {
+        method: 'PUT',
+        token: adminToken,
+        body: {
+          roleId: 'role-sales-exec',
+        },
+      });
+      assert.equal(restoreRole.status, 200);
+    } finally {
+      await EmployeeModel.updateOne(
+        { id: salesExecUser.id },
+        { $set: { roleId: 'role-sales-exec', permissionOverrides: {} } },
+      );
+      if (jrRoleId) {
+        await RoleModel.deleteOne({ id: jrRoleId });
+      }
+    }
   });
 
   await stopTestServer();

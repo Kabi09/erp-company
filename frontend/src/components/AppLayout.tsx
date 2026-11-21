@@ -288,7 +288,9 @@ export const AppLayout: React.FC = () => {
 
       {/* Navigation Links */}
       <nav aria-label="Department navigation" className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5">
-        {deptMeta.nav.map((item) => {
+        {deptMeta.nav
+          .filter((item) => (item.module ? can(item.module, item.action || 'view') : can(deptMeta.id, 'view')))
+          .map((item) => {
           const Icon = item.icon;
           return (
             <NavLink
@@ -578,7 +580,9 @@ export const AppLayout: React.FC = () => {
         size="md"
       >
         <div className="grid grid-cols-1 gap-1.5">
-          {deptMeta.nav.map((item) => {
+          {deptMeta.nav
+            .filter((item) => (item.module ? can(item.module, item.action || 'view') : can(deptMeta.id, 'view')))
+            .map((item) => {
             const Icon = item.icon;
             return (
               <Link
@@ -602,7 +606,9 @@ export const AppLayout: React.FC = () => {
         size="md"
       >
         <div className="grid grid-cols-1 gap-2">
-          {deptMeta.quickCreate.map((action) => (
+          {deptMeta.quickCreate
+            .filter((action) => (action.module ? can(action.module, action.action || 'create') : can(deptMeta.id, 'create')))
+            .map((action) => (
             <Link
               key={action.path}
               to={action.path}

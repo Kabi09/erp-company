@@ -4,11 +4,12 @@ import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middl
 import {
   ApprovalRequestModel,
   ApprovalWorkflowModel,
+  DeliveryOrderModel,
   QuotationModel,
   SupplierPOModel,
 } from '../models';
 import { mongoERPRepository } from '../repositories/MongoERPRepository';
-import { canUserDecideRequest, isUserEligibleForLevel } from '../utils/rbacLogic';
+import { canUserDecideRequest, checkPermission, isUserEligibleForLevel } from '../utils/rbacLogic';
 import { sendError } from '../utils/routeUtils';
 
 export const approvalRouter = Router();
@@ -106,6 +107,12 @@ async function applyApprovedStatusToDocument(reqDoc: any) {
       { id: reqDoc.documentId },
       { status: 'Approved', updatedAt: now },
     );
+  } else if (reqDoc.module === 'delivery_orders') {
+    await mongoERPRepository.cancelDeliveryOrderTx(
+      reqDoc.documentId,
+      reqDoc.documentSnapshot?.cancellationReason || 'Approved cancellation request',
+      reqDoc.decisions?.[reqDoc.decisions.length - 1]?.decidedBy || { id: 'admin', name: 'System Admin' },
+    );
   }
 }
 
@@ -121,6 +128,11 @@ async function applyRejectedStatusToDocument(reqDoc: any, reason: string) {
       { id: reqDoc.documentId },
       { status: 'Rejected', remarks: reason, updatedAt: now },
     );
+  } else if (reqDoc.module === 'delivery_orders') {
+    await DeliveryOrderModel.updateOne(
+      { id: reqDoc.documentId },
+      { status: 'Planned', updatedAt: now },
+    );
   }
 }
 
@@ -135,6 +147,11 @@ async function applyChangesRequestedStatusToDocument(reqDoc: any, remarks: strin
     await SupplierPOModel.updateOne(
       { id: reqDoc.documentId },
       { status: 'Changes Requested', remarks, updatedAt: now },
+    );
+  } else if (reqDoc.module === 'delivery_orders') {
+    await DeliveryOrderModel.updateOne(
+      { id: reqDoc.documentId },
+      { status: 'Planned', updatedAt: now },
     );
   }
 }
@@ -196,7 +213,44 @@ approvalRouter.get('/approvals/requests/:id', requireAuth, async (req: Authentic
     const request = await ApprovalRequestModel.findOne({ id: req.params.id }).lean();
     if (!request) throw new Error('NOT_FOUND:Approval request not found.');
 
+    const user = req.user!;
+    const isSuperAdmin = user.roleId === 'role-super-admin' || user.department === 'admin';
+    const isSubmitter = request.submittedBy.id === user.id;
     const workflow = await ApprovalWorkflowModel.findOne({ id: request.workflowId }).lean();
+    const isApprover = workflow?.approvalLevels.some((l) => isUserEligibleForLevel(workflow as ApprovalWorkflow, l.levelNumber, user));
+    const wasDecider = request.decisions?.some((d) => d.decidedBy.id === user.id);
+    const hasModuleView = checkPermission(user.permissions, request.module, 'view');
+
+    if (!isSuperAdmin && !isSubmitter && !isApprover && !wasDecider && !hasModuleView) {
+      res.status(403).json({ error: 'FORBIDDEN: You do not have permission to view this approval request.' });
+      return;
+    }
+
+    // Commercial data redaction for non-commercial staff (Production / Logistics)
+    const canViewCommercial =
+      isSuperAdmin ||
+      checkPermission(user.permissions, 'sales', 'view') ||
+      checkPermission(user.permissions, 'quotations', 'view') ||
+      checkPermission(user.permissions, 'supply_chain', 'view') ||
+      checkPermission(user.permissions, 'supplier_pos', 'view');
+    const isCommercialModule = ['quotations', 'supplier_pos', 'payment_entries', 'proforma_invoices'].includes(request.module);
+
+    if (!canViewCommercial && isCommercialModule && request.documentSnapshot) {
+      const snap: any = { ...request.documentSnapshot };
+      if (snap.subtotal !== undefined) snap.subtotal = '[REDACTED]';
+      if (snap.discountAmount !== undefined) snap.discountAmount = '[REDACTED]';
+      if (snap.taxAmount !== undefined) snap.taxAmount = '[REDACTED]';
+      if (snap.totalAmount !== undefined) snap.totalAmount = '[REDACTED]';
+      if (Array.isArray(snap.items)) {
+        snap.items = snap.items.map((it: any) => ({
+          ...it,
+          unitPrice: '[REDACTED]',
+          lineTotal: '[REDACTED]',
+        }));
+      }
+      request.documentSnapshot = snap;
+    }
+
     const check = canUserDecideRequest(request as ApprovalRequest, workflow as ApprovalWorkflow, req.user!);
 
     res.json({
@@ -379,6 +433,8 @@ approvalRouter.post('/approvals/requests/:id/withdraw', requireAuth, async (req:
       await QuotationModel.updateOne({ id: request.documentId }, { status: 'Draft', updatedAt: new Date().toISOString() });
     } else if (request.module === 'supplier_pos') {
       await SupplierPOModel.updateOne({ id: request.documentId }, { status: 'Draft', updatedAt: new Date().toISOString() });
+    } else if (request.module === 'delivery_orders') {
+      await DeliveryOrderModel.updateOne({ id: request.documentId }, { status: 'Planned', updatedAt: new Date().toISOString() });
     }
 
     await mongoERPRepository.addActivity({

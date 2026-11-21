@@ -11,6 +11,7 @@ import {
   signAccessToken,
   signRefreshToken,
 } from '../middleware/auth.middleware';
+import { checkPermission } from '../utils/rbacLogic';
 import {
   ActivityLogModel,
   ApprovalRequestModel,
@@ -465,6 +466,9 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
           PaymentEntryModel.find().sort({ createdAt: -1 }).lean(),
           SalesOrderModel.find().sort({ createdAt: -1 }).lean(),
         ]);
+      if (!checkPermission(req.user!.permissions, 'payments', 'view')) {
+        payments = [];
+      }
     } else if (dept === 'supply_chain') {
       [materials, suppliers, materialRequests, materialIssues, supplierPOs, grns, supplierReturns, productionReturns, stockTransactions] =
         await Promise.all([

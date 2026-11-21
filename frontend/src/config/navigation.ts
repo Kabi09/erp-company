@@ -35,13 +35,15 @@ import {
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
-import type { Department } from '../types/erp';
+import type { Department, PermissionAction, PermissionModule } from '../types/erp';
 
 export interface NavItem {
   label: string;
   path: string;
   icon: LucideIcon;
   badgeKey?: string;
+  module?: PermissionModule;
+  action?: PermissionAction;
 }
 
 export interface DepartmentMeta {
@@ -54,7 +56,7 @@ export interface DepartmentMeta {
   accentBorder: string;
   accentDot: string;
   nav: NavItem[];
-  quickCreate: Array<{ label: string; path: string }>;
+  quickCreate: Array<{ label: string; path: string; module?: PermissionModule; action?: PermissionAction }>;
 }
 
 export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
@@ -68,24 +70,24 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
     accentBorder: 'border-blue-600/30',
     accentDot: 'bg-blue-500',
     nav: [
-      { label: 'Dashboard', path: '/sales', icon: LayoutDashboard },
-      { label: 'Enquiries', path: '/sales/enquiries', icon: Inbox },
-      { label: 'Qualified Enquiries', path: '/sales/qualified', icon: UserCheck },
-      { label: 'Follow-ups', path: '/sales/follow-ups', icon: PhoneCall },
-      { label: 'Customers', path: '/sales/customers', icon: Users },
-      { label: 'Products', path: '/sales/products', icon: Package },
-      { label: 'Quotations', path: '/sales/quotations', icon: FileText },
-      { label: 'Proforma Invoices', path: '/sales/proforma-invoices', icon: FileSpreadsheet },
-      { label: 'Customer POs', path: '/sales/customer-pos', icon: FileCheck2 },
-      { label: 'Payment Entries', path: '/sales/payments', icon: CreditCard },
-      { label: 'Sales Orders', path: '/sales/sales-orders', icon: ShoppingBag },
-      { label: 'Reports', path: '/sales/reports', icon: BarChart3 },
+      { label: 'Dashboard', path: '/sales', icon: LayoutDashboard, module: 'sales' },
+      { label: 'Enquiries', path: '/sales/enquiries', icon: Inbox, module: 'enquiries' },
+      { label: 'Qualified Enquiries', path: '/sales/qualified', icon: UserCheck, module: 'enquiries' },
+      { label: 'Follow-ups', path: '/sales/follow-ups', icon: PhoneCall, module: 'enquiries' },
+      { label: 'Customers', path: '/sales/customers', icon: Users, module: 'customers' },
+      { label: 'Products', path: '/sales/products', icon: Package, module: 'products' },
+      { label: 'Quotations', path: '/sales/quotations', icon: FileText, module: 'quotations' },
+      { label: 'Proforma Invoices', path: '/sales/proforma-invoices', icon: FileSpreadsheet, module: 'proforma_invoices' },
+      { label: 'Customer POs', path: '/sales/customer-pos', icon: FileCheck2, module: 'customer_pos' },
+      { label: 'Payment Entries', path: '/sales/payments', icon: CreditCard, module: 'payments' },
+      { label: 'Sales Orders', path: '/sales/sales-orders', icon: ShoppingBag, module: 'sales_orders' },
+      { label: 'Reports', path: '/sales/reports', icon: BarChart3, module: 'reports' },
     ],
     quickCreate: [
-      { label: 'New Customer Enquiry', path: '/sales/enquiries?create=1' },
-      { label: 'Add Follow-up', path: '/sales/follow-ups?create=1' },
-      { label: 'Create Quotation', path: '/sales/quotations?create=1' },
-      { label: 'Record Payment', path: '/sales/payments?create=1' },
+      { label: 'New Customer Enquiry', path: '/sales/enquiries?create=1', module: 'enquiries', action: 'create' },
+      { label: 'Add Follow-up', path: '/sales/follow-ups?create=1', module: 'enquiries', action: 'create' },
+      { label: 'Create Quotation', path: '/sales/quotations?create=1', module: 'quotations', action: 'create' },
+      { label: 'Record Payment', path: '/sales/payments?create=1', module: 'payments', action: 'create' },
     ],
   },
   supply_chain: {
@@ -98,24 +100,24 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
     accentBorder: 'border-amber-600/30',
     accentDot: 'bg-amber-500',
     nav: [
-      { label: 'Dashboard', path: '/supply-chain', icon: LayoutDashboard },
-      { label: 'Material Requests', path: '/supply-chain/material-requests', icon: ClipboardList },
-      { label: 'Materials', path: '/supply-chain/materials', icon: Boxes },
-      { label: 'Inventory / Stock', path: '/supply-chain/inventory', icon: Warehouse },
-      { label: 'Suppliers', path: '/supply-chain/suppliers', icon: Building2 },
-      { label: 'Purchase Orders', path: '/supply-chain/purchase-orders', icon: ShoppingCart },
-      { label: 'GRN', path: '/supply-chain/grn', icon: PackagePlus },
-      { label: 'Material Verification', path: '/supply-chain/verification', icon: ClipboardCheck },
-      { label: 'Supplier Returns', path: '/supply-chain/returns', icon: RotateCcw },
-      { label: 'Material Issues', path: '/supply-chain/issues', icon: PackageCheck },
-      { label: 'Stock History', path: '/supply-chain/stock-history', icon: History },
-      { label: 'Reports', path: '/supply-chain/reports', icon: BarChart3 },
+      { label: 'Dashboard', path: '/supply-chain', icon: LayoutDashboard, module: 'supply_chain' },
+      { label: 'Material Requests', path: '/supply-chain/material-requests', icon: ClipboardList, module: 'material_requests' },
+      { label: 'Materials', path: '/supply-chain/materials', icon: Boxes, module: 'materials' },
+      { label: 'Inventory / Stock', path: '/supply-chain/inventory', icon: Warehouse, module: 'materials' },
+      { label: 'Suppliers', path: '/supply-chain/suppliers', icon: Building2, module: 'suppliers' },
+      { label: 'Purchase Orders', path: '/supply-chain/purchase-orders', icon: ShoppingCart, module: 'supplier_pos' },
+      { label: 'GRN', path: '/supply-chain/grn', icon: PackagePlus, module: 'goods_receipts' },
+      { label: 'Material Verification', path: '/supply-chain/verification', icon: ClipboardCheck, module: 'goods_receipts' },
+      { label: 'Supplier Returns', path: '/supply-chain/returns', icon: RotateCcw, module: 'supplier_returns' },
+      { label: 'Material Issues', path: '/supply-chain/issues', icon: PackageCheck, module: 'material_issues' },
+      { label: 'Stock History', path: '/supply-chain/stock-history', icon: History, module: 'materials' },
+      { label: 'Reports', path: '/supply-chain/reports', icon: BarChart3, module: 'reports' },
     ],
     quickCreate: [
-      { label: 'Issue Materials to Production', path: '/supply-chain/material-requests' },
-      { label: 'Create Supplier PO', path: '/supply-chain/purchase-orders?create=1' },
-      { label: 'Record GRN', path: '/supply-chain/grn?create=1' },
-      { label: 'Add Raw Material', path: '/supply-chain/materials?create=1' },
+      { label: 'Issue Materials to Production', path: '/supply-chain/material-requests', module: 'material_requests', action: 'approve' },
+      { label: 'Create Supplier PO', path: '/supply-chain/purchase-orders?create=1', module: 'supplier_pos', action: 'create' },
+      { label: 'Record GRN', path: '/supply-chain/grn?create=1', module: 'goods_receipts', action: 'create' },
+      { label: 'Add Raw Material', path: '/supply-chain/materials?create=1', module: 'materials', action: 'create' },
     ],
   },
   production: {
@@ -128,24 +130,24 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
     accentBorder: 'border-purple-600/30',
     accentDot: 'bg-purple-500',
     nav: [
-      { label: 'Dashboard', path: '/production', icon: LayoutDashboard },
-      { label: 'Received Sales Orders', path: '/production/received-orders', icon: Inbox },
-      { label: 'Production Orders', path: '/production/orders', icon: Factory },
-      { label: 'Production Planning', path: '/production/planning', icon: CalendarClock },
-      { label: 'BOM & Material Requests', path: '/production/bom', icon: Layers },
-      { label: 'Material Receipts', path: '/production/material-receipts', icon: PackageCheck },
-      { label: 'Active Production', path: '/production/active', icon: Wrench },
-      { label: 'Daily Production Updates', path: '/production/daily-updates', icon: Activity },
-      { label: 'Quality Check', path: '/production/quality-check', icon: ShieldCheck },
-      { label: 'Rework', path: '/production/rework', icon: RefreshCw },
-      { label: 'Completed Production', path: '/production/completed', icon: CheckCircle2 },
-      { label: 'Reports', path: '/production/reports', icon: BarChart3 },
+      { label: 'Dashboard', path: '/production', icon: LayoutDashboard, module: 'production' },
+      { label: 'Received Sales Orders', path: '/production/received-orders', icon: Inbox, module: 'production_orders' },
+      { label: 'Production Orders', path: '/production/orders', icon: Factory, module: 'production_orders' },
+      { label: 'Production Planning', path: '/production/planning', icon: CalendarClock, module: 'production_orders' },
+      { label: 'BOM & Material Requests', path: '/production/bom', icon: Layers, module: 'boms' },
+      { label: 'Material Receipts', path: '/production/material-receipts', icon: PackageCheck, module: 'material_issues' },
+      { label: 'Active Production', path: '/production/active', icon: Wrench, module: 'stage_progress' },
+      { label: 'Daily Production Updates', path: '/production/daily-updates', icon: Activity, module: 'stage_progress' },
+      { label: 'Quality Check', path: '/production/quality-check', icon: ShieldCheck, module: 'quality_inspections' },
+      { label: 'Rework', path: '/production/rework', icon: RefreshCw, module: 'quality_inspections' },
+      { label: 'Completed Production', path: '/production/completed', icon: CheckCircle2, module: 'production_orders' },
+      { label: 'Reports', path: '/production/reports', icon: BarChart3, module: 'reports' },
     ],
     quickCreate: [
-      { label: 'Create Production Order', path: '/production/received-orders' },
-      { label: 'Log Daily Work Update', path: '/production/daily-updates?create=1' },
-      { label: 'Record Quality Check', path: '/production/quality-check?create=1' },
-      { label: 'Acknowledge Material Receipt', path: '/production/material-receipts' },
+      { label: 'Create Production Order', path: '/production/received-orders', module: 'production_orders', action: 'create' },
+      { label: 'Log Daily Work Update', path: '/production/daily-updates?create=1', module: 'stage_progress', action: 'create' },
+      { label: 'Record Quality Check', path: '/production/quality-check?create=1', module: 'quality_inspections', action: 'create' },
+      { label: 'Acknowledge Material Receipt', path: '/production/material-receipts', module: 'material_issues', action: 'confirm' },
     ],
   },
   logistics: {
@@ -158,19 +160,19 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
     accentBorder: 'border-teal-600/30',
     accentDot: 'bg-teal-500',
     nav: [
-      { label: 'Dashboard', path: '/logistics', icon: LayoutDashboard },
-      { label: 'Ready for Dispatch', path: '/logistics/ready', icon: PackageCheck },
-      { label: 'Delivery Orders', path: '/logistics/delivery-orders', icon: ClipboardList },
-      { label: 'Dispatched / In Transit', path: '/logistics/in-transit', icon: Truck },
-      { label: 'Completed Deliveries', path: '/logistics/completed', icon: CheckCircle2 },
-      { label: 'Delivery Issues', path: '/logistics/issues', icon: AlertTriangle },
-      { label: 'Delivery History', path: '/logistics/history', icon: History },
-      { label: 'Reports', path: '/logistics/reports', icon: BarChart3 },
+      { label: 'Dashboard', path: '/logistics', icon: LayoutDashboard, module: 'logistics' },
+      { label: 'Ready for Dispatch', path: '/logistics/ready', icon: PackageCheck, module: 'dispatch_notes' },
+      { label: 'Delivery Orders', path: '/logistics/delivery-orders', icon: ClipboardList, module: 'dispatch_notes' },
+      { label: 'Dispatched / In Transit', path: '/logistics/in-transit', icon: Truck, module: 'delivery_tracking' },
+      { label: 'Completed Deliveries', path: '/logistics/completed', icon: CheckCircle2, module: 'epod' },
+      { label: 'Delivery Issues', path: '/logistics/issues', icon: AlertTriangle, module: 'delivery_tracking' },
+      { label: 'Delivery History', path: '/logistics/history', icon: History, module: 'delivery_tracking' },
+      { label: 'Reports', path: '/logistics/reports', icon: BarChart3, module: 'reports' },
     ],
     quickCreate: [
-      { label: 'Create Delivery Order', path: '/logistics/ready' },
-      { label: 'Confirm Dispatch', path: '/logistics/delivery-orders' },
-      { label: 'Confirm Delivery', path: '/logistics/in-transit' },
+      { label: 'Create Delivery Order', path: '/logistics/ready', module: 'dispatch_notes', action: 'create' },
+      { label: 'Confirm Dispatch', path: '/logistics/delivery-orders', module: 'dispatch_notes', action: 'edit' },
+      { label: 'Confirm Delivery', path: '/logistics/in-transit', module: 'epod', action: 'create' },
     ],
   },
   admin: {
@@ -183,19 +185,19 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
     accentBorder: 'border-slate-500/30',
     accentDot: 'bg-slate-400',
     nav: [
-      { label: 'Admin Dashboard', path: '/admin', icon: LayoutDashboard },
-      { label: 'Employees', path: '/admin/employees', icon: Users },
-      { label: 'Employee Access', path: '/admin/employee-access', icon: UserCheck },
-      { label: 'Roles & Permissions', path: '/admin/roles', icon: ShieldCheck },
-      { label: 'Approval Workflows', path: '/admin/approval-workflows', icon: FileCheck2 },
-      { label: 'Approval Inbox', path: '/admin/approvals', icon: ClipboardCheck },
-      { label: 'Company Profile', path: '/admin/company', icon: Building2 },
-      { label: 'Application Settings', path: '/admin/settings', icon: Settings },
-      { label: 'Activity Logs', path: '/admin/logs', icon: History },
+      { label: 'Admin Dashboard', path: '/admin', icon: LayoutDashboard, module: 'admin' },
+      { label: 'Employees', path: '/admin/employees', icon: Users, module: 'employees' },
+      { label: 'Employee Access', path: '/admin/employee-access', icon: UserCheck, module: 'employee_access' },
+      { label: 'Roles & Permissions', path: '/admin/roles', icon: ShieldCheck, module: 'roles' },
+      { label: 'Approval Workflows', path: '/admin/approval-workflows', icon: FileCheck2, module: 'approval_workflows' },
+      { label: 'Approval Inbox', path: '/admin/approvals', icon: ClipboardCheck, module: 'approval_inbox' },
+      { label: 'Company Profile', path: '/admin/company', icon: Building2, module: 'company' },
+      { label: 'Application Settings', path: '/admin/settings', icon: Settings, module: 'admin' },
+      { label: 'Activity Logs', path: '/admin/logs', icon: History, module: 'audit_logs' },
     ],
     quickCreate: [
-      { label: 'Add Employee', path: '/admin/employees?create=1' },
-      { label: 'Company Profile', path: '/admin/company' },
+      { label: 'Add Employee', path: '/admin/employees?create=1', module: 'employees', action: 'create' },
+      { label: 'Company Profile', path: '/admin/company', module: 'company', action: 'edit' },
     ],
   },
 };

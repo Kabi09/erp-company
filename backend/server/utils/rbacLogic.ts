@@ -83,11 +83,17 @@ export function resolveEffectivePermissions(
     result[modId] = Array.from(allowedActions);
   }
 
-  // Ensure coarse module keys have at least their role permissions
+  // Ensure coarse module keys have at least their role permissions and inherit upward from submodules
   for (const c of coarseModules) {
     const set = new Set<PermissionAction>(result[c] || []);
     if (rolePermissions?.[c]) {
       for (const a of rolePermissions[c]) set.add(a);
+    }
+    // Sub-module grants inherit upward into coarse department keys to maintain complete compatibility with coarse middleware
+    for (const mod of ERP_MODULE_CATALOG) {
+      if (mod.department === c && result[mod.id]) {
+        for (const a of result[mod.id]) set.add(a);
+      }
     }
     // Also apply coarse module overrides
     if (overrides?.[c]) {
@@ -102,6 +108,21 @@ export function resolveEffectivePermissions(
   return result;
 }
 
+export const MODULE_ALIASES: Record<string, string> = {
+  payment_entries: 'payments',
+  goods_receipts: 'grn',
+  boms: 'bom',
+  stage_progress: 'daily_updates',
+  quality_inspections: 'quality_checks',
+  dispatch_notes: 'delivery_orders',
+  delivery_tracking: 'in_transit',
+  epod: 'completed_deliveries',
+};
+
+export function canonicalModule(mod: string): string {
+  return MODULE_ALIASES[mod] || mod;
+}
+
 /**
  * Checks whether an effective permission set allows a given module and action.
  */
@@ -111,15 +132,26 @@ export function checkPermission(
   action: PermissionAction = 'view',
 ): boolean {
   if (!effectivePerms) return false;
-  if (effectivePerms.admin?.includes('manage')) return true;
+  if (effectivePerms.admin?.includes('manage') || effectivePerms.all?.includes('manage')) return true;
 
-  const modPerms = effectivePerms[module] || [];
-  if (modPerms.includes(action) || modPerms.includes('manage')) return true;
+  const targetMod = canonicalModule(module);
 
-  const catalogEntry = ERP_MODULE_CATALOG.find((m) => m.id === module);
+  // Check direct module permission (check targetMod, then original module key)
+  const modPerms = effectivePerms[targetMod] || effectivePerms[module];
+  if (modPerms) {
+    if (modPerms.includes(action) || modPerms.includes('manage')) return true;
+    if (action === 'verify' && modPerms.includes('approve')) return true;
+    if (action === 'approve' && modPerms.includes('verify')) return true;
+    return false;
+  }
+
+  // Fallback to parent department ONLY if this module was not resolved in effectivePerms (e.g. raw role permissions in mock tests)
+  const catalogEntry = ERP_MODULE_CATALOG.find((m) => m.id === targetMod || m.id === module);
   if (catalogEntry && catalogEntry.department !== 'shared' && catalogEntry.department !== 'admin') {
     const parentPerms = effectivePerms[catalogEntry.department] || [];
     if (parentPerms.includes(action) || parentPerms.includes('manage')) return true;
+    if (action === 'verify' && parentPerms.includes('approve')) return true;
+    if (action === 'approve' && parentPerms.includes('verify')) return true;
   }
 
   return false;

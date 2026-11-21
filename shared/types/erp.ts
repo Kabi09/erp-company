@@ -949,7 +949,8 @@ export type DeliveryStatus =
   | 'Partially Delivered'
   | 'Delivered'
   | 'Issue'
-  | 'Cancelled';
+  | 'Cancelled'
+  | 'Pending Cancellation';
 
 export interface DeliveryHistoryEntry {
   timestamp: string;

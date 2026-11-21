@@ -221,7 +221,7 @@ export function App() {
             <Route
               path="/sales/payments"
               element={
-                <RequireModule module="sales">
+                <RequireModule module="payments">
                   <PaymentsPage />
                 </RequireModule>
               }

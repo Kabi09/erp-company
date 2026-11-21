@@ -7,6 +7,7 @@ import {
   round2,
 } from '../../src/utils/erpLogic';
 import { requireAuth, requirePerm, type AuthenticatedRequest } from '../middleware/auth.middleware';
+import { checkPermission } from '../utils/rbacLogic';
 import {
   ApprovalRequestModel,
   ApprovalWorkflowModel,
@@ -974,7 +975,16 @@ salesRouter.post(['/sales/customer-pos/:id/resolve', '/sales/customer-pos/:id/re
 
 // --- PAYMENTS ---
 
-salesRouter.post('/sales/payments', requireAuth, requirePerm('sales', 'create'), async (req: AuthenticatedRequest, res) => {
+salesRouter.get('/sales/payments', requireAuth, requirePerm('payments', 'view'), async (_req: AuthenticatedRequest, res) => {
+  try {
+    const payments = await PaymentEntryModel.find().sort({ createdAt: -1 }).lean();
+    res.json(payments);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+salesRouter.post('/sales/payments', requireAuth, requirePerm('payments', 'create'), async (req: AuthenticatedRequest, res) => {
   try {
     const body = req.body;
     const amount = round2(Number(body.amount));
@@ -1061,7 +1071,12 @@ salesRouter.post('/sales/payments', requireAuth, requirePerm('sales', 'create'),
   }
 });
 
-salesRouter.post('/sales/payments/:id/verify', requireAuth, requirePerm('sales', 'approve'), async (req: AuthenticatedRequest, res) => {
+salesRouter.post('/sales/payments/:id/verify', requireAuth, (req: AuthenticatedRequest, res, next) => {
+  if (checkPermission(req.user?.permissions, 'payments', 'verify') || checkPermission(req.user?.permissions, 'payments', 'approve')) {
+    return next();
+  }
+  return res.status(403).json({ error: 'Forbidden: Insufficient permissions to verify payment' });
+}, async (req: AuthenticatedRequest, res) => {
   try {
     const { status, remarks } = req.body as { status: 'Verified' | 'Rejected' | 'Reversed'; remarks?: string };
     const p = await PaymentEntryModel.findOne({ id: req.params.id });

@@ -43,7 +43,7 @@ const DeliveryOrderSchema = new Schema<DeliveryOrder>(
     deliveryRemarks: { type: String },
     status: {
       type: String,
-      enum: ['Planned', 'Dispatched', 'In Transit', 'Partially Delivered', 'Delivered', 'Issue', 'Cancelled'],
+      enum: ['Planned', 'Dispatched', 'In Transit', 'Partially Delivered', 'Delivered', 'Issue', 'Cancelled', 'Pending Cancellation'],
       default: 'Planned',
       index: true,
     },
