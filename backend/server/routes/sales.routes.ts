@@ -188,6 +188,7 @@ salesRouter.post('/sales/products', requireAuth, requirePerm('sales', 'create'),
       model: body.model?.trim() || '',
       specifications: body.specifications?.trim() || '',
       highlights: Array.isArray(body.highlights) ? body.highlights.filter((h: string) => h.trim()) : [],
+      warrantyTerms: body.warrantyTerms?.trim() || '',
       sellingPrice: Math.max(0, Number(body.sellingPrice) || 0),
       unit: body.unit?.trim() || 'Nos',
       description: body.description?.trim() || '',
@@ -213,6 +214,7 @@ salesRouter.put('/sales/products/:id', requireAuth, requirePerm('sales', 'edit')
     p.name = body.name?.trim() || p.name;
     p.category = body.category?.trim() || p.category;
     p.model = body.model?.trim() || p.model;
+    if (typeof body.warrantyTerms==='string') p.warrantyTerms=body.warrantyTerms.trim();
     p.specifications = body.specifications?.trim() ?? p.specifications;
     if (Array.isArray(body.highlights)) p.highlights = body.highlights.filter((h: string) => h.trim());
     if (body.sellingPrice !== undefined) p.sellingPrice = Math.max(0, Number(body.sellingPrice) || 0);

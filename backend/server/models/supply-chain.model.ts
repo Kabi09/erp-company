@@ -51,14 +51,17 @@ export const SupplierModel: Model<Supplier> = model<Supplier>('Supplier', Suppli
 // --- MATERIAL REQUEST MODEL ---
 const MaterialRequestSchema = new Schema<MaterialRequest>(
   {
+    sourceType: { type: String, enum: ['service','rnd'] },
+    sourceId: { type: String, index: true },
+    sourceDocNo: String,
     id: { type: String, required: true, unique: true, index: true },
     docNo: { type: String, required: true, unique: true, index: true },
-    bomId: { type: String, required: true, index: true },
-    bomDocNo: { type: String, required: true },
-    productionOrderId: { type: String, required: true, index: true },
-    productionOrderDocNo: { type: String, required: true },
-    salesOrderId: { type: String, required: true, index: true },
-    salesOrderDocNo: { type: String, required: true },
+    bomId: { type: String, default: '', required: function () { return !this.sourceType; }, index: true },
+    bomDocNo: { type: String, default: '', required: function () { return !this.sourceType; } },
+    productionOrderId: { type: String, default: '', required: function () { return !this.sourceType; }, index: true },
+    productionOrderDocNo: { type: String, default: '', required: function () { return !this.sourceType; } },
+    salesOrderId: { type: String, default: '', required: function () { return !this.sourceType; }, index: true },
+    salesOrderDocNo: { type: String, default: '', required: function () { return !this.sourceType; } },
     productName: { type: String, required: true },
     priority: { type: String, enum: ['Normal', 'High', 'Urgent'], default: 'Normal', index: true },
     items: [
@@ -70,6 +73,9 @@ const MaterialRequestSchema = new Schema<MaterialRequest>(
         requiredQty: { type: Number, required: true, min: 0.01 },
         issuedQty: { type: Number, default: 0, min: 0 },
         receivedQty: { type: Number, default: 0, min: 0 },
+        usedQty: { type: Number, default: 0 },
+        coverage: String,
+        remarks: String,
         returnedQty: { type: Number, default: 0, min: 0 },
       },
     ],
@@ -95,12 +101,15 @@ export const MaterialRequestModel: Model<MaterialRequest> = model<MaterialReques
 // --- MATERIAL ISSUE MODEL ---
 const MaterialIssueSchema = new Schema<MaterialIssue>(
   {
+    sourceType: { type: String, enum: ['service','rnd'] },
+    sourceId: { type: String, index: true },
+    sourceDocNo: String,
     id: { type: String, required: true, unique: true, index: true },
     docNo: { type: String, required: true, unique: true, index: true },
     materialRequestId: { type: String, required: true, index: true },
     materialRequestDocNo: { type: String, required: true },
-    productionOrderId: { type: String, required: true, index: true },
-    productionOrderDocNo: { type: String, required: true },
+    productionOrderId: { type: String, default: '', required: function () { return !this.sourceType; }, index: true },
+    productionOrderDocNo: { type: String, default: '', required: function () { return !this.sourceType; } },
     issueDate: { type: String, required: true, index: true },
     items: [
       {
@@ -258,7 +267,7 @@ const StockTransactionSchema = new Schema<StockTransaction>(
     unit: { type: String, required: true },
     type: {
       type: String,
-      enum: ['Opening Balance', 'GRN Accepted', 'Material Issue', 'Production Return', 'Stock Adjustment'],
+      enum: ['Opening Balance', 'GRN Accepted', 'Material Issue', 'Production Return', 'Service Return', 'Stock Adjustment'],
       required: true,
       index: true,
     },

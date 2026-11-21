@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { departmentsRouter } from './departments.routes';
 import { adminRouter } from './admin.routes';
 import { approvalRouter } from './approval.routes';
 import { authRouter } from './auth.routes';
@@ -16,6 +17,7 @@ import { trackingRouter } from './tracking.routes';
 export const apiRouter = Router();
 
 apiRouter.use(authRouter);
+apiRouter.use(departmentsRouter);
 apiRouter.use(salesRouter);
 apiRouter.use(supplyChainRouter);
 apiRouter.use(productionRouter);

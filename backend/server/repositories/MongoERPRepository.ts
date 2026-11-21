@@ -44,6 +44,7 @@ import {
   getRemainingSOAllocatableQty,
   normalizeQuotationItems,
   round2,
+  validateMaterialUnitQuantity,
   validateMaterialIssueLine,
 } from '../../src/utils/erpLogic';
 import { withTransaction } from '../config/database';
@@ -974,10 +975,15 @@ export class MongoERPRepository implements IERPRepository {
     remarks: string,
     issueDate: string,
     actor: { id: string; name: string },
+    expectedVersion?: number,
   ): Promise<MaterialIssue> {
     return withTransaction(async (session) => {
       const mr = await MaterialRequestModel.findOne({ id: requestId }).session(session);
       if (!mr) throw new Error('NOT_FOUND:Material request not found.');
+      if (mr.sourceType) {
+        if (!session) throw new Error('Department material issues require a MongoDB replica set.');
+        if (expectedVersion !== mr.__v) throw new Error('CONCURRENCY_CONFLICT: Reload the request before issuing.');
+      }
       if (mr.status === 'Fully Issued' || mr.status === 'Cancelled') {
         throw new Error(`Material request ${mr.docNo} is already ${mr.status}.`);
       }
@@ -987,11 +993,13 @@ export class MongoERPRepository implements IERPRepository {
         throw new Error('Enter a positive issuing quantity for at least one material.');
       }
 
+      if (new Set(validLines.map(line => line.materialId)).size !== validLines.length) throw new Error('Combine repeated issue lines.');
       // Step 1: Pre-validate all lines against Material Request pending requirements
       for (const line of validLines) {
         const issueQty = Number(line.issuingQty);
         const mrItem = mr.items.find((x) => x.materialId === line.materialId);
         if (!mrItem) throw new Error(`Material ${line.materialId} is not on ${mr.docNo}.`);
+        if (!Number.isFinite(issueQty) || !validateMaterialUnitQuantity(mrItem.unit,issueQty).valid) throw new Error('Invalid issue quantity.');
         const pending = round2(mrItem.requiredQty - mrItem.issuedQty);
         if (issueQty > pending) {
           throw new Error(
@@ -1061,7 +1069,7 @@ export class MongoERPRepository implements IERPRepository {
           linkedDocType: 'MI',
           linkedDocId: miId,
           linkedDocNo: miDocNo,
-          remarks: `Issued to ${mr.productionOrderDocNo}`,
+          remarks: `Issued to ${mr.sourceDocNo || mr.productionOrderDocNo}`,
           performedBy: actor.name,
           timestamp: now,
         });
@@ -1072,6 +1080,7 @@ export class MongoERPRepository implements IERPRepository {
         docNo: miDocNo,
         materialRequestId: mr.id,
         materialRequestDocNo: mr.docNo,
+        sourceType: mr.sourceType, sourceId: mr.sourceId, sourceDocNo: mr.sourceDocNo,
         productionOrderId: mr.productionOrderId,
         productionOrderDocNo: mr.productionOrderDocNo,
         issueDate: issueDate || now.slice(0, 10),
@@ -1119,7 +1128,7 @@ export class MongoERPRepository implements IERPRepository {
 
       await MaterialIssueModel.create([mi], { session: session || undefined });
       if (stockTxDocs.length > 0) {
-        await StockTransactionModel.create(stockTxDocs, { session: session || undefined });
+        await StockTransactionModel.create(stockTxDocs, { session: session || undefined, ordered:true });
       }
 
       await this.addActivity(
@@ -1425,11 +1434,12 @@ export class MongoERPRepository implements IERPRepository {
         throw new Error(`Cannot allocate ${qty} unit(s); only ${available} available for ${po.docNo}.`);
       }
 
-      // Optimistic concurrency control check if running without multi-doc transaction
-      if (!session) {
+      // Serialize allocations against this order, including concurrent transaction snapshots.
+      {
         const updatedPO = await ProductionOrderModel.findOneAndUpdate(
           { id: po.id, __v: po.__v },
           { $inc: { __v: 1 } },
+          { session: session || undefined },
         );
         if (!updatedPO) {
           throw new Error('CONCURRENCY_CONFLICT:Production order modified concurrently during delivery allocation.');
@@ -1448,12 +1458,14 @@ export class MongoERPRepository implements IERPRepository {
       }
 
       const so = await SalesOrderModel.findOne({ id: po.salesOrderId }).session(session || null).lean();
-      const docNo = await this.getNextDocNo('DEL');
+      const docNo = await this.getNextDocNo('DEL',session || undefined);
       const now = new Date().toISOString();
 
-      const selectedSerials = Array.isArray(params.serialNumbers) && params.serialNumbers.length > 0
-        ? params.serialNumbers
-        : (po.serialNumbers || []).slice(0, qty);
+      const allocatedSerials=new Set(existingDeliveries.flatMap(d=>d.serialNumbers || []));
+      const selectedSerials = params.serialNumbers?.length ? params.serialNumbers : (po.serialNumbers || []).filter(n=>!allocatedSerials.has(n)).slice(0,qty);
+      if (selectedSerials.length>qty || new Set(selectedSerials).size!==selectedSerials.length || selectedSerials.some(n=>allocatedSerials.has(n))) {
+        throw new Error('Select unallocated serial numbers within the shipment quantity.');
+      }
 
       const delData = {
         id: generateId('del'),

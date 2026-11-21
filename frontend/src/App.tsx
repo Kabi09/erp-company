@@ -5,7 +5,7 @@ import { ERPProvider, useERP } from './context/ERPContext';
 import { AppLayout } from './components/AppLayout';
 import { Button, LoadingSkeleton } from './components/ui';
 import { LoginPage } from './pages/LoginPage';
-import { DEPARTMENTS } from './config/navigation';
+import { DEPARTMENTS, navModule, type NavItem } from './config/navigation';
 import type { PermissionModule } from './types/erp';
 
 // Sales Management (Code-split)
@@ -69,8 +69,9 @@ const EmployeeAccessPage = React.lazy(() => import('./pages/shared/AdminPages').
 const ApprovalWorkflowsPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.ApprovalWorkflowsPage })));
 const ApprovalInboxPage = React.lazy(() => import('./pages/shared/AdminPages').then((m) => ({ default: m.ApprovalInboxPage })));
 
+const DepartmentPage = React.lazy(() => import('./pages/departments/DepartmentPage'));
 const HomeRedirect: React.FC = () => {
-  const { user, loading } = useERP();
+  const { user, loading, getDefaultRoute } = useERP();
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-6">
@@ -81,7 +82,7 @@ const HomeRedirect: React.FC = () => {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
-  const homePath = user.department === 'admin' ? '/sales' : DEPARTMENTS[user.department].basePath;
+  const homePath = getDefaultRoute(user);
   return <Navigate to={homePath} replace />;
 };
 
@@ -101,10 +102,10 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
 };
 
 const RequireModule: React.FC<{ module: PermissionModule; children: React.ReactNode }> = ({ module, children }) => {
-  const { user, can } = useERP();
+  const { user, can, getDefaultRoute } = useERP();
   if (!user) return <Navigate to="/login" replace />;
   if (!can(module, 'view')) {
-    const fallback = user.department === 'admin' ? '/admin' : DEPARTMENTS[user.department].basePath;
+    const fallback = user.department === 'admin' ? '/admin' : getDefaultRoute(user);
     return (
       <div className="max-w-lg mx-auto my-12 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-8 text-center space-y-3">
         <ShieldAlert className="w-8 h-8 text-red-600 mx-auto" />
@@ -121,6 +122,12 @@ const RequireModule: React.FC<{ module: PermissionModule; children: React.ReactN
   }
   return <>{children}</>;
 };
+
+function WorkspaceRoute({item}: {item:NavItem}) {
+  const {can}=useERP();
+  const module=navModule(item,can)!;
+  return <RequireModule module={module}><DepartmentPage key={item.path} item={{...item,module}} /></RequireModule>;
+}
 
 export function App() {
   return (
@@ -521,6 +528,11 @@ export function App() {
               }
             />
 
+            {[...DEPARTMENTS.service.nav,...DEPARTMENTS.rnd.nav,DEPARTMENTS.production.nav.find(n=>n.module==='production_delivered')!].map(item =>
+              <Route key={item.path} path={item.path + (item.path==='/service' || item.path==='/rnd' ? '' : '/:id?')} element={
+                <WorkspaceRoute item={item}/>
+              } />
+            )}
             {/* Shared Modules */}
             <Route
               path="/tracking"

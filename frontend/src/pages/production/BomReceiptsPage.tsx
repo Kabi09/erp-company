@@ -545,7 +545,7 @@ export const MaterialReceiptsPage: React.FC = () => {
     );
   };
 
-  const issuesSource = remoteIssues || db.materialIssues || [];
+  const issuesSource = remoteIssues || (db.materialIssues || []).filter(i=>!i.sourceType);
 
   const filteredIssues = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -670,7 +670,7 @@ export const MaterialReceiptsPage: React.FC = () => {
   ];
 
   // Also show summary of Material Requests & pending items
-  const activeMRs: MaterialRequest[] = db.materialRequests.filter((mr) => mr.receiptStatus !== 'Fully Received');
+  const activeMRs: MaterialRequest[] = db.materialRequests.filter((mr) => !mr.sourceType && mr.receiptStatus !== 'Fully Received');
 
   return (
     <div>

@@ -20,7 +20,7 @@ import {
   User,
   X,
 } from 'lucide-react';
-import { DEPARTMENTS, inferDepartmentFromPath, OPERATIONAL_DEPARTMENTS } from '../config/navigation';
+import { DEPARTMENTS, inferDepartmentFromPath, navModule, OPERATIONAL_DEPARTMENTS } from '../config/navigation';
 import { useERP } from '../context/ERPContext';
 import { erpApi } from '../services/api';
 import type { Department } from '../types/erp';
@@ -138,8 +138,8 @@ export const AppLayout: React.FC = () => {
     }
     if (can('supply_chain', 'view')) {
       for (const mr of data.materialRequests) {
-        if (mr.docNo.toLowerCase().includes(q) || mr.productionOrderDocNo.toLowerCase().includes(q)) {
-          out.push({ label: mr.docNo, sub: `${mr.productionOrderDocNo} · ${mr.status}`, path: `/supply-chain/material-requests`, dept: 'Supply Chain' });
+        if (mr.docNo.toLowerCase().includes(q) || (mr.sourceDocNo || mr.productionOrderDocNo || '').toLowerCase().includes(q)) {
+          out.push({ label: mr.docNo, sub: `${mr.sourceDocNo || mr.productionOrderDocNo} · ${mr.status}`, path: `/supply-chain/material-requests`, dept: 'Supply Chain' });
         }
       }
       for (const mat of data.materials) {
@@ -168,6 +168,7 @@ export const AppLayout: React.FC = () => {
       'supply-chain': 'Supply Chain',
       production: 'Production',
       logistics: 'Logistics',
+      service: 'Service', rnd: 'R&D',
       admin: 'Administration',
       tracking: 'Order Tracking',
       notifications: 'Notifications',
@@ -289,7 +290,7 @@ export const AppLayout: React.FC = () => {
       {/* Navigation Links */}
       <nav aria-label="Department navigation" className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5">
         {deptMeta.nav
-          .filter((item) => (item.module ? can(item.module, item.action || 'view') : can(deptMeta.id, 'view')))
+          .filter((item) => (item.module ? can(navModule(item,can)!, item.action || 'view') : can(deptMeta.id, 'view')))
           .map((item) => {
           const Icon = item.icon;
           return (
@@ -581,7 +582,7 @@ export const AppLayout: React.FC = () => {
       >
         <div className="grid grid-cols-1 gap-1.5">
           {deptMeta.nav
-            .filter((item) => (item.module ? can(item.module, item.action || 'view') : can(deptMeta.id, 'view')))
+            .filter((item) => (item.module ? can(navModule(item,can)!, item.action || 'view') : can(deptMeta.id, 'view')))
             .map((item) => {
             const Icon = item.icon;
             return (

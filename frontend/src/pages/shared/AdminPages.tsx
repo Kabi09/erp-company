@@ -87,7 +87,7 @@ export const AdminDashboard: React.FC = () => {
         <StatCard
           label="Active Employees"
           value={`${activeEmployees} / ${totalEmployees}`}
-          hint="Across 4 departments + Admin"
+          hint="Across 6 departments + Admin"
           onClick={() => navigate('/admin/employees')}
         />
         <StatCard
@@ -142,10 +142,10 @@ export const AdminDashboard: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Department Headcount</h2>
-            <span className="text-xs text-slate-500">4 Operational Departments</span>
+            <span className="text-xs text-slate-500">6 Operational Departments</span>
           </div>
           <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-            {(['sales', 'supply_chain', 'production', 'logistics', 'admin'] as Department[]).map((dept) => {
+            {(['sales', 'supply_chain', 'production', 'logistics', 'service', 'rnd', 'admin'] as Department[]).map((dept) => {
               const count = db.employees.filter((e) => e.department === dept && e.status === 'Active').length;
               return (
                 <div key={dept} className="py-2.5 flex items-center justify-between">
@@ -354,7 +354,7 @@ export const EmployeesPage: React.FC = () => {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search name, Employee ID, email, or designation..."
-        statuses={['All', 'sales', 'supply_chain', 'production', 'logistics', 'admin']}
+        statuses={['All', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rnd', 'admin']}
         activeStatus={deptFilter}
         onStatusChange={setDeptFilter}
       />
@@ -423,6 +423,8 @@ export const EmployeesPage: React.FC = () => {
                 <option value="supply_chain">Supply Chain Management</option>
                 <option value="production">Production Management</option>
                 <option value="logistics">Logistics & Delivery</option>
+                <option value="service">Service Management</option>
+                <option value="rnd">Research &amp; Development</option>
                 <option value="admin">Administration</option>
               </Select>
             </Field>
@@ -536,7 +538,7 @@ export const RolesPermissionsPage: React.FC = () => {
       next[mod.id] = [...mod.actions, 'manage'];
     }
     // Also include coarse department keys
-    for (const dept of ['sales', 'supply_chain', 'production', 'logistics', 'admin', 'tracking', 'reports']) {
+    for (const dept of ['sales', 'supply_chain', 'production', 'logistics', 'service', 'rnd', 'admin', 'tracking', 'reports']) {
       next[dept] = ['view', 'create', 'edit', 'delete', 'approve', 'export', 'manage'];
     }
     setDraftPerms(next as any);
@@ -734,7 +736,7 @@ export const RolesPermissionsPage: React.FC = () => {
           {/* Filter Bar */}
           <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
-              {['All', 'sales', 'supply_chain', 'production', 'logistics', 'admin', 'shared'].map((d) => (
+              {['All', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rnd', 'admin', 'shared'].map((d) => (
                 <button
                   key={d}
                   type="button"
@@ -863,6 +865,8 @@ export const RolesPermissionsPage: React.FC = () => {
               <option value="supply_chain">Supply Chain Management</option>
               <option value="production">Production Management</option>
               <option value="logistics">Logistics & Delivery</option>
+                <option value="service">Service Management</option>
+                <option value="rnd">Research &amp; Development</option>
               <option value="admin">Administration</option>
             </Select>
           </Field>
@@ -1193,7 +1197,7 @@ export const ActivityLogsPage: React.FC = () => {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search action, document number, user, or details..."
-        statuses={['All', 'sales', 'supply_chain', 'production', 'logistics', 'admin']}
+        statuses={['All', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rnd', 'admin']}
         activeStatus={deptFilter}
         onStatusChange={setDeptFilter}
       />

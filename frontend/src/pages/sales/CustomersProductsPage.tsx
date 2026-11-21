@@ -327,6 +327,7 @@ export const ProductsPage: React.FC = () => {
     category: 'Ultra Low Temperature Freezers',
     model: '',
     specifications: '',
+    warrantyTerms: '',
     sellingPrice: 0,
     unit: 'Unit',
     description: '',
@@ -414,6 +415,7 @@ export const ProductsPage: React.FC = () => {
         category: allCategories[0] || 'Ultra Low Temperature Freezers',
         model: '',
         specifications: '',
+    warrantyTerms: '',
         sellingPrice: 0,
         unit: 'Unit',
         description: '',
@@ -558,6 +560,9 @@ export const ProductsPage: React.FC = () => {
               <Input value={form.unit} onChange={(e) => setForm({ ...form, unit: e.target.value })} />
             </Field>
           </div>
+          <Field label="Product warranty terms" hint="Include the duration and start basis, for example 12 months from installation.">
+            <Input value={form.warrantyTerms} onChange={e=>setForm({...form,warrantyTerms:e.target.value})}/>
+          </Field>
           <Field label="Technical Specifications">
             <Textarea value={form.specifications} onChange={(e) => setForm({ ...form, specifications: e.target.value })} rows={2} />
           </Field>

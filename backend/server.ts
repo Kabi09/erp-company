@@ -1,3 +1,4 @@
+import { registerDepartmentRoles } from './server/services/departmentRoles';
 import express from 'express';
 import { connectDatabase } from './server/config/database';
 import { env } from './server/config/environment';
@@ -51,6 +52,7 @@ export function createApp() {
 export async function startServer() {
   // Connect to MongoDB before accepting HTTP traffic
   await connectDatabase();
+  await registerDepartmentRoles();
 
   const app = createApp();
 

@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { attachmentAccess, can } from '../services/departmentAccess';
 import multer from 'multer';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware';
 import { AttachmentModel } from '../models';
@@ -43,6 +44,7 @@ fileRouter.post('/files/upload', requireAuth, upload.single('file') as any, asyn
     let recordId = req.body.recordId || '';
     let recordDocNo = req.body.recordDocNo || '';
 
+    await attachmentAccess(user,module,recordId,'upload');
     if (req.file) {
       buffer = req.file.buffer;
       originalName = req.file.originalname;
@@ -80,7 +82,7 @@ fileRouter.post('/files/upload', requireAuth, upload.single('file') as any, asyn
       module,
       recordId,
       recordDocNo,
-      uploadedBy: user.name,
+      uploadedBy: user.name, uploadedById:user.id,
       uploadedAt: new Date().toISOString(),
       isMigrated: false,
     };
@@ -108,6 +110,8 @@ fileRouter.get('/files/:id/download', requireAuth, async (req: AuthenticatedRequ
       throw new Error(`NOT_FOUND: Attachment '${id}' not found.`);
     }
 
+    await attachmentAccess(user,attachment.module,attachment.recordId,'view');
+    if (attachment.module==='service_expenses' && !can(user,'service_team') && attachment.uploadedById!==user.id) throw new Error('FORBIDDEN: Receipt access denied.');
     // Permission check
     if (!isSuperAdmin) {
       const allowedModule = attachment.module.toLowerCase();
@@ -132,7 +136,8 @@ fileRouter.get('/files/:id/download', requireAuth, async (req: AuthenticatedRequ
 fileRouter.get('/files/by-record/:module/:recordId', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const { module, recordId } = req.params;
-    const items = await AttachmentModel.find({ module, recordId } as any).sort({ uploadedAt: -1 }).lean();
+    await attachmentAccess(req.user!,String(module),String(recordId),'view');
+    const items = await AttachmentModel.find({ module, recordId, ...(module==='service_expenses' && !can(req.user!,'service_team') ? {uploadedById:req.user!.id} : {}) } as any).sort({ uploadedAt: -1 }).lean();
     res.json({ items });
   } catch (err) {
     sendError(res, err);
@@ -159,6 +164,7 @@ fileRouter.delete('/files/:id', requireAuth, async (req: AuthenticatedRequest, r
       }
     }
 
+    await attachmentAccess(user,attachment.module,attachment.recordId,'delete');
     await storageService.delete(attachment.storageKey);
     await AttachmentModel.deleteOne({ id });
 

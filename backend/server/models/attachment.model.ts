@@ -11,6 +11,7 @@ const AttachmentSchema = new Schema<AttachmentRecord>(
     module: { type: String, required: true, index: true },
     recordId: { type: String, required: true, index: true },
     recordDocNo: { type: String, default: '' },
+    uploadedById: String,
     uploadedBy: { type: String, required: true },
     uploadedAt: { type: String, required: true, index: true },
     isMigrated: { type: Boolean, default: false },

@@ -237,7 +237,7 @@ export const EmployeeAccessPage: React.FC = () => {
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-lg">
         <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
-          {['All', 'sales', 'supply_chain', 'production', 'logistics', 'admin', 'shared'].map((d) => (
+          {['All', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rnd', 'admin', 'shared'].map((d) => (
             <button
               key={d}
               type="button"

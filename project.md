@@ -1,7 +1,7 @@
 # CRYO Enterprise ERP 2.0 — Project Architecture & Implementation Record
 
 ## 1. Project Overview
-**CRYO Enterprise ERP 2.0** is an industrial, multi-department Enterprise Resource Planning web application engineered for cryogenic and precision thermal manufacturing operations. It automates and connects the complete quote-to-cash, procure-to-pay, plan-to-produce, quality-control, and order-to-delivery lifecycle across four strictly separated operational departments plus centralized administration and tracking:
+**CRYO Enterprise ERP 2.0** is an industrial, multi-department Enterprise Resource Planning web application engineered for cryogenic and precision thermal manufacturing operations. It automates and connects the complete quote-to-cash, procure-to-pay, plan-to-produce, quality-control, and order-to-delivery lifecycle across six operational departments plus centralized administration and tracking:
 
 `Customer Enquiry → Follow-up → Qualified Enquiry → Quotation (V1/V2/V3) → Proforma Invoice → Customer PO → Payment Entry → Sales Order → Production Order & Duration Plan → BOM Request → Supply Chain Material Issue / Purchase & GRN Verification → Physical Receipt → Manufacturing & Daily Updates → Quality Check → Rework / Acceptance → Logistics Dispatch (Own Vehicle / Courier) → Delivery Completion`
 
@@ -14,7 +14,7 @@
 - **Shared Domain Layer (`shared/`)**: Pure, zero-dependency domain definitions (`shared/types/erp.ts`) and deterministic calculation formulas (`shared/utils/erpLogic.ts`) shared between frontend and backend without database or backend secret leakage.
 - **Authentication & Authorization**: Dual JWT Bearer access (15m) and rotating refresh tokens (7d), bcrypt password hashing (`bcryptjs`), and module-by-action Role-Based Access Control (RBAC) enforced on both Express API middleware and React route guards.
 - **Persistence**: Production-ready MongoDB + Mongoose 9 persistence layer with connection pooling, graceful shutdown, replica set/Atlas auto-detection, and atomic document numbering via `$inc` on `DocCounterModel`. Historical JSON snapshot preserved in `backend/data/cryo-erp-db.json` and timestamped backups in `backend/data/backups/`. Normal operations execute 100% on MongoDB without JSON fallback.
-- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 12 test suites totaling **133 passing automated tests (100% pass rate)** plus 10 frontend unit tests.
+- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 13 backend test files with **147 reported tests passing** on an isolated MongoDB replica set, plus 10 passing frontend logic tests.
 
 ---
 
@@ -66,6 +66,12 @@
 - **Delivery Order Detail** (`/logistics/delivery-orders/:id`): Centralized 3-column operational cockpit detailing Order Overview, Consignee Info, Products & Serials, Transport & Dispatch Tracking, Attached Proof of Delivery (POD), linked Delivery Issues, and full chronological History timeline. Supports in-modal printable/downloadable Delivery Order & Delivery Challan generation.
 - **Delivery Issues** (`/logistics/issues`): Exception tracking across 9 standard issue types (`Customer Unavailable`, `Address Not Found`, `Customer Refused Delivery`, `Package Damaged in Transit`, `Vehicle Breakdown`, `Weather Delay`, `Incorrect Items Shipped`, `Transit Loss`, `Customs / Checkpost Delay`). Interactive resolution modal supporting 5 business outcomes (`Retry Delivery`, `Reschedule Delivery`, `Delivery Confirmed`, `Returned to CRYO`, `Requires Further Action`).
 - **Logistics Reports** (`/logistics/reports`): Transportation method breakdown (Own Vehicle vs Courier), delivery status distribution, delay analytics, delivery issue summary, and operational CSV export.
+
+### Department 5: Service Management (`/service`)
+Service requests, delivered equipment, warranty review, technician visits, workshop custody, spares, expense settlement, billing and completed service reports. See [Service Management workflow](SERVICE_MANAGEMENT_WORKFLOW.md).
+
+### Department 6: Research & Development (`/rnd`)
+Independent projects, specifications, prototype BOMs, material requests, daily updates and immutable test attempts. Successful completion closes the R&D project. See [R&D workflow](RD_MANAGEMENT_WORKFLOW.md).
 
 ### Shared Supporting & Administration Modules
 - **Centralized Order Tracking** (`/tracking`, `/tracking/:soId`): 12-stage visual end-to-end timeline linking Enquiry through final Delivery with permission-gated deep links.
@@ -560,3 +566,105 @@
     - **0 TypeScript compilation errors** (`tsc --noEmit` across frontend and backend).
     - Vite production client build completed in 608ms.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
+
+## Service Management and Research & Development
+
+The running workspaces are frontend and backend. The baseline on a separately seeded MongoDB database reported 127 passed and six failed of 133, including the lifecycle and approval suite parents. New department data uses the same MongoDB connection and authentication.
+
+Department registration extends the workspace type catalogs, RBAC resolvers, Administration selectors, and default routing. The backend registers editable role defaults with insert-only upserts at startup. Team-wide visibility is a distinct Service permission. Existing employee accounts and role customizations are preserved.
+
+ServiceJob and ResearchProject collections store numbered records and immutable action history with an explicit revision. Shared form definitions describe request, visit, claim, expense, billing, specification, BOM and test inputs. UnitWarranty stores confirmed warranty terms against a delivered-unit key.
+
+Supply Chain requests and issues now carry sourceType, sourceId and sourceDocNo for Service and R&D. Production references remain mandatory for legacy production requests. New issuances require the issue permission, a matching revision and an active MongoDB transaction. Production receipt/return endpoints exclude department-owned materials.
+
+The department REST routes derive confirmed equipment from Logistics, Production, Sales and QC, with separate confirmed warranty terms and claim decisions. Service actions scope queries by assignment and permission and record technician and customer money separately. R&D can request only outstanding BOM quantities, retain test attempts and optionally submit completion to the existing approval inbox. Ordinary changes use optimistic revisions. Stock receipts, consumption and unused returns share a transaction with the parent action and vouchers. Global search and scoped file access use the same department ownership rules.
+
+The React workspaces use existing navigation, tabs, tables, modals and theme styles. Forms support searchable selections, dynamic rows, draft edits and private uploads. Department integration tests cover real Express routes and Mongoose writes, assignment scope, warranty verification, workshop custody, multiple visits, independent finance, R&D retesting and shared inventory.
+
+Product Master supports default warranty text. Linked quotation terms take priority, and reviewed unit terms take precedence. Historical split confirmations without a per-unit receipt date leave that date unknown. Employee permissions refresh on focus and during active sessions. Service expense attachment access follows assignment and uploader scope.
+
+Replica-set regression testing exposed two existing defects on the shared paths: Mongoose requires ordered multi-line stock ledger writes within a session, and competing Logistics allocation transactions must write the same Production Order to detect a conflict. The repository now does both. Dispatch serial selection also excludes serials already allocated by an active delivery.
+
+Reports include status totals, visit or test counts, work updates and permission-checked CSV exports. Production can read a delivered unit’s service references and statuses. Job detail and finance continue to require Service permissions. The new module resolvers apply individual denials to inherited department manager grants.
+
+Customer receipts reserve their reference across Service jobs using a sparse unique index. Billing lines tied to used store parts inherit warranty coverage. Workshop intake checks a known delivered serial. Configured R&D completion decisions and project status changes are committed together in one transaction.
+
+The combined Expenses & Payments screen accepts the expense, verification or billing view grant and opens the permitted tab. Fine-grained roles land on their first accessible department screen after login.
+
+Concurrent API reads share the existing refresh operation and apply the same HTTP error handling after retry. Record details are limited for roles that only have ancillary module access. Verifying a manual request updates its displayed customer and equipment names.
+
+The register carries unverified shipment history forward when a later delivery confirmation identifies the individual serials. It labels those references as shipment-level. Ambiguous free-text warranty periods remain available for review, and confirming unit terms records the reviewer and terms in the audit log.
+
+### Files in the Service and R&D change
+
+Created 14 files.
+
+- `RD_MANAGEMENT_WORKFLOW.md`
+- `SERVICE_MANAGEMENT_WORKFLOW.md`
+- `backend/server/models/department.model.ts`
+- `backend/server/routes/departments.routes.ts`
+- `backend/server/services/deliveredProducts.ts`
+- `backend/server/services/departmentAccess.ts`
+- `backend/server/services/departmentLogic.ts`
+- `backend/server/services/departmentMaterials.ts`
+- `backend/server/services/departmentRoles.ts`
+- `backend/server/tests/departments.test.ts`
+- `frontend/src/pages/departments/DepartmentPage.tsx`
+- `frontend/src/pages/departments/WorkForm.tsx`
+- `shared/departmentForms.ts`
+- `shared/types/departmentModules.ts`
+
+Modified 38 existing files.
+
+- `README.md`
+- `backend/package.json`
+- `backend/server.ts`
+- `backend/server/models/attachment.model.ts`
+- `backend/server/models/sales.model.ts`
+- `backend/server/models/supply-chain.model.ts`
+- `backend/server/repositories/MongoERPRepository.ts`
+- `backend/server/routes/approval.routes.ts`
+- `backend/server/routes/auth.routes.ts`
+- `backend/server/routes/file.routes.ts`
+- `backend/server/routes/index.ts`
+- `backend/server/routes/notification.routes.ts`
+- `backend/server/routes/production.routes.ts`
+- `backend/server/routes/sales.routes.ts`
+- `backend/server/routes/search.routes.ts`
+- `backend/server/routes/supply-chain.routes.ts`
+- `backend/server/utils/rbacLogic.ts`
+- `backend/src/types/erp.ts`
+- `frontend/src/App.tsx`
+- `frontend/src/components/AppLayout.tsx`
+- `frontend/src/config/navigation.ts`
+- `frontend/src/context/ERPContext.tsx`
+- `frontend/src/pages/production/BomReceiptsPage.tsx`
+- `frontend/src/pages/sales/CustomersProductsPage.tsx`
+- `frontend/src/pages/shared/AdminPages.tsx`
+- `frontend/src/pages/shared/ApprovalInboxPage.tsx`
+- `frontend/src/pages/shared/ApprovalWorkflowsPage.tsx`
+- `frontend/src/pages/shared/EmployeeAccessPage.tsx`
+- `frontend/src/pages/shared/NotificationsProfilePage.tsx`
+- `frontend/src/pages/supply-chain/MaterialRequestsPage.tsx`
+- `frontend/src/pages/supply-chain/PurchasingGrnPage.tsx`
+- `frontend/src/pages/supply-chain/SupplyChainDashboard.tsx`
+- `frontend/src/services/api.ts`
+- `frontend/src/types/erp.ts`
+- `frontend/src/utils/rbacLogic.ts`
+- `project.md`
+- `shared/types/erp.ts`
+- `shared/utils/rbacLogic.ts`
+
+### Verification and limits — 21 November 2026
+
+| Check | Observed result |
+| --- | --- |
+| Original backend baseline, standalone MongoDB seeded from the repository JSON | 127 passed and 6 failed out of 133. Four failing subtests and their two suite parents were reported. |
+| Full backend regression on an isolated replica set | 147 passed, 0 failed, 0 skipped across 13 test files. Includes the previous 133 reported tests and the new 14. |
+| Final targeted Service and R&D integration rerun | 14 passed, 0 failed, 0 skipped. The suite exercised actual MongoDB transactions, APIs, employee overrides and PDF bytes. |
+| Frontend logic tests | 10 passed, 0 failed. |
+| Workspace lint and builds | Both TypeScript checks passed. Frontend Vite production build passed. Backend build is a separate TypeScript check and passed. |
+| Frontend component and API-client checks | 32 form definitions rendered to HTML. Verified nine Service and eight R&D navigation entries, shared token refresh across concurrent requests, and propagation of a denial after refresh. |
+| Browser and responsive visual verification | Incomplete. The browser access host was unavailable. Windows computer-use stopped because it could not verify the current browser URL. Interactive submissions and viewport layout remain unverified in a browser. |
+
+The final regression fixture used a fresh test-only MongoDB database. It imported the repository JSON, initialized the existing approval workflows, and reconciled the fixture’s material stock cache to its stock ledger before running the suite. The original JSON import alone did not initialize those two prerequisites. New department material movements and configured R&D completion approvals require a replica set. Historical unit dates, serials and warranty terms remain unknown when the source records cannot establish them. No production migration, deployment, Git commit or push was performed.

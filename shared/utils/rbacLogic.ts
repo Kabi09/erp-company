@@ -22,7 +22,7 @@ export function resolveEffectivePermissions(
     moduleToDept[mod.id] = mod.department;
   }
 
-  const coarseModules = ['sales', 'supply_chain', 'production', 'logistics', 'admin', 'tracking', 'reports'];
+  const coarseModules = ['sales', 'supply_chain', 'production', 'logistics', 'service', 'rnd', 'admin', 'tracking', 'reports'];
   for (const c of coarseModules) {
     moduleToDept[c] = c;
   }
@@ -57,6 +57,14 @@ export function resolveEffectivePermissions(
       for (const a of parentRoleActions) allowedActions.add(a);
     }
 
+    // Expand a department manager's wildcard before applying individual action denials.
+    if (!isSuperAdmin && (parentDept === 'service' || parentDept === 'rnd') && allowedActions.has('manage')) {
+      const overridesForModule = {...overrides?.[parentDept],...overrides?.[modId]};
+      if (Object.values(overridesForModule).includes('deny')) {
+        allowedActions.delete('manage');
+        for (const action of ERP_MODULE_CATALOG.find(m => m.id === modId)?.actions || []) allowedActions.add(action);
+      }
+    }
     // Apply department-level overrides first if modId is a sub-module
     if (parentDept !== modId && overrides?.[parentDept]) {
       for (const [actionKey, effect] of Object.entries(overrides[parentDept])) {
@@ -140,6 +148,7 @@ export function checkPermission(
   const modPerms = effectivePerms[targetMod] || effectivePerms[module];
   if (modPerms) {
     if (modPerms.includes(action) || modPerms.includes('manage')) return true;
+    if (targetMod.startsWith('service_') || targetMod.startsWith('rnd_')) return false;
     if (action === 'verify' && modPerms.includes('approve')) return true;
     if (action === 'approve' && modPerms.includes('verify')) return true;
     return false;

@@ -353,6 +353,8 @@ export const ApprovalWorkflowsPage: React.FC = () => {
                 <option value="supply_chain">Supply Chain Management</option>
                 <option value="production">Production Management</option>
                 <option value="logistics">Logistics & Delivery</option>
+                <option value="service">Service Management</option>
+                <option value="rnd">Research &amp; Development</option>
                 <option value="admin">Administration</option>
               </Select>
             </Field>
@@ -364,6 +366,7 @@ export const ApprovalWorkflowsPage: React.FC = () => {
                 <option value="quotations">Quotations (Sales)</option>
                 <option value="supplier_pos">Supplier POs (Supply Chain)</option>
                 <option value="delivery_orders">Delivery Orders (Logistics)</option>
+                <option value="rnd_completion">R&amp;D Project Completion</option>
                 <option value="material_requests">Material Requests (Supply Chain)</option>
               </Select>
             </Field>

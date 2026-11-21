@@ -487,7 +487,7 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
         await Promise.all([
           ProductionOrderModel.find().sort({ createdAt: -1 }).lean(),
           BOMModel.find().sort({ createdAt: -1 }).lean(),
-          MaterialRequestModel.find().sort({ createdAt: -1 }).lean(),
+          MaterialRequestModel.find({sourceType:{$exists:false}}).sort({ createdAt: -1 }).lean(),
           DailyProductionUpdateModel.find().sort({ createdAt: -1 }).lean(),
           QualityCheckModel.find().sort({ createdAt: -1 }).lean(),
           ReworkOrderModel.find().sort({ createdAt: -1 }).lean(),
@@ -512,7 +512,7 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
             .lean(),
           ProductModel.find().lean(),
           MaterialModel.find().lean(),
-          MaterialIssueModel.find().sort({ createdAt: -1 }).lean(),
+          MaterialIssueModel.find({sourceType:{$exists:false}}).sort({ createdAt: -1 }).lean(),
         ]);
     } else if (dept === 'logistics') {
       [deliveryOrders, deliveryIssues, salesOrders, productionOrders, products] = await Promise.all([
@@ -544,11 +544,11 @@ authRouter.get('/erp/bootstrap', requireAuth, async (req: AuthenticatedRequest, 
     }
 
     const [notifications, activityLogs, approvalWorkflows, approvalRequests] = await Promise.all([
-      NotificationModel.find({ $or: [{ department: dept }, { department: 'all' }] })
+      NotificationModel.find({ $or: [{ department: dept, recipientEmployeeId: { $in:[null,''] } }, { department: 'all' }, {recipientEmployeeId:user.id}] })
         .sort({ createdAt: -1 })
         .limit(50)
         .lean(),
-      ActivityLogModel.find({ department: dept }).sort({ timestamp: -1 }).limit(50).lean(),
+      ActivityLogModel.find({ department: dept, ...(dept==='service' && !checkPermission(user.permissions,'service_team','view') ? {actorId:user.id} : {}) }).sort({ timestamp: -1 }).limit(50).lean(),
       ApprovalWorkflowModel.find().lean(),
       ApprovalRequestModel.find({
         $or: [{ 'submittedBy.id': user.id }, { department: dept }],

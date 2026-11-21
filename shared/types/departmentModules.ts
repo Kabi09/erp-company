@@ -1,0 +1,50 @@
+import type { ModuleDef } from './erp';
+
+export const departmentModules: ModuleDef[] = [
+  { id: 'production_delivered', name: 'Delivered Products', department: 'production', actions: ['view'] },
+  { id: 'service_dashboard', name: 'Service Dashboard', department: 'service', actions: ['view'] },
+  { id: 'service_assets', name: 'Delivered Products', department: 'service', actions: ['view'] },
+  {
+    id: 'service_requests',
+    name: 'Service Requests',
+    department: 'service',
+    actions: ['view', 'create', 'edit'],
+  },
+  { id: 'service_jobs', name: 'Service Jobs', department: 'service', actions: ['view', 'edit', 'confirm'] },
+  { id: 'service_team', name: 'Department-wide Service Records', department: 'service', actions: ['view'] },
+  { id: 'service_schedule', name: 'Technician Scheduling', department: 'service', actions: ['view', 'edit'] },
+  {
+    id: 'service_parts',
+    name: 'Service Materials',
+    department: 'service',
+    actions: ['view', 'create', 'edit'],
+  },
+  { id: 'service_warranty', name: 'Warranty Review', department: 'service', actions: ['view', 'verify'] },
+  { id: 'service_expenses', name: 'Technician Expenses', department: 'service', actions: ['view', 'create'] },
+  {
+    id: 'service_verification',
+    name: 'Expense Verification and Settlement',
+    department: 'service',
+    actions: ['view', 'verify'],
+  },
+  {
+    id: 'service_billing',
+    name: 'Customer Billing',
+    department: 'service',
+    actions: ['view', 'edit', 'confirm'],
+  },
+  { id: 'service_reports', name: 'Service Reports', department: 'service', actions: ['view', 'export'] },
+  { id: 'rnd_dashboard', name: 'R&D Dashboard', department: 'rnd', actions: ['view'] },
+  { id: 'rnd_projects', name: 'R&D Projects', department: 'rnd', actions: ['view', 'create'] },
+  { id: 'rnd_specs', name: 'Product Specifications', department: 'rnd', actions: ['view', 'edit'] },
+  {
+    id: 'rnd_materials',
+    name: 'Prototype Materials',
+    department: 'rnd',
+    actions: ['view', 'edit', 'create'],
+  },
+  { id: 'rnd_updates', name: 'Daily Work Updates', department: 'rnd', actions: ['view', 'create'] },
+  { id: 'rnd_testing', name: 'Testing and Inspection', department: 'rnd', actions: ['view', 'create'] },
+  { id: 'rnd_completion', name: 'Project Completion', department: 'rnd', actions: ['view', 'confirm'] },
+  { id: 'rnd_reports', name: 'R&D Reports', department: 'rnd', actions: ['view', 'export'] },
+].map((entry) => ({ ...entry, description: entry.name })) as ModuleDef[];

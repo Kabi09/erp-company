@@ -9,6 +9,7 @@ import {
   type ERPBootstrapPayload,
 } from '../services/api';
 import type { AuthUser, Department, PermissionAction, PermissionModule } from '../types/erp';
+import { DEPARTMENTS, navModule } from '../config/navigation';
 import { checkPermission } from '../utils/rbacLogic';
 
 export interface ToastMessage {
@@ -88,6 +89,10 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (u.department === 'sales') return '/sales';
       if (u.department === 'supply_chain') return '/supply-chain';
       if (u.department === 'production') return '/production';
+      if (u.department === 'service' || u.department === 'rnd') {
+        const allowed = (module:string) => checkPermission(u.permissions,module,'view');
+        return DEPARTMENTS[u.department].nav.find(item => allowed(navModule(item,allowed)!))?.path || '/profile';
+      }
       if (u.department === 'logistics') return '/logistics';
       return '/sales';
     },
@@ -126,6 +131,21 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    let active=true;
+    const sync=async()=>{
+      if(document.visibilityState!=='visible')return;
+      try {
+        const {user:current}=await erpApi.me();
+        if(active && current.id===user.id) setUser(previous=>JSON.stringify(previous)===JSON.stringify(current)?previous:current);
+      } catch { if(active && !getAuthToken()) {setUser(null);setData(null);} }
+    };
+    window.addEventListener('focus',sync);
+    const timer=window.setInterval(sync,30000);
+    return ()=>{active=false;window.removeEventListener('focus',sync);clearInterval(timer);};
+  },[user?.id]);
 
   const login = useCallback(
     async (identifier: string, password: string) => {

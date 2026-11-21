@@ -351,7 +351,7 @@ export const ApprovalInboxPage: React.FC = () => {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search document number, submitter name, or workflow..."
-        statuses={['All', 'sales', 'supply_chain', 'production', 'logistics', 'admin']}
+        statuses={['All', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rnd', 'admin']}
         activeStatus={deptFilter}
         onStatusChange={setDeptFilter}
       />

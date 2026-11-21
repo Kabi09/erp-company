@@ -1,3 +1,4 @@
+import { can, scope, modelFor } from '../services/departmentAccess';
 import { Router } from 'express';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware';
 import {
@@ -42,7 +43,7 @@ searchRouter.get('/search', requireAuth, async (req: AuthenticatedRequest, res) 
       docNo: string;
       title: string;
       subtitle: string;
-      module: 'Sales' | 'Production' | 'Supply Chain' | 'Logistics';
+      module: 'Sales' | 'Production' | 'Supply Chain' | 'Logistics' | 'Service' | 'R&D';
       path: string;
       date?: string;
     }
@@ -195,7 +196,7 @@ searchRouter.get('/search', requireAuth, async (req: AuthenticatedRequest, res) 
               id: mr.id,
               docNo: mr.docNo,
               title: `Material Request ${mr.docNo}`,
-              subtitle: `PO: ${mr.productionOrderDocNo} · Issue: ${mr.status}`,
+              subtitle: `Order: ${mr.sourceDocNo || mr.productionOrderDocNo} · Issue: ${mr.status}`,
               module: 'Supply Chain',
               path: `/supply-chain/material-requests`,
               date: mr.requestDate,
@@ -270,13 +271,20 @@ searchRouter.get('/search', requireAuth, async (req: AuthenticatedRequest, res) 
       );
     }
 
+    for (const dept of ['service','rnd'] as const) {
+      const group = dept==='service'?'Service':'R&D';
+      results[group]=[];
+      if (!can(user,dept==='service'?'service_jobs':'rnd_projects')) continue;
+      const matches=await modelFor(dept).find({$and:[scope(user,dept),{$or:[{docNo:q},{name:q}]}]}).select('id docNo name status').limit(5).lean();
+      results[group]=matches.map(r=>({id:r.id,docNo:r.docNo,title:r.docNo,subtitle:r.name,module:group,path:(dept==='service'?'/service/jobs/':'/rnd/projects/')+r.id}));
+    }
     await Promise.all(queries);
 
     const flatResults = [
       ...results.Sales,
       ...results.Production,
       ...results['Supply Chain'],
-      ...results.Logistics,
+      ...results.Logistics, ...results.Service, ...results['R&D'],
     ];
 
     res.json({

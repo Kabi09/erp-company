@@ -71,11 +71,12 @@ export const MaterialRequestsPage: React.FC = () => {
         .map(([materialId, issuingQty]) => ({ materialId, issuingQty }));
       const mi: any = await erpApi.createMaterialIssue({
         materialRequestId: issuingMR.id,
+        version: (issuingMR as MaterialRequest & {__v:number}).__v,
         items,
         remarks: issueRemarks,
       });
       await refresh();
-      toast('success', `Material Issue ${mi.docNo} posted`, `Inventory updated & Production notified.`);
+      toast('success', `Material Issue ${mi.issue.docNo} posted`, `Stock ledger updated.`);
       setIssuingMR(null);
     } catch (error) {
       setErr(error instanceof Error ? error.message : 'Failed to post material issue');
@@ -91,7 +92,7 @@ export const MaterialRequestsPage: React.FC = () => {
       return (
         !q ||
         mr.docNo.toLowerCase().includes(q) ||
-        mr.productionOrderDocNo.toLowerCase().includes(q) ||
+        (mr.sourceDocNo || mr.productionOrderDocNo || '').toLowerCase().includes(q) ||
         mr.productName.toLowerCase().includes(q)
       );
     });
@@ -101,7 +102,7 @@ export const MaterialRequestsPage: React.FC = () => {
     <div className="space-y-4">
       <PageHeader
         title="Material Requests (BOM)"
-        subtitle="Automatically received from Production. Check live store stock, issue available materials partially or fully, or purchase shortages."
+        subtitle="Requests from Production, Service and R&D. Check live store stock, issue available materials partially or fully, or purchase shortages."
       />
 
       <FilterBar
@@ -141,13 +142,13 @@ export const MaterialRequestsPage: React.FC = () => {
                     <div className="flex items-center gap-2 flex-wrap">
                       <span className="font-mono font-semibold text-sm">{mr.docNo}</span>
                       <span className="text-xs text-slate-500">
-                        · {mr.productionOrderDocNo} · {mr.salesOrderDocNo}
+                        · {mr.sourceDocNo || mr.productionOrderDocNo} · {mr.salesOrderDocNo}
                       </span>
                       <StatusBadge status={mr.status} />
                       <StatusBadge status={mr.priority} />
                     </div>
                     <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                      {mr.productName} · Requested by {mr.requestedBy} on {mr.requestDate} · Prod Receipt: {mr.receiptStatus}
+                      {mr.productName} · Requested by {mr.requestedBy} on {mr.requestDate} · Receipt: {mr.receiptStatus}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap shrink-0">
@@ -155,7 +156,7 @@ export const MaterialRequestsPage: React.FC = () => {
                       <Eye className="w-3.5 h-3.5" />
                       Shortage Breakdown
                     </Button>
-                    {mr.status !== 'Fully Issued' && canIssueAny && can('supply_chain', 'create') && (
+                    {mr.status !== 'Fully Issued' && canIssueAny && can('supply_chain', 'create') && (!mr.sourceType || can('material_issues','create')) && (
                       <Button size="sm" onClick={() => openIssueModal(mr)}>
                         <PackageCheck className="w-4 h-4" />
                         Issue Available
@@ -286,7 +287,7 @@ export const MaterialRequestsPage: React.FC = () => {
         open={Boolean(issuingMR)}
         onClose={() => setIssuingMR(null)}
         title={`Issue Materials — ${issuingMR?.docNo || ''}`}
-        subtitle={`${issuingMR?.productionOrderDocNo || ''} · Stock is deducted atomically; issuing cannot exceed available stock or pending quantity.`}
+        subtitle={`${issuingMR?.sourceDocNo || issuingMR?.productionOrderDocNo || ''} · Stock is deducted atomically; issuing cannot exceed available stock or pending quantity.`}
         size="lg"
         footer={
           <>
@@ -356,7 +357,7 @@ export const MaterialIssuesPage: React.FC = () => {
       !q ||
       mi.docNo.toLowerCase().includes(q) ||
       mi.materialRequestDocNo.toLowerCase().includes(q) ||
-      mi.productionOrderDocNo.toLowerCase().includes(q)
+      (mi.sourceDocNo || mi.productionOrderDocNo || '').toLowerCase().includes(q)
     );
   });
 
@@ -365,7 +366,7 @@ export const MaterialIssuesPage: React.FC = () => {
     const rows = filtered.map((mi) => [
       mi.docNo,
       mi.materialRequestDocNo,
-      mi.productionOrderDocNo,
+      mi.sourceDocNo || mi.productionOrderDocNo,
       mi.issueDate,
       `"${mi.issuedBy}"`,
       `"${mi.items.map((i) => `${i.materialName}: ${i.issuedQty} ${i.unit}`).join('; ')}"`,
@@ -388,7 +389,7 @@ export const MaterialIssuesPage: React.FC = () => {
       header: 'MR / Production Order',
       render: (r) => (
         <div className="font-mono text-xs">
-          {r.materialRequestDocNo} · {r.productionOrderDocNo}
+          {r.materialRequestDocNo} · {r.sourceDocNo || r.productionOrderDocNo}
         </div>
       ),
     },
@@ -432,7 +433,7 @@ export const MaterialIssuesPage: React.FC = () => {
         renderMobileCard={(r) => (
           <div className="space-y-1.5">
             <div className="flex items-center justify-between">
-              <span className="font-mono font-semibold text-xs">{r.docNo} · {r.productionOrderDocNo}</span>
+              <span className="font-mono font-semibold text-xs">{r.docNo} · {r.sourceDocNo || r.productionOrderDocNo}</span>
               <StatusBadge status={r.receiptAcknowledged ? 'Fully Received' : 'Pending'} />
             </div>
             <div className="text-xs text-slate-600 dark:text-slate-400">

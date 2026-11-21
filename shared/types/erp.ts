@@ -1,4 +1,6 @@
-export type Department = 'sales' | 'supply_chain' | 'production' | 'logistics' | 'admin';
+import { departmentModules } from './departmentModules';
+
+export type Department = 'sales' | 'supply_chain' | 'production' | 'logistics' | 'service' | 'rnd' | 'admin';
 
 export type PermissionAction =
   | 'view'
@@ -78,6 +80,7 @@ export interface ModuleDef {
 }
 
 export const ERP_MODULE_CATALOG: ModuleDef[] = [
+  ...departmentModules,
   // Sales Department
   { id: 'sales_dashboard', name: 'Sales Dashboard', department: 'sales', description: 'Department KPIs, enquiry metrics, pipeline summaries', actions: ['view', 'export'] },
   { id: 'customers', name: 'Customer Directory', department: 'sales', description: 'Customer profiles, GSTINs, and contact information', actions: ['view', 'create', 'edit', 'delete', 'export'] },
@@ -258,6 +261,7 @@ export interface NotificationItem {
 }
 
 export interface AttachmentRecord {
+  uploadedById?: string;
   id: string;
   originalName: string;
   storageKey: string;
@@ -309,6 +313,7 @@ export interface ProductBomTemplateItem {
 }
 
 export interface Product {
+  warrantyTerms?: string;
   id: string;
   code: string;
   name: string;
@@ -589,6 +594,9 @@ export interface Supplier {
 }
 
 export interface MaterialRequestItem {
+  usedQty?: number;
+  coverage?: string;
+  remarks?: string;
   materialId: string;
   materialCode: string;
   materialName: string;
@@ -600,6 +608,9 @@ export interface MaterialRequestItem {
 }
 
 export interface MaterialRequest {
+  sourceType?: 'service' | 'rnd';
+  sourceId?: string;
+  sourceDocNo?: string;
   id: string;
   docNo: string;
   bomId: string;
@@ -629,6 +640,9 @@ export interface MaterialIssueItem {
 }
 
 export interface MaterialIssue {
+  sourceType?: 'service' | 'rnd';
+  sourceId?: string;
+  sourceDocNo?: string;
   id: string;
   docNo: string;
   materialRequestId: string;
@@ -775,6 +789,7 @@ export interface StockTransaction {
     | 'GRN Accepted'
     | 'Material Issue'
     | 'Production Return'
+    | 'Service Return'
     | 'Stock Adjustment';
   quantityDelta: number;
   balanceAfter: number;
@@ -1108,6 +1123,8 @@ export interface DocCounters {
   EMP?: number;
   MAT?: number;
   PRT?: number;
+  SRV?: number;
+  RND?: number;
 }
 
 export interface ERPDatabase {

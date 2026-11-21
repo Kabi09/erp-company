@@ -151,7 +151,7 @@ export const SupplyChainDashboard: React.FC = () => {
                 <div className="min-w-0">
                   <div className="text-sm font-medium">
                     <span className="font-mono text-xs mr-2">{mr.docNo}</span>
-                    {mr.productionOrderDocNo}
+                    {mr.sourceDocNo || mr.productionOrderDocNo}
                   </div>
                   <div className="text-xs text-slate-500 truncate">{mr.productName}</div>
                 </div>

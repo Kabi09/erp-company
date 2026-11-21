@@ -279,7 +279,7 @@ export const SupplierPOsPage: React.FC = () => {
                 <Select value={materialRequestId} onChange={(e) => prefillFromMR(e.target.value)}>
                   <option value="">Select Material Request...</option>
                   {data.materialRequests.filter((m) => m.status !== 'Fully Issued').map((m) => (
-                    <option key={m.id} value={m.id}>{m.docNo} ({m.productionOrderDocNo})</option>
+                    <option key={m.id} value={m.id}>{m.docNo} ({m.sourceDocNo || m.productionOrderDocNo})</option>
                   ))}
                 </Select>
               </Field>

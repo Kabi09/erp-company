@@ -39,6 +39,7 @@ const ProductSchema = new Schema<Product>(
     model: { type: String, default: '', index: true },
     specifications: { type: String, default: '' },
     highlights: { type: [String], default: [] },
+    warrantyTerms: { type: String, default: '' },
     sellingPrice: { type: Number, required: true, min: 0 },
     unit: { type: String, default: 'Nos' },
     description: { type: String, default: '' },

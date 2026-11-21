@@ -376,7 +376,7 @@ productionRouter.get('/production/material-receipts', requireAuth, requirePerm('
     const filter: Record<string, any> = {};
     if (req.query.productionOrderId) filter.productionOrderId = req.query.productionOrderId;
     if (req.query.unacknowledged === 'true') filter.receiptAcknowledged = false;
-    const issues = await MaterialIssueModel.find(filter).sort({ createdAt: -1 }).lean();
+    const issues = await MaterialIssueModel.find({...filter, sourceType:{$exists:false}}).sort({ createdAt: -1 }).lean();
     res.json(issues);
   } catch (err) {
     sendError(res, err);
@@ -397,7 +397,7 @@ productionRouter.post(
 
       if (req.params.id) {
         const mr = await MaterialRequestModel.findOne({ id: req.params.id });
-        if (!mr) throw new Error('NOT_FOUND:Linked material request not found.');
+        if (!mr || mr.sourceType) throw new Error('NOT_FOUND:Linked material request not found.');
         const issues = await MaterialIssueModel.find({ materialRequestId: mr.id, receiptAcknowledged: false });
         for (const mi of issues) {
           mi.receiptAcknowledged = true;
@@ -451,7 +451,7 @@ productionRouter.post(
         throw new Error(`Material issue ${mi.docNo} receipt has already been acknowledged.`);
       }
       const mr = await MaterialRequestModel.findOne({ id: mi.materialRequestId });
-      if (!mr) throw new Error('NOT_FOUND:Linked material request not found.');
+      if (!mr || mr.sourceType) throw new Error('NOT_FOUND:Linked material request not found.');
 
       let hasLineDiscrepancy = false;
 
@@ -1147,7 +1147,7 @@ productionRouter.post('/production/material-returns', requireAuth, requirePerm('
       throw new Error('materialRequestId, materialId, positive returnQty, and reason are required.');
     }
     const mr = await MaterialRequestModel.findOne({ id: materialRequestId });
-    if (!mr) throw new Error('NOT_FOUND:Material Request not found.');
+    if (!mr || mr.sourceType) throw new Error('NOT_FOUND:Material Request not found.');
     const mrItem = mr.items.find((i) => i.materialId === materialId);
     if (!mrItem) throw new Error('Material not found on this Material Request.');
 

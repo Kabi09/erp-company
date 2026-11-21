@@ -1,3 +1,4 @@
+import { checkPermission } from '../utils/rbacLogic';
 import { Router } from 'express';
 import type { GRNItem, SupplierPOItem } from '../../src/types/erp';
 import {
@@ -417,12 +418,14 @@ supplyChainRouter.post(
         materialId: x.materialId,
         issuingQty: Number(x.issuingQty ?? x.issuedQty ?? 0),
       }));
+      const sourceRequest = await MaterialRequestModel.findOne({id:reqId}).select('sourceType').lean();
+      if (sourceRequest?.sourceType && !checkPermission(req.user!.permissions,'material_issues','create')) throw new Error('FORBIDDEN: Material issue authorization required.');
       const mi = await mongoERPRepository.issueMaterial(
         reqId,
         normalizedItems,
         remarks || '',
         issueDate || '',
-        { id: req.user!.id, name: req.user!.name },
+        { id: req.user!.id, name: req.user!.name }, req.body.version,
       );
       const updatedMR = await MaterialRequestModel.findOne({ id: mi.materialRequestId }).lean();
       res.status(201).json({
@@ -939,7 +942,7 @@ supplyChainRouter.post('/supply-chain/production-returns', requireAuth, requireP
       throw new Error('materialRequestId, materialId, positive returnQty, and reason are required.');
     }
     const mr = await MaterialRequestModel.findOne({ id: materialRequestId });
-    if (!mr) throw new Error('NOT_FOUND:Material Request not found.');
+    if (!mr || mr.sourceType) throw new Error('NOT_FOUND:Production material request not found.');
     const mrItem = mr.items.find((i) => i.materialId === materialId);
     if (!mrItem) throw new Error('Material not found on this Material Request.');
 

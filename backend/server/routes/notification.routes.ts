@@ -17,7 +17,7 @@ notificationRouter.get('/notifications', requireAuth, async (req: AuthenticatedR
 
     // Department scoping
     if (!isSuperAdmin) {
-      query.$or = [{ department: user.department }, { department: 'all' }, { recipientEmployeeId: user.id }];
+      query.$or = [{ department: user.department, recipientEmployeeId: { $in:[null,''] } }, { department: 'all' }, { recipientEmployeeId: user.id }];
     } else if (department && department !== 'all') {
       query.$or = [{ department }, { department: 'all' }];
     }
@@ -59,7 +59,7 @@ const handleMarkRead = async (req: AuthenticatedRequest, res: any) => {
     const userId = req.user!.id;
 
     const updated = await NotificationModel.findOneAndUpdate(
-      { id },
+      { id, ...(req.user!.department==='admin' ? {} : {$or:[{department:req.user!.department,recipientEmployeeId:{$in:[null,'']}},{department:'all'},{recipientEmployeeId:userId}]}) },
       { $addToSet: { readBy: userId } },
       { returnDocument: 'after' },
     ).lean();
@@ -88,7 +88,7 @@ notificationRouter.post('/notifications/read-all', requireAuth, async (req: Auth
     };
 
     if (!isSuperAdmin) {
-      query.$or = [{ department: user.department }, { department: 'all' }, { recipientEmployeeId: user.id }];
+      query.$or = [{ department: user.department, recipientEmployeeId: { $in:[null,''] } }, { department: 'all' }, { recipientEmployeeId: user.id }];
     }
 
     const result = await NotificationModel.updateMany(query, {

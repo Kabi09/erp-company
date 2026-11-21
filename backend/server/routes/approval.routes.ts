@@ -1,3 +1,5 @@
+import { withTransaction } from '../config/database';
+import { ResearchProject } from '../models/department.model';
 import { Router } from 'express';
 import type { ApprovalDecisionType, ApprovalRequest, ApprovalWorkflow } from '../../src/types/erp';
 import { requireAuth, type AuthenticatedRequest } from '../middleware/auth.middleware';
@@ -95,6 +97,24 @@ export async function ensureDefaultApprovalWorkflows(): Promise<ApprovalWorkflow
 }
 
 // Document synchronization helpers
+async function saveDecision(request: any) {
+  if (request.module !== 'rnd_completion') {
+    await request.save();
+    return;
+  }
+  await withTransaction(async session => {
+    const result = await ApprovalRequestModel.updateOne({id: request.id, __v: request.__v, status:'pending'}, {
+      $set:{status:request.status,currentLevel:request.currentLevel,decisions:request.decisions},$inc:{__v:1}
+    }, {session});
+    if (!result.modifiedCount) throw new Error('CONCURRENCY_CONFLICT: Approval was already updated.');
+    if (request.status === 'pending') return;
+    const updated = await ResearchProject.updateOne({
+      id:request.documentId,revision:Number(request.documentVersion),status:'Pending Completion Approval'
+    }, {$set:{status:request.status==='approved'?'Successfully Completed':'In Progress'},$inc:{revision:1}}, {session});
+    if (!updated.modifiedCount) throw new Error('CONCURRENCY_CONFLICT: Project version changed.');
+  }, {requireReplicaSet:true});
+}
+
 async function applyApprovedStatusToDocument(reqDoc: any) {
   const now = new Date().toISOString();
   if (reqDoc.module === 'quotations') {
@@ -390,7 +410,7 @@ approvalRouter.post('/approvals/requests/:id/decide', requireAuth, async (req: A
       });
     }
 
-    await request.save();
+    await saveDecision(request);
 
     await mongoERPRepository.addActivity({
       actorId: req.user!.id,
@@ -426,7 +446,7 @@ approvalRouter.post('/approvals/requests/:id/withdraw', requireAuth, async (req:
     }
 
     request.status = 'withdrawn';
-    await request.save();
+    await saveDecision(request);
 
     // Revert target document to Draft
     if (request.module === 'quotations') {

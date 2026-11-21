@@ -2,7 +2,7 @@
 
 Industrial, multi-department Enterprise Resource Planning (ERP) platform engineered for cryogenic equipment and precision thermal engineering operations.
 
-The system automates the complete operational lifecycle across four strictly segregated departments plus centralized tracking and administration:
+The system automates the complete operational lifecycle across six operational departments plus centralized tracking and administration:
 
 ```
 Customer Enquiry → Follow-up → Qualified Enquiry → Quotation (V1/V2/V3) → Proforma Invoice → Customer PO →
@@ -12,6 +12,13 @@ Rework / Acceptance → Logistics Dispatch (Own Vehicle / Courier) → Delivery 
 ```
 
 ---
+
+## Service Management and R&D
+
+Service follows delivered equipment through warranty review, visits, repairs, expenses and customer payments. R&D manages prototypes, materials, work updates and testing through successful completion. Both use the existing ERP login, MongoDB connection and Supply Chain ledger. Use a MongoDB replica set for department material movements and configured R&D completion approvals.
+
+- [Service Management workflow and API](SERVICE_MANAGEMENT_WORKFLOW.md)
+- [Research & Development workflow and API](RD_MANAGEMENT_WORKFLOW.md)
 
 ## Architecture Overview
 
@@ -27,7 +34,7 @@ K:\2.0\erp-company\
 ├── backend/                   # Node.js + Express 5 + Mongoose 9 REST API (Port 5000)
 │   ├── server.ts              # Standalone Express server (with /health check)
 │   ├── server/                # Routes, controllers, models, services, repositories
-│   │   └── tests/             # 10 test suites (107 automated tests)
+│   │   └── tests/             # ERP domain and MongoDB API tests
 │   ├── uploads/               # Private file uploads storage directory
 │   └── package.json           # Backend dependencies (Express, JWT, PDFKit, Multer)
 │
@@ -99,7 +106,7 @@ cd backend
 npm install
 npm run dev        # Starts Express server on http://localhost:5000 with tsx watch
 npm run lint       # Typecheck backend (tsc --noEmit)
-npm test           # Runs all 107 backend and integration tests
+npm test           # Runs backend and integration tests
 ```
 
 ---
@@ -118,7 +125,7 @@ All commands can be executed directly from the project root:
 | `npm run lint:backend` | Backend | Typechecks backend TypeScript only |
 | `npm run build` | Both | Builds frontend production assets and verifies backend types |
 | `npm run build:frontend` | Frontend | Builds optimized production client bundle (`frontend/dist`) |
-| `npm test` | Backend | Executes all 107 tests across 10 test suites sequentially |
+| `npm test` | Backend | Executes the backend test files sequentially |
 | `npm run test:sales` | Backend | Runs Sales department workflow tests (8 tests) |
 | `npm run test:supply-chain` | Backend | Runs Supply Chain & inventory tests (12 tests) |
 | `npm run test:production` | Backend | Runs Production & manufacturing tests (14 tests) |
@@ -138,9 +145,9 @@ npm test
 ```
 
 **Results:**
-- **107 passing tests** across 10 test suites.
+- **147 backend tests passed** on the isolated replica-set run, including 14 reported tests in the Service/R&D file. The independent frontend suite passed all 10 tests.
 - **0 failing, 0 skipped**.
-- Full test breakdown and architecture documentation is available in [FRONTEND_BACKEND_SEPARATION.md](FRONTEND_BACKEND_SEPARATION.md).
+- The current verification record and fixture assumptions are in [project.md](project.md).
 
 ---
 

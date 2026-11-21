@@ -42,8 +42,13 @@ export interface NavItem {
   path: string;
   icon: LucideIcon;
   badgeKey?: string;
+  alternateModules?: string[];
   module?: PermissionModule;
   action?: PermissionAction;
+}
+
+export function navModule(item: NavItem, can: (module: string, action?: PermissionAction) => boolean) {
+  return [item.module,...(item.alternateModules || [])].find(key => key && can(key,item.action || 'view')) || item.module;
 }
 
 export interface DepartmentMeta {
@@ -60,6 +65,39 @@ export interface DepartmentMeta {
 }
 
 export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
+  service: {
+    id: 'service', label: 'Service Management', shortLabel: 'Service', basePath: '/service',
+    accentText: 'text-emerald-600 dark:text-emerald-400', accentBg: 'bg-emerald-600',
+    accentBorder: 'border-emerald-600/30', accentDot: 'bg-emerald-500',
+    nav: [
+      { label: 'Dashboard', path: '/service', icon: LayoutDashboard, module: 'service_dashboard' },
+      { label: 'Delivered Products', path: '/service/delivered-products', icon: PackageCheck, module: 'service_assets' },
+      { label: 'Service Requests', path: '/service/requests', icon: Inbox, module: 'service_requests' },
+      { label: 'Service Jobs', path: '/service/jobs', icon: Wrench, module: 'service_jobs' },
+      { label: 'My Jobs / Schedule', path: '/service/schedule', icon: CalendarClock, module: 'service_schedule' },
+      { label: 'Material Requests', path: '/service/materials', icon: Boxes, module: 'service_parts' },
+      { label: 'Expenses & Payments', path: '/service/expenses', icon: CreditCard, module: 'service_expenses', alternateModules:['service_verification','service_billing'] },
+      { label: 'Completed Services', path: '/service/completed', icon: CheckCircle2, module: 'service_jobs' },
+      { label: 'Reports', path: '/service/reports', icon: BarChart3, module: 'service_reports' },
+    ],
+    quickCreate: [{label:'New Service Request',path:'/service/requests?create=1', module:'service_requests',action:'create'}],
+  },
+  rnd: {
+    id: 'rnd', label: 'Research & Development', shortLabel: 'R&D', basePath: '/rnd',
+    accentText: 'text-indigo-600 dark:text-indigo-400', accentBg: 'bg-indigo-600',
+    accentBorder: 'border-indigo-600/30', accentDot: 'bg-indigo-500',
+    nav: [
+      { label: 'Dashboard', path: '/rnd', icon: LayoutDashboard, module: 'rnd_dashboard' },
+      { label: 'R&D Projects', path: '/rnd/projects', icon: Layers, module: 'rnd_projects' },
+      { label: 'Product Specifications', path: '/rnd/specifications', icon: FileText, module: 'rnd_specs' },
+      { label: 'BOM / Materials', path: '/rnd/materials', icon: Boxes, module: 'rnd_materials' },
+      { label: 'Daily Work Updates', path: '/rnd/updates', icon: CalendarClock, module: 'rnd_updates' },
+      { label: 'Testing & Inspection', path: '/rnd/testing', icon: ClipboardCheck, module: 'rnd_testing' },
+      { label: 'Completed Projects', path: '/rnd/completed', icon: CheckCircle2, module: 'rnd_completion' },
+      { label: 'Reports', path: '/rnd/reports', icon: BarChart3, module: 'rnd_reports' },
+    ],
+    quickCreate: [{label:'New R&D Project',path:'/rnd/projects?create=1', module:'rnd_projects',action:'create'}],
+  },
   sales: {
     id: 'sales',
     label: 'Sales Management',
@@ -131,6 +169,7 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
     accentDot: 'bg-purple-500',
     nav: [
       { label: 'Dashboard', path: '/production', icon: LayoutDashboard, module: 'production' },
+      { label: 'Delivered Products', path:'/production/delivered-products',icon:PackageCheck,module:'production_delivered' },
       { label: 'Received Sales Orders', path: '/production/received-orders', icon: Inbox, module: 'production_orders' },
       { label: 'Production Orders', path: '/production/orders', icon: Factory, module: 'production_orders' },
       { label: 'Production Planning', path: '/production/planning', icon: CalendarClock, module: 'production_orders' },
@@ -202,9 +241,11 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
   },
 };
 
-export const OPERATIONAL_DEPARTMENTS: Department[] = ['sales', 'supply_chain', 'production', 'logistics'];
+export const OPERATIONAL_DEPARTMENTS: Department[] = ['sales', 'supply_chain', 'production', 'logistics', 'service', 'rnd'];
 
 export function inferDepartmentFromPath(pathname: string, fallback: Department): Department {
+  if (pathname.startsWith('/service')) return 'service';
+  if (pathname.startsWith('/rnd')) return 'rnd';
   if (pathname.startsWith('/sales')) return 'sales';
   if (pathname.startsWith('/supply-chain')) return 'supply_chain';
   if (pathname.startsWith('/production')) return 'production';

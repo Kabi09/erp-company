@@ -87,13 +87,7 @@ export interface ERPBootstrapPayload extends ERPDatabase {
   currentUser: AuthUser;
 }
 
-let isRefreshing = false;
-let refreshSubscribers: Array<(token: string) => void> = [];
-
-function onRefreshed(token: string) {
-  refreshSubscribers.forEach((callback) => callback(token));
-  refreshSubscribers = [];
-}
+let pendingRefresh: Promise<string | null> | undefined;
 
 async function tryRefreshToken(): Promise<string | null> {
   const refreshToken = getRefreshToken();
@@ -119,7 +113,7 @@ async function tryRefreshToken(): Promise<string | null> {
   }
 }
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const token = getAuthToken();
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -128,40 +122,22 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   if (token) {
     headers.Authorization = `Bearer ${token}`;
   }
-  const response = await fetch(`${API_BASE}${path}`, {
+  let response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
   });
 
   if (response.status === 401 && path !== '/auth/login' && path !== '/auth/refresh') {
-    // Attempt automatic silent refresh
-    if (!isRefreshing) {
-      isRefreshing = true;
-      const newToken = await tryRefreshToken();
-      isRefreshing = false;
-      if (newToken) {
-        onRefreshed(newToken);
-        headers.Authorization = `Bearer ${newToken}`;
-        const retryRes = await fetch(`${API_BASE}${path}`, { ...options, headers });
-        const retryText = await retryRes.text();
-        return (retryText ? JSON.parse(retryText) : {}) as T;
-      }
+    const current = getAuthToken();
+    // Simultaneous requests share one rotating refresh token. A delayed 401 may already have a replacement.
+    const replacement = current && current !== token ? current :
+      await (pendingRefresh ??= tryRefreshToken().finally(() => { pendingRefresh = undefined; }));
+    if (replacement) {
+      headers.Authorization = `Bearer ${replacement}`;
+      response = await fetch(`${API_BASE}${path}`, { ...options, headers });
     } else {
-      // Wait for ongoing refresh
-      return new Promise<T>((resolve, reject) => {
-        refreshSubscribers.push(async (newToken) => {
-          try {
-            headers.Authorization = `Bearer ${newToken}`;
-            const retryRes = await fetch(`${API_BASE}${path}`, { ...options, headers });
-            const retryText = await retryRes.text();
-            resolve((retryText ? JSON.parse(retryText) : {}) as T);
-          } catch (e) {
-            reject(e);
-          }
-        });
-      });
+      clearAuthTokens();
     }
-    clearAuthTokens();
   }
 
   const text = await response.text();
