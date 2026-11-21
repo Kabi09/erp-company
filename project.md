@@ -114,6 +114,12 @@ Independent projects, specifications, prototype BOMs, material requests, daily u
 | Supply Chain Manager | `sc.mgr@cryoerp.com` | Supply Chain Management |
 | Production Manager | `prod.mgr@cryoerp.com` | Production Management |
 | Logistics Manager | `log.mgr@cryoerp.com` | Logistics & Delivery |
+| Service Technician | `service.tech@cryoerp.com` | Assigned service jobs and expenses |
+| Service Manager | `service.mgr@cryoerp.com` | Service Management |
+| R&D Engineer | `rnd.eng@cryoerp.com` | R&D project work and testing |
+| R&D Manager | `rnd.mgr@cryoerp.com` | R&D project management and completion |
+
+For a local demo workspace, run `npm run demo:departments --workspace backend` from the repository root to install these four accounts. The command preserves existing passwords, roles and account status on subsequent runs. Each role has a shortcut on the sign-in page.
 
 ---
 

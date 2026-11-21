@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, Moon, Snowflake, Sun } from 'lucide-react';
 import { useERP } from '../context/ERPContext';
 import { Button, ErrorBanner, Field, Input } from '../components/ui';
+import { departmentDemoAccounts } from '../../../shared/departmentDemoAccounts';
 
 const DEMO_ACCOUNTS = [
   { label: 'Super Admin', dept: 'All Departments', email: 'admin@cryoerp.com', role: 'Full access & Administration' },
@@ -11,6 +12,7 @@ const DEMO_ACCOUNTS = [
   { label: 'Supply Chain Manager', dept: 'Supply Chain', email: 'sc.mgr@cryoerp.com', role: 'Stock, issues, supplier POs, GRN & QC' },
   { label: 'Production Manager', dept: 'Production', email: 'prod.mgr@cryoerp.com', role: 'Orders, BOM, daily updates, QC & rework' },
   { label: 'Logistics Manager', dept: 'Logistics', email: 'log.mgr@cryoerp.com', role: 'Delivery orders, dispatch & POD' },
+  ...departmentDemoAccounts.map(account => ({ ...account, dept: account.department === 'service' ? 'Service' : 'R&D' })),
 ];
 
 export const LoginPage: React.FC = () => {
@@ -111,7 +113,7 @@ export const LoginPage: React.FC = () => {
             </form>
 
             <div className="mt-6 pt-5 border-t border-slate-200 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
-              Connected departments: Sales Management · Supply Chain · Production & QC · Logistics & Delivery
+              Connected departments: Sales Management · Supply Chain · Production & QC · Logistics & Delivery · Service · R&D
             </div>
           </div>
 

@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch server.ts",
+    "demo:departments": "tsx server/scripts/seedDepartmentDemoAccounts.ts",
     "start": "node --loader tsx server.ts",
     "build": "tsc --noEmit",
     "lint": "tsc --noEmit",
