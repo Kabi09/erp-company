@@ -315,11 +315,128 @@ The verification suite `server/tests/universal-rbac-approvals.test.ts` validates
 
 | Subtest | Status | Duration | Coverage |
 |:---|:---:|:---:|:---|
-| **Bootstrap & Authentication Setup** | **PASS** | 372ms | Super Admin, Sales Manager, Sales Exec, and SCM Manager authentication |
-| **1. Dynamic Role Creation & Core Safeguards** | **PASS** | 56ms | Custom role creation, permissions update, core role deletion 403 safeguard, custom role deletion |
-| **2. Employee Overrides & Resolution Hierarchy** | **PASS** | 48ms | Query effective permissions, grant `allow` override, verify `/auth/me` session update, apply `deny` override, reset to role defaults, self-escalation block |
-| **3. Configurable Multi-Level Workflows & Execution Gates** | **PASS** | 144ms | 2-level approval workflow configuration, quotation submission, downstream gates blocking send/accept while pending, self-approval prevention 403 gate, level 1 manager approval, level 2 admin approval, downstream execution unlocked |
-| **4. Changes Requested, Rejection & Withdrawal** | **PASS** | 109ms | Changes requested with mandatory remarks, quotation status sync, submitter withdrawal flow, draft status restoration |
-| **5. Universal Approval Inbox Aggregation** | **PASS** | 19ms | Tab aggregation (`pending`, `my_submissions`, `all`), badge count accuracy, user-scoped visibility |
+| **Bootstrap & Authentication Setup** | **PASS** | 333ms | Super Admin, Sales Manager, Sales Exec, and SCM Manager authentication |
+| **1. Dynamic Role Creation & Core Safeguards** | **PASS** | 52ms | Custom role creation, permissions update, core role deletion 403 safeguard, custom role deletion |
+| **2. Employee Overrides & Resolution Hierarchy** | **PASS** | 39ms | Query effective permissions, grant `allow` override, verify `/auth/me` session update, apply `deny` override, reset to role defaults, self-escalation block |
+| **3. Configurable Multi-Level Workflows & Execution Gates** | **PASS** | 146ms | 2-level approval workflow configuration, quotation submission, downstream gates blocking send/accept while pending, self-approval prevention 403 gate, level 1 manager approval, level 2 admin approval, downstream execution unlocked |
+| **4. Changes Requested, Rejection & Withdrawal** | **PASS** | 104ms | Changes requested with mandatory remarks, quotation status sync, submitter withdrawal flow, draft status restoration |
+| **5. Universal Approval Inbox Aggregation** | **PASS** | 34ms | Tab aggregation (`pending`, `my_submissions`, `all`), badge count accuracy, user-scoped visibility |
+| **6. Complete 13-Step Verification Journey & Security Gates** | **PASS** | 160ms | End-to-end custom role creation, draft and submit quotation, multi-level inbox approval, payment entries deny override, direct navigation block, view-only override, create payment block, commercial data redaction, reset to role defaults |
 
-**Suite Result: 7/7 Passing Tests (100% Pass Rate). Total Project Automated Tests: 114 Passing Tests across 11 Test Suites.**
+**Suite Result: 8/8 Passing Tests (100% Pass Rate). Total Project Automated Tests: 115 Passing Tests across 11 Test Suites.**
+
+---
+
+## 11. Complete Universal Permission Coverage Matrix
+
+The matrix below provides the exhaustive mapping between ERP departments, functional modules, client screen routes, Express backend API endpoints, required actions, frontend UI enforcements, and backend security middleware:
+
+| Department | Module (`id`) | Screen Route | API Endpoint | Required Action | Frontend Enforcement (`can()`) | Backend Enforcement (`requirePerm()`) |
+|:---|:---|:---|:---|:---|:---|:---|
+| **Sales** | `sales_dashboard` | `/sales` | `GET /api/sales/*` | `view` | Sidebar Nav Item Guard | `requirePerm('sales', 'view')` |
+| | `customers` | `/sales/customers` | `GET /api/sales/customers` | `view` | Nav Link & Table render | `requirePerm('sales', 'view')` |
+| | | `/sales/customers?create=1` | `POST /api/sales/customers` | `create` | "Add Customer" button hidden | `requirePerm('sales', 'create')` |
+| | | `/sales/customers/:id` | `PUT /api/sales/customers/:id` | `edit` | "Edit Customer" button hidden | `requirePerm('sales', 'edit')` |
+| | `products` | `/sales/products` | `GET /api/sales/products` | `view` | Nav Link & Catalog render | `requirePerm('sales', 'view')` |
+| | | `/sales/products?create=1` | `POST /api/sales/products` | `create` | "Add Product" button hidden | `requirePerm('sales', 'create')` |
+| | `enquiries` | `/sales/enquiries` | `GET /api/sales/enquiries` | `view` | Nav Link & List render | `requirePerm('sales', 'view')` |
+| | | `/sales/enquiries?create=1` | `POST /api/sales/enquiries` | `create` | Quick Create & "New Enquiry" hidden | `requirePerm('sales', 'create')` |
+| | | `/sales/enquiries/:id` | `PUT /api/sales/enquiries/:id` | `edit` | "Edit Enquiry" button hidden | `requirePerm('sales', 'edit')` |
+| | | `/sales/enquiries/:id/qualify` | `POST /api/sales/enquiries/:id/qualify` | `submit` / `verify` | "Qualify Enquiry" button hidden | `requirePerm('sales', 'edit')` |
+| | `quotations` | `/sales/quotations` | `GET /api/sales/quotations` | `view` | Nav Link & Quotation table render | `requirePerm('sales', 'view')` |
+| | | `/sales/quotations?create=1` | `POST /api/sales/quotations` | `create` | Quick Create & "New Quote" hidden | `requirePerm('sales', 'create')` |
+| | | `/sales/quotations/:id` | `PUT /api/sales/quotations/:id` | `edit` | "Edit Terms" button hidden | `requirePerm('sales', 'edit')` |
+| | | `/sales/quotations/:id/submit-approval`| `POST /api/sales/quotations/:id/submit-approval` | `submit` | "Submit for Approval" button hidden | `requirePerm('quotations', 'submit')` |
+| | | `/sales/quotations/:id/approve` | `POST /api/sales/quotations/:id/approve` | `approve` | "Approve" button hidden | `requirePerm('sales', 'approve')` |
+| | | `/sales/quotations/:id/send` | `POST /api/sales/quotations/:id/send` | `confirm` | "Send to Customer" button hidden | Downstream approval gate: blocked while pending |
+| | `proforma_invoices`| `/sales/proforma-invoices` | `GET /api/sales/proforma-invoices` | `view` | Nav Link & PI table render | `requirePerm('sales', 'view')` |
+| | | `/sales/proforma-invoices?create=1`| `POST /api/sales/proforma-invoices` | `create` | "Generate PI" button hidden | `requirePerm('sales', 'create')` |
+| | `customer_pos` | `/sales/customer-pos` | `GET /api/sales/customer-pos` | `view` | Nav Link & PO audit render | `requirePerm('sales', 'view')` |
+| | | `/sales/customer-pos?create=1` | `POST /api/sales/customer-pos` | `create` | "Record PO" button hidden | `requirePerm('sales', 'create')` |
+| | | `/sales/customer-pos/:id/resolve` | `POST /api/sales/customer-pos/:id/resolve` | `verify` | "Resolve Discrepancy" button hidden | `requirePerm('sales', 'edit')` |
+| | `payments` | `/sales/payments` | `GET /api/sales/payments` | `view` | Nav Link hidden; route guarded | `requirePerm('payments', 'view')` |
+| | | `/sales/payments?create=1` | `POST /api/sales/payments` | `create` | Quick Create & "Record Payment" hidden | `requirePerm('payments', 'create')` |
+| | | `/sales/payments/:id/verify` | `POST /api/sales/payments/:id/verify` | `verify` / `approve` | "Verify Payment" button hidden | `payments:verify` OR `payments:approve` |
+| | `sales_orders` | `/sales/sales-orders` | `GET /api/sales/orders` | `view` | Nav Link & SO table render | `requirePerm('sales', 'view')` |
+| | | `/sales/orders/confirm` | `POST /api/sales/orders/confirm` | `confirm` | "Confirm Sales Order" button hidden | `requirePerm('sales', 'approve')` |
+| **Supply Chain** | `supply_chain_dashboard`| `/supply-chain` | `GET /api/supply-chain/*` | `view` | Sidebar Nav Item Guard | `requirePerm('supply_chain', 'view')` |
+| | `materials` | `/supply-chain/materials` | `GET /api/supply-chain/materials` | `view` | Nav Link & Master table render | `requirePerm('supply_chain', 'view')` |
+| | | `/supply-chain/materials?create=1` | `POST /api/supply-chain/materials` | `create` | "Add Raw Material" button hidden | `requirePerm('supply_chain', 'create')` |
+| | `inventory` | `/supply-chain/inventory` | `GET /api/supply-chain/inventory` | `view` | Stock Map view & bin quantities | `requirePerm('supply_chain', 'view')` |
+| | `material_requests`| `/supply-chain/material-requests`| `GET /api/supply-chain/material-requests`| `view`| Nav Link & Indents queue render | `requirePerm('supply_chain', 'view')` |
+| | | `/supply-chain/material-requests/:id/issue`| `POST /api/supply-chain/material-issues` | `approve` / `confirm`| "Issue Materials" button hidden | `requirePerm('supply_chain', 'create')` |
+| | `suppliers` | `/supply-chain/suppliers` | `GET /api/supply-chain/suppliers` | `view` | Nav Link & Supplier directory | `requirePerm('supply_chain', 'view')` |
+| | | `/supply-chain/suppliers?create=1` | `POST /api/supply-chain/suppliers` | `create` | "Add Supplier" button hidden | `requirePerm('supply_chain', 'create')` |
+| | `supplier_pos` | `/supply-chain/purchase-orders` | `GET /api/supply-chain/supplier-pos` | `view` | Nav Link & Purchase Orders render | `requirePerm('supply_chain', 'view')` |
+| | | `/supply-chain/purchase-orders?create=1`| `POST /api/supply-chain/supplier-pos`| `create` | Quick Create & "Create PO" hidden | `requirePerm('supply_chain', 'create')` |
+| | | `/supply-chain/supplier-pos/:id/submit-approval`| `POST /api/supply-chain/supplier-pos/:id/submit-approval`| `submit`| "Submit PO for Approval" hidden | `requirePerm('supplier_pos', 'submit')` |
+| | `grn` | `/supply-chain/grn` | `GET /api/supply-chain/grns` | `view` | Nav Link & Inward receipts render | `requirePerm('supply_chain', 'view')` |
+| | | `/supply-chain/grn?create=1` | `POST /api/supply-chain/grns` | `create` | "Record GRN" button hidden | Downstream gate: PO must be approved |
+| | | `/supply-chain/grns/:id/verify` | `POST /api/supply-chain/grns/:id/verify` | `verify` | "Verify GRN" button hidden | `requirePerm('supply_chain', 'approve')` |
+| | `supplier_returns`| `/supply-chain/returns` | `GET /api/supply-chain/supplier-returns` | `view` | Nav Link & Debit notes render | `requirePerm('supply_chain', 'view')` |
+| | | `/supply-chain/returns?create=1` | `POST /api/supply-chain/supplier-returns`| `create` | "Return to Supplier" button hidden | `requirePerm('supply_chain', 'create')` |
+| | `stock_adjustments`| `/supply-chain/inventory` | `POST /api/supply-chain/stock-adjustments`| `create` / `manage` | "Adjust Stock" dialog hidden | `requirePerm('supply_chain', 'edit')` |
+| **Production** | `production_dashboard`| `/production` | `GET /api/production/*` | `view` | Sidebar Nav Item Guard | `requirePerm('production', 'view')` |
+| | `received_orders` | `/production/received-orders` | `GET /api/production/received-orders` | `view` | Nav Link & Allocatable SOs render | `requirePerm('production', 'view')` |
+| | `production_orders`| `/production/orders` | `GET /api/production/orders` | `view` | Nav Link & Work order table render| `requirePerm('production', 'view')` |
+| | | `/production/received-orders` | `POST /api/production/orders` | `create` | "Create Production Order" modal hidden | `requirePerm('production', 'create')` |
+| | | `/production/orders/:id/start` | `POST /api/production/orders/:id/start` | `edit` | "Start Manufacturing" button hidden | BOM physical receipt gate |
+| | | `/production/orders/:id/complete`| `POST /api/production/orders/:id/complete`| `confirm` | "Complete Production" button hidden | Daily updates recorded gate |
+| | `bom` | `/production/bom` | `GET /api/production/boms` | `view` | Nav Link & BOM recipe render | `requirePerm('production', 'view')` |
+| | | `/production/bom/request` | `POST /api/production/material-requests` | `create` | "Submit Material Request" hidden | `requirePerm('production', 'create')` |
+| | `material_receipts`| `/production/material-receipts`| `GET /api/production/material-receipts` | `view` | Nav Link & Store vouchers render | `requirePerm('production', 'view')` |
+| | | `/production/material-receipts/:id/confirm`| `POST /api/production/material-receipts/:id/confirm`| `confirm`| "Acknowledge Receipt" hidden | `requirePerm('production', 'edit')` |
+| | `daily_updates` | `/production/daily-updates` | `GET /api/production/daily-updates` | `view` | Nav Link & Shift logs render | `requirePerm('production', 'view')` |
+| | | `/production/daily-updates?create=1`| `POST /api/production/daily-updates` | `create` | Quick Create & "Log Update" hidden | `requirePerm('production', 'create')` |
+| | `quality_checks` | `/production/quality-check` | `GET /api/production/quality-checks` | `view` | Nav Link & QC inspection render | `requirePerm('production', 'view')` |
+| | | `/production/quality-check?create=1`| `POST /api/production/quality-checks` | `create` | Quick Create & "Record QC" hidden | `requirePerm('production', 'edit')` |
+| | `rework` | `/production/rework` | `GET /api/production/rework` | `view` | Nav Link & Rework orders render | `requirePerm('production', 'view')` |
+| | | `/production/rework/:id/complete` | `POST /api/production/rework/:id/complete` | `edit` / `confirm` | "Complete Rework" button hidden | `requirePerm('production', 'edit')` |
+| **Logistics** | `logistics_dashboard`| `/logistics` | `GET /api/logistics/*` | `view` | Sidebar Nav Item Guard | `requirePerm('logistics', 'view')` |
+| | `ready_dispatch` | `/logistics/ready` | `GET /api/logistics/ready-for-dispatch`| `view` | Nav Link & Finished Goods render | `requirePerm('logistics', 'view')` |
+| | `delivery_orders` | `/logistics/delivery-orders` | `GET /api/logistics/delivery-orders` | `view` | Nav Link & DC list render | `requirePerm('logistics', 'view')` |
+| | | `/logistics/ready` | `POST /api/logistics/delivery-orders` | `create` | "Create Delivery Order" hidden | `requirePerm('logistics', 'create')` |
+| | | `/logistics/delivery-orders/:id/dispatch`| `POST /api/logistics/delivery-orders/:id/dispatch`| `confirm`| "Confirm Dispatch" button hidden | Blocked if `Pending Cancellation` |
+| | | `/logistics/delivery-orders/:id/cancel`| `POST /api/logistics/delivery-orders/:id/cancel`| `edit` / `delete`| "Cancel Order" button hidden | Exception workflow auto-submits approval |
+| | `in_transit` | `/logistics/in-transit` | `GET /api/logistics/in-transit` | `view` | Nav Link & Live tracking render | `requirePerm('logistics', 'view')` |
+| | | `/logistics/in-transit/:id/confirm-delivery`| `POST /api/logistics/delivery-orders/:id/confirm-delivery`| `confirm`| "Confirm Delivery & POD" hidden | `requirePerm('logistics', 'edit')` |
+| | `delivery_issues`| `/logistics/issues` | `GET /api/logistics/delivery-issues` | `view` | Nav Link & Incident cards render | `requirePerm('logistics', 'view')` |
+| | | `/logistics/issues/:id/resolve` | `POST /api/logistics/delivery-issues/:id/resolve` | `edit` | "Resolve Incident" modal hidden | `requirePerm('logistics', 'edit')` |
+| **Admin** | `admin_dashboard` | `/admin` | `GET /api/admin/overview` | `view` | Nav Link & System status cards | `requirePerm('admin', 'view')` |
+| | `employees` | `/admin/employees` | `GET /api/admin/employees` | `view` | Nav Link & Staff directory render | `requirePerm('admin', 'view')` |
+| | | `/admin/employees?create=1` | `POST /api/admin/employees` | `create` | "Add Employee" button hidden | `requirePerm('admin', 'create')` |
+| | | `/admin/employees/:id` | `PUT /api/admin/employees/:id` | `edit` | "Edit Profile / Role" modal hidden| `requirePerm('admin', 'edit')` |
+| | `roles` | `/admin/roles` | `GET /api/admin/roles` | `view` | Nav Link & Matrix render | `requirePerm('admin', 'view')` |
+| | | `/admin/roles?create=1` | `POST /api/admin/roles` | `create` | "Create Custom Role" hidden | `requirePerm('admin', 'create')` |
+| | | `/admin/roles/:id` | `PUT /api/admin/roles/:id` | `edit` | "Save Permissions" button hidden | `requirePerm('admin', 'edit')` |
+| | | `/admin/roles/:id` | `DELETE /api/admin/roles/:id` | `delete` | "Delete Role" button hidden | Built-in core role deletion 403 guard |
+| | `employee_access` | `/admin/employee-access` | `GET /api/admin/employees/:id/permissions` | `view` | Nav Link & Override Matrix render | `requirePerm('admin', 'view')` |
+| | | `/admin/employee-access` | `PUT /api/admin/employees/:id/permissions` | `edit` / `manage` | "Save Overrides" button hidden | `requirePerm('admin', 'edit')` |
+| | | `/admin/employee-access` | `POST /api/admin/employees/:id/permissions/reset`| `manage`| "Reset to Defaults" hidden | `requirePerm('admin', 'edit')` |
+| | `approval_workflows`| `/admin/approval-workflows`| `GET /api/admin/approval-workflows` | `view` | Nav Link & Workflow list render | `requirePerm('admin', 'view')` |
+| | | `/admin/approval-workflows` | `POST /api/admin/approval-workflows` | `create` | "Create Approval Policy" hidden | `requirePerm('admin', 'create')` |
+| | | `/admin/approval-workflows/:id` | `PUT /api/admin/approval-workflows/:id` | `edit` | "Update Workflow Policy" hidden | `requirePerm('admin', 'edit')` |
+| | `approval_inbox` | `/approvals`, `/admin/approvals`| `GET /api/approvals/inbox` | `view` | Nav Link & Badge counter render | User-scoped aggregation |
+| | | `/approvals/requests/:id` | `GET /api/approvals/requests/:id` | `view` | Snapshot drawer render | Submitter / Approver / Commercial Redaction |
+| | | `/approvals/requests/:id/decide` | `POST /api/approvals/requests/:id/decide` | `approve` | "Approve" / "Reject" / "Changes" | Self-approval prevention + Level eligibility |
+| | | `/approvals/requests/:id/withdraw` | `POST /api/approvals/requests/:id/withdraw` | `submit` | "Withdraw Request" button hidden | Submitter-only authorization guard |
+| | `company` | `/admin/company` | `GET /api/admin/company` | `view` | Nav Link & Enterprise profile render| `requirePerm('admin', 'view')` |
+| | | `/admin/company` | `PUT /api/admin/company` | `edit` | "Save Company Details" hidden | `requirePerm('admin', 'edit')` |
+| | `audit_logs` | `/admin/logs` | `GET /api/admin/logs` | `view` | Nav Link & Immutable audit table | `requirePerm('admin', 'view')` |
+
+---
+
+## 12. Security & Downstream Integrity Highlights
+
+1. **Strict 3-Tier Resolution Engine**:
+   - `Role Defaults` → `Employee Overrides` (`allow`, `deny`, `inherit`) → `Effective Permissions`.
+   - Explicit `deny` overrides strictly suppress permissions and are never negated by department fallback.
+   - Upward inheritance guarantees existing Express routes checking coarse keys (`requirePerm('sales', 'create')`) seamlessly permit users possessing granular permissions on sub-modules.
+2. **Approval Request Data Redaction**:
+   - Non-commercial users (Production, Stores, QC, Logistics) attempting to inspect approval requests for Quotations or Commercial terms receive documents with `totalAmount`, `subtotal`, `taxAmount`, `unitPrice`, and `lineTotal` replaced with `'[REDACTED]'`.
+3. **Logistics Exception Workflow Gate**:
+   - Delivery Orders submitted for cancellation transition to `Pending Cancellation` status and are routed to the Universal Approval Inbox.
+   - Dispatch operations are blocked while an order is in `Pending Cancellation`.
+   - Approving the cancellation restores available FG units back to unallocated stock; rejecting or withdrawing the cancellation restores the delivery order to `Planned`.
+4. **Zero-Poll Active Session Reflection**:
+   - `resolveAuthUser` resolves effective permissions on every incoming request in Express middleware. Any role assignment, department change, or override modification takes effect in real time without requiring session logouts.

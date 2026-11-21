@@ -14,7 +14,7 @@
 - **Shared Domain Layer (`shared/`)**: Pure, zero-dependency domain definitions (`shared/types/erp.ts`) and deterministic calculation formulas (`shared/utils/erpLogic.ts`) shared between frontend and backend without database or backend secret leakage.
 - **Authentication & Authorization**: Dual JWT Bearer access (15m) and rotating refresh tokens (7d), bcrypt password hashing (`bcryptjs`), and module-by-action Role-Based Access Control (RBAC) enforced on both Express API middleware and React route guards.
 - **Persistence**: Production-ready MongoDB + Mongoose 9 persistence layer with connection pooling, graceful shutdown, replica set/Atlas auto-detection, and atomic document numbering via `$inc` on `DocCounterModel`. Historical JSON snapshot preserved in `backend/data/cryo-erp-db.json` and timestamped backups in `backend/data/backups/`. Normal operations execute 100% on MongoDB without JSON fallback.
-- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 11 test suites totaling **114 passing automated tests (100% pass rate)**.
+- **Pure Business Logic & Automated Testing**: Decoupled deterministic calculators and validators verified by `node:test` across 11 test suites totaling **115 passing automated tests (100% pass rate)**.
 
 ---
 
@@ -427,6 +427,37 @@
     - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
     - Production Vite bundle built cleanly in 593ms.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
+- **v2.9.4 (Universal RBAC & Approval Workflow Final Verification, Stabilization & Comprehensive Permission Coverage)**:
+  - Permission Engine Bug Fix & Upward Inheritance:
+    - Refined `checkPermission` and `resolveEffectivePermissions` across `shared/`, `backend/`, and `frontend/`.
+    - Fixed `deny` override precedence so explicit deny overrides are strictly enforced and cannot be negated by coarse department fallback.
+    - Implemented upward action inheritance from sub-modules into coarse department keys (`result[c]`), guaranteeing backwards compatibility for all endpoints guarded with coarse keys (e.g. `requirePerm('sales', 'create')`).
+    - Added canonical module alias resolution (`MODULE_ALIASES`) for seamless resolution across equivalent keys (`payment_entries` ↔ `payments`, `dispatch_notes` ↔ `delivery_orders`, `goods_receipts` ↔ `grn`, etc.).
+    - Added action interoperability between `verify` and `approve` on payment records.
+  - Direct Payment Entries API & Scoping:
+    - Added `GET /api/sales/payments` with `requirePerm('payments', 'view')`.
+    - Secured `POST /api/sales/payments` with `requirePerm('payments', 'create')`.
+    - Secured `POST /api/sales/payments/:id/verify` with `payments:verify` / `payments:approve`.
+    - Scoped `/api/erp/bootstrap` to return `payments = []` for unauthorized users.
+  - Frontend Navigation & Route Guards:
+    - Mapped all department nav links and quick create items to their explicit `ERP_MODULE_CATALOG` keys.
+    - Guarded desktop sidebar and mobile bottom sheet using `can(item.module || deptMeta.id, item.action || 'view')`.
+    - Guarded `/sales/payments` route with `<RequireModule module="payments">`.
+  - Approval Inbox Security & Commercial Redaction:
+    - Secured `GET /api/approvals/requests/:id` to reject unauthorized users (HTTP 403 Forbidden).
+    - Implemented automatic commercial data redaction: non-commercial staff (Production, Logistics) fetching approval requests have prices and totals masked as `'[REDACTED]'`.
+  - Logistics Delivery Cancellation Workflow:
+    - Added `Pending Cancellation` status to `DeliveryStatus`.
+    - Non-manager cancellation requests automatically generate an approval request in the Universal Approval Inbox.
+    - Blocked dispatch operations while an order is in `Pending Cancellation`.
+    - Approving cancellation unallocates goods; rejecting/withdrawing restores order to `Planned`.
+  - Comprehensive 13-Step Verification Journey Test:
+    - Added Scenario 6 to `universal-rbac-approvals.test.ts` validating all 13 steps programmatically end-to-end.
+  - Verification & Test Results:
+    - **115/115 automated tests passing (100% pass rate across all 11 test suites)**.
+    - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
+    - Vite production build bundled cleanly in 650ms.
+    - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
 - **v2.9.2 (Production Material Receipts Data Availability & UI Layout Swap)**:
   - Production Department Bootstrap Population:
     - Updated `backend/server/routes/auth.routes.ts` bootstrap query for `dept === 'production'` to include `MaterialIssueModel.find().sort({ createdAt: -1 }).lean()`.
@@ -467,4 +498,35 @@
     - **114/114 automated tests passing (100% pass rate across all 11 backend test suites)**, including 7 new dedicated integration tests in `server/tests/universal-rbac-approvals.test.ts`.
     - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
     - Production Vite bundle built cleanly in 593ms.
+    - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
+- **v2.9.4 (Universal RBAC & Approval Workflow Final Verification, Stabilization & Comprehensive Permission Coverage)**:
+  - Permission Engine Bug Fix & Upward Inheritance:
+    - Refined `checkPermission` and `resolveEffectivePermissions` across `shared/`, `backend/`, and `frontend/`.
+    - Fixed `deny` override precedence so explicit deny overrides are strictly enforced and cannot be negated by coarse department fallback.
+    - Implemented upward action inheritance from sub-modules into coarse department keys (`result[c]`), guaranteeing backwards compatibility for all endpoints guarded with coarse keys (e.g. `requirePerm('sales', 'create')`).
+    - Added canonical module alias resolution (`MODULE_ALIASES`) for seamless resolution across equivalent keys (`payment_entries` ↔ `payments`, `dispatch_notes` ↔ `delivery_orders`, `goods_receipts` ↔ `grn`, etc.).
+    - Added action interoperability between `verify` and `approve` on payment records.
+  - Direct Payment Entries API & Scoping:
+    - Added `GET /api/sales/payments` with `requirePerm('payments', 'view')`.
+    - Secured `POST /api/sales/payments` with `requirePerm('payments', 'create')`.
+    - Secured `POST /api/sales/payments/:id/verify` with `payments:verify` / `payments:approve`.
+    - Scoped `/api/erp/bootstrap` to return `payments = []` for unauthorized users.
+  - Frontend Navigation & Route Guards:
+    - Mapped all department nav links and quick create items to their explicit `ERP_MODULE_CATALOG` keys.
+    - Guarded desktop sidebar and mobile bottom sheet using `can(item.module || deptMeta.id, item.action || 'view')`.
+    - Guarded `/sales/payments` route with `<RequireModule module="payments">`.
+  - Approval Inbox Security & Commercial Redaction:
+    - Secured `GET /api/approvals/requests/:id` to reject unauthorized users (HTTP 403 Forbidden).
+    - Implemented automatic commercial data redaction: non-commercial staff (Production, Logistics) fetching approval requests have prices and totals masked as `'[REDACTED]'`.
+  - Logistics Delivery Cancellation Workflow:
+    - Added `Pending Cancellation` status to `DeliveryStatus`.
+    - Non-manager cancellation requests automatically generate an approval request in the Universal Approval Inbox.
+    - Blocked dispatch operations while an order is in `Pending Cancellation`.
+    - Approving cancellation unallocates goods; rejecting/withdrawing restores order to `Planned`.
+  - Comprehensive 13-Step Verification Journey Test:
+    - Added Scenario 6 to `universal-rbac-approvals.test.ts` validating all 13 steps programmatically end-to-end.
+  - Verification & Test Results:
+    - **115/115 automated tests passing (100% pass rate across all 11 test suites)**.
+    - **0 TypeScript compilation errors** (`npm run lint` across frontend and backend).
+    - Vite production build bundled cleanly in 650ms.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
