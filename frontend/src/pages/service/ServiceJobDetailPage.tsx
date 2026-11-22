@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
+  Building2,
   CalendarClock,
   CheckCircle2,
   Clock,
@@ -13,6 +14,7 @@ import {
   LogOut,
   PackageCheck,
   Plus,
+  RotateCcw,
   ShieldCheck,
   Trash2,
   Wrench,
@@ -90,6 +92,34 @@ export const ServiceJobDetailPage: React.FC = () => {
   const [completeForm, setCompleteForm] = useState({
     customerFeedbackScore: 5,
     customerFeedbackNotes: 'Servicing completed promptly and equipment restored to normal operation.',
+    finalProductCondition: 'Normal Operational Status',
+    completionSummary: 'All diagnostic steps, component replacements, and field calibration completed satisfactorily.',
+  });
+
+  const [workshopReceiveOpen, setWorkshopReceiveOpen] = useState(false);
+  const [workshopReturnOpen, setWorkshopReturnOpen] = useState(false);
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
+  const [discountAmount, setDiscountAmount] = useState(0);
+
+  const [workshopReceiveForm, setWorkshopReceiveForm] = useState({
+    receivedDate: new Date().toISOString().split('T')[0],
+    receivedBy: '',
+    condition: 'Machinery received at CRYO Workshop with physical integrity intact.',
+    notes: '',
+  });
+
+  const [workshopReturnForm, setWorkshopReturnForm] = useState({
+    returnDate: new Date().toISOString().split('T')[0],
+    returnStatus: 'Returned in fully operational verified condition',
+    notes: '',
+    customerConfirmation: true,
+  });
+
+  const [paymentForm, setPaymentForm] = useState({
+    amount: 0,
+    paymentMode: 'Bank Transfer',
+    referenceDocNo: '',
+    notes: '',
   });
 
   // Work Update Form (Dynamic Checklist + Multiple Highlights)
@@ -303,12 +333,67 @@ export const ServiceJobDetailPage: React.FC = () => {
       await erpApi.createServiceBilling(job.id, {
         items: billingItems,
         taxPercent: 18,
+        discountAmount,
       });
       toast('success', 'Service Billing Generated');
       setBillingOpen(false);
       await loadJobDetail();
     } catch (e: any) {
       setErr(e.message || 'Billing generation failed.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleWorkshopReceive = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!job) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await erpApi.workshopReceiveJob(job.id, {
+        ...workshopReceiveForm,
+        receivedBy: workshopReceiveForm.receivedBy || user?.name,
+      });
+      toast('success', 'Machinery Inward Logged at CRYO Workshop');
+      setWorkshopReceiveOpen(false);
+      await loadJobDetail();
+    } catch (e: any) {
+      setErr(e.message || 'Failed to record workshop receipt');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleWorkshopReturn = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!job) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await erpApi.workshopReturnJob(job.id, workshopReturnForm);
+      toast('success', 'Machinery Return Confirmed to Customer');
+      setWorkshopReturnOpen(false);
+      await loadJobDetail();
+    } catch (e: any) {
+      setErr(e.message || 'Failed to record workshop return');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleRecordPayment = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!billing) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await erpApi.recordServicePayment(billing.id, paymentForm);
+      toast('success', 'Customer Payment Recorded');
+      setPaymentModalOpen(false);
+      await loadJobDetail();
+    } catch (e: any) {
+      setErr(e.message || 'Failed to record payment');
     } finally {
       setSubmitting(false);
     }
@@ -339,10 +424,24 @@ export const ServiceJobDetailPage: React.FC = () => {
           Back to Jobs
         </Button>
         <div className="flex items-center gap-2">
-          {!job.checkIn && job.status === 'Scheduled' && (
+          {job.serviceType === 'CRYO Workshop' && job.workshopDetails?.status !== 'Received at Workshop' && job.status !== 'Closed' && (
+            <Button size="sm" variant="secondary" onClick={() => setWorkshopReceiveOpen(true)}>
+              <Building2 className="w-3.5 h-3.5 mr-1" />
+              Workshop Inward
+            </Button>
+          )}
+
+          {job.serviceType === 'CRYO Workshop' && job.workshopDetails?.status === 'Received at Workshop' && (job.status === 'Work Completed' || job.status === 'In Progress') && can('service', 'confirm') && (
+            <Button size="sm" variant="secondary" onClick={() => setWorkshopReturnOpen(true)}>
+              <RotateCcw className="w-3.5 h-3.5 mr-1" />
+              Workshop Return to Customer
+            </Button>
+          )}
+
+          {(!job.checkIn || Boolean(job.checkOut)) && job.status !== 'Closed' && (
             <Button size="sm" variant="primary" onClick={() => setCheckInOpen(true)}>
               <LogIn className="w-3.5 h-3.5 mr-1" />
-              Technician Check-In
+              {job.visits && job.visits.length > 0 ? 'Check-In (New Visit)' : 'Technician Check-In'}
             </Button>
           )}
 
@@ -353,7 +452,7 @@ export const ServiceJobDetailPage: React.FC = () => {
             </Button>
           )}
 
-          {job.status === 'Work Completed' && can('service', 'confirm') && (
+          {(job.status === 'Work Completed' || job.status === 'Billed') && can('service', 'confirm') && (
             <Button size="sm" variant="success" onClick={() => setCompleteOpen(true)}>
               <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
               Mark Closed & Sign-Off
@@ -514,6 +613,99 @@ export const ServiceJobDetailPage: React.FC = () => {
                 <p className="text-slate-600 dark:text-slate-400">{job.preventiveAction || 'Maintain clean ambient airflow and monthly condenser dusting.'}</p>
               </div>
             </div>
+          </div>
+
+          {/* Workshop Custody Details (CRYO Workshop jobs only) */}
+          {job.serviceType === 'CRYO Workshop' && (
+            <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-3 text-xs">
+              <div className="flex items-center justify-between">
+                <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                  CRYO Workshop Custody & Overhaul Tracking
+                </h3>
+                <StatusBadge status={job.workshopDetails?.status || 'Awaiting Workshop Receiving'} />
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-slate-700 dark:text-slate-300">
+                <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded border border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-400 block font-medium">Inward Custody Receiving</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    {job.workshopDetails?.receivedDate || 'Pending Inward Log'}
+                  </span>
+                  {job.workshopDetails?.receivedBy && (
+                    <div className="text-[11px] text-slate-500 mt-1">Received by: {job.workshopDetails.receivedBy}</div>
+                  )}
+                </div>
+                <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded border border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-400 block font-medium">Receiving Physical Condition</span>
+                  <span className="font-medium text-slate-800 dark:text-slate-200">
+                    {job.workshopDetails?.condition || 'Awaiting initial physical inspection'}
+                  </span>
+                </div>
+                <div className="p-3 bg-slate-50 dark:bg-slate-950 rounded border border-slate-100 dark:border-slate-800">
+                  <span className="text-slate-400 block font-medium">Outward Return Handover</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-200">
+                    {job.workshopDetails?.returnDate || 'Pending overhaul completion'}
+                  </span>
+                  {job.workshopDetails?.returnStatus && (
+                    <div className="text-[11px] text-emerald-600 font-medium mt-1">{job.workshopDetails.returnStatus}</div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Technician Multi-Visit Tracking History */}
+          <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-5 space-y-3 text-xs">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm flex items-center gap-2">
+                <CalendarClock className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                Technician Field Visits & Duration Log ({job.visits?.length || 0})
+              </h3>
+              {job.totalDurationMinutes !== undefined && job.totalDurationMinutes > 0 && (
+                <span className="px-2 py-0.5 rounded bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 font-semibold font-mono text-[11px]">
+                  Total On-Site Duration: {Math.floor(job.totalDurationMinutes / 60)}h {job.totalDurationMinutes % 60}m
+                </span>
+              )}
+            </div>
+
+            {job.visits && job.visits.length > 0 ? (
+              <div className="border border-slate-200 dark:border-slate-800 rounded-md overflow-hidden">
+                <table className="w-full text-left">
+                  <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-800">
+                    <tr>
+                      <th className="p-2.5">Visit #</th>
+                      <th className="p-2.5">Technician</th>
+                      <th className="p-2.5">Check-In Time</th>
+                      <th className="p-2.5">Check-Out Time</th>
+                      <th className="p-2.5 text-right">Duration</th>
+                      <th className="p-2.5">Visit Work Summary</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                    {job.visits.map((v, i) => (
+                      <tr key={i}>
+                        <td className="p-2.5 font-bold font-mono text-teal-600">Visit #{v.visitNumber || i + 1}</td>
+                        <td className="p-2.5 font-medium">{v.technicianName}</td>
+                        <td className="p-2.5 font-mono text-slate-500">{new Date(v.checkInTime).toLocaleString()}</td>
+                        <td className="p-2.5 font-mono text-slate-500">
+                          {v.checkOutTime ? new Date(v.checkOutTime).toLocaleString() : 'In Progress'}
+                        </td>
+                        <td className="p-2.5 text-right font-semibold">
+                          {v.durationMinutes !== undefined ? `${v.durationMinutes} min` : '-'}
+                        </td>
+                        <td className="p-2.5 text-slate-600 dark:text-slate-400">{v.workSummary || '-'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <div className="text-slate-400 italic p-3 bg-slate-50 dark:bg-slate-950 rounded border border-slate-200 dark:border-slate-800">
+                {job.checkIn && !job.checkOut
+                  ? `Active visit in progress (Checked in at ${new Date(job.checkIn.timestamp).toLocaleTimeString()}).`
+                  : 'No field visits completed yet.'}
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -797,20 +989,23 @@ export const ServiceJobDetailPage: React.FC = () => {
                 </div>
                 <div className="flex items-center gap-2">
                   <StatusBadge status={billing.paymentStatus} />
-                  {billing.paymentStatus === 'Pending' && (
+                  {billing.paymentStatus !== 'Paid' && (
                     <Button
                       size="sm"
                       variant="success"
-                      onClick={async () => {
-                        await erpApi.recordServiceBillingPayment(billing.id, {
-                          paymentStatus: 'Paid',
+                      onClick={() => {
+                        const due = billing.outstandingAmount !== undefined ? billing.outstandingAmount : Math.max(0, billing.grandTotal - (billing.paidAmount || 0));
+                        setPaymentForm({
+                          amount: due,
                           paymentMode: 'Bank Transfer',
+                          referenceDocNo: '',
+                          notes: 'Service invoice settlement payment',
                         });
-                        toast('success', 'Payment Recorded');
-                        await loadJobDetail();
+                        setPaymentModalOpen(true);
                       }}
                     >
-                      Record Payment Received
+                      <CreditCard className="w-3.5 h-3.5 mr-1" />
+                      Record Customer Payment
                     </Button>
                   )}
                 </div>
@@ -851,7 +1046,7 @@ export const ServiceJobDetailPage: React.FC = () => {
               </div>
 
               <div className="flex justify-end">
-                <div className="w-64 space-y-1.5 text-slate-700 dark:text-slate-300">
+                <div className="w-72 space-y-1.5 text-slate-700 dark:text-slate-300">
                   <div className="flex justify-between">
                     <span>Subtotal:</span>
                     <span className="font-medium">{formatCurrency(billing.subtotal)}</span>
@@ -860,9 +1055,29 @@ export const ServiceJobDetailPage: React.FC = () => {
                     <span>GST ({billing.taxPercent}%):</span>
                     <span className="font-medium">{formatCurrency(billing.taxAmount)}</span>
                   </div>
+                  {Boolean(billing.discountAmount) && (
+                    <div className="flex justify-between text-emerald-600">
+                      <span>Discount Given:</span>
+                      <span className="font-medium">-{formatCurrency(billing.discountAmount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between font-bold text-sm text-slate-900 dark:text-slate-100 pt-1.5 border-t border-slate-200 dark:border-slate-800">
                     <span>Grand Total:</span>
                     <span>{formatCurrency(billing.grandTotal)}</span>
+                  </div>
+                  <div className="flex justify-between text-emerald-600 font-semibold pt-1">
+                    <span>Amount Paid:</span>
+                    <span>{formatCurrency(billing.paidAmount || 0)}</span>
+                  </div>
+                  <div className="flex justify-between text-rose-600 font-bold pt-1 border-t border-slate-100 dark:border-slate-800">
+                    <span>Balance Outstanding:</span>
+                    <span>
+                      {formatCurrency(
+                        billing.outstandingAmount !== undefined
+                          ? billing.outstandingAmount
+                          : Math.max(0, billing.grandTotal - (billing.paidAmount || 0)),
+                      )}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -1209,6 +1424,23 @@ export const ServiceJobDetailPage: React.FC = () => {
       <Modal open={completeOpen} onClose={() => setCompleteOpen(false)} title="Close Service Job & Customer Sign-Off">
         <form onSubmit={handleCompleteJob} className="space-y-4">
           {err && <ErrorBanner message={err} />}
+          <Field label="Final Equipment Operational Condition" required>
+            <Input
+              value={completeForm.finalProductCondition}
+              onChange={(e) => setCompleteForm({ ...completeForm, finalProductCondition: e.target.value })}
+              placeholder="e.g. Normal Operational Status / Tested to -86°C"
+              required
+            />
+          </Field>
+          <Field label="Work Resolution & Completion Summary" required>
+            <Textarea
+              value={completeForm.completionSummary}
+              onChange={(e) => setCompleteForm({ ...completeForm, completionSummary: e.target.value })}
+              rows={2}
+              placeholder="Summary of all repairs, parts replaced, and customer sign-off..."
+              required
+            />
+          </Field>
           <Field label="Customer Satisfaction Score (1 to 5)">
             <Select
               value={completeForm.customerFeedbackScore}
@@ -1303,12 +1535,169 @@ export const ServiceJobDetailPage: React.FC = () => {
             ))}
           </div>
 
+          <Field label="Commercial Discount (₹)">
+            <Input
+              type="number"
+              min="0"
+              value={discountAmount}
+              onChange={(e) => setDiscountAmount(Number(e.target.value))}
+              placeholder="e.g. 500"
+            />
+          </Field>
+
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
             <Button variant="secondary" onClick={() => setBillingOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" loading={submitting}>
               Generate Invoice
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Workshop Receive Modal */}
+      <Modal open={workshopReceiveOpen} onClose={() => setWorkshopReceiveOpen(false)} title="CRYO Workshop Machinery Inward Custody">
+        <form onSubmit={handleWorkshopReceive} className="space-y-4">
+          {err && <ErrorBanner message={err} />}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Inward Receiving Date" required>
+              <Input
+                type="date"
+                value={workshopReceiveForm.receivedDate}
+                onChange={(e) => setWorkshopReceiveForm({ ...workshopReceiveForm, receivedDate: e.target.value })}
+                required
+              />
+            </Field>
+            <Field label="Received By Officer" required>
+              <Input
+                value={workshopReceiveForm.receivedBy || user?.name || ''}
+                onChange={(e) => setWorkshopReceiveForm({ ...workshopReceiveForm, receivedBy: e.target.value })}
+                required
+              />
+            </Field>
+          </div>
+          <Field label="Physical Condition at Receiving" required>
+            <Textarea
+              value={workshopReceiveForm.condition}
+              onChange={(e) => setWorkshopReceiveForm({ ...workshopReceiveForm, condition: e.target.value })}
+              rows={2}
+              required
+            />
+          </Field>
+          <Field label="Intake Notes / Accessories Received">
+            <Input
+              value={workshopReceiveForm.notes}
+              onChange={(e) => setWorkshopReceiveForm({ ...workshopReceiveForm, notes: e.target.value })}
+              placeholder="e.g. Cables, power transformer, master key included"
+            />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <Button variant="secondary" onClick={() => setWorkshopReceiveOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" loading={submitting}>
+              Confirm Inward Receipt
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Workshop Return Modal */}
+      <Modal open={workshopReturnOpen} onClose={() => setWorkshopReturnOpen(false)} title="CRYO Workshop Handover to Customer">
+        <form onSubmit={handleWorkshopReturn} className="space-y-4">
+          {err && <ErrorBanner message={err} />}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Outward Return Date" required>
+              <Input
+                type="date"
+                value={workshopReturnForm.returnDate}
+                onChange={(e) => setWorkshopReturnForm({ ...workshopReturnForm, returnDate: e.target.value })}
+                required
+              />
+            </Field>
+            <Field label="Return Operational Status" required>
+              <Input
+                value={workshopReturnForm.returnStatus}
+                onChange={(e) => setWorkshopReturnForm({ ...workshopReturnForm, returnStatus: e.target.value })}
+                required
+              />
+            </Field>
+          </div>
+          <Field label="Return Verification / Customer Acknowledgement Notes">
+            <Textarea
+              value={workshopReturnForm.notes}
+              onChange={(e) => setWorkshopReturnForm({ ...workshopReturnForm, notes: e.target.value })}
+              rows={2}
+              placeholder="e.g. Tested at -86°C over 48h before client handover"
+            />
+          </Field>
+          <label className="flex items-center gap-2 text-xs font-medium text-slate-700 dark:text-slate-300">
+            <input
+              type="checkbox"
+              checked={workshopReturnForm.customerConfirmation}
+              onChange={(e) => setWorkshopReturnForm({ ...workshopReturnForm, customerConfirmation: e.target.checked })}
+              className="rounded border-slate-300 text-teal-600 focus:ring-teal-500"
+            />
+            Customer has confirmed safe receipt of machinery
+          </label>
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <Button variant="secondary" onClick={() => setWorkshopReturnOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="success" loading={submitting}>
+              Confirm Customer Return Handover
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Record Payment Modal */}
+      <Modal open={paymentModalOpen} onClose={() => setPaymentModalOpen(false)} title={`Record Payment for ${billing?.docNo}`}>
+        <form onSubmit={handleRecordPayment} className="space-y-4">
+          {err && <ErrorBanner message={err} />}
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Payment Amount (₹)" required>
+              <Input
+                type="number"
+                min="1"
+                value={paymentForm.amount}
+                onChange={(e) => setPaymentForm({ ...paymentForm, amount: Number(e.target.value) })}
+                required
+              />
+            </Field>
+            <Field label="Payment Mode" required>
+              <Select
+                value={paymentForm.paymentMode}
+                onChange={(e) => setPaymentForm({ ...paymentForm, paymentMode: e.target.value })}
+              >
+                <option value="Bank Transfer">Bank Transfer (NEFT/RTGS/IMPS)</option>
+                <option value="UPI">UPI Payment</option>
+                <option value="Cheque">Corporate Cheque</option>
+                <option value="Cash">Cash Handover</option>
+              </Select>
+            </Field>
+          </div>
+          <Field label="Bank Reference / Cheque / UTR #">
+            <Input
+              value={paymentForm.referenceDocNo}
+              onChange={(e) => setPaymentForm({ ...paymentForm, referenceDocNo: e.target.value })}
+              placeholder="e.g. UTR-9823419082"
+            />
+          </Field>
+          <Field label="Payment Notes">
+            <Input
+              value={paymentForm.notes}
+              onChange={(e) => setPaymentForm({ ...paymentForm, notes: e.target.value })}
+              placeholder="e.g. Cleared via HDFC Bank"
+            />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <Button variant="secondary" onClick={() => setPaymentModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="success" loading={submitting}>
+              Save Payment Entry
             </Button>
           </div>
         </form>

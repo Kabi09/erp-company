@@ -248,7 +248,7 @@ export const EmployeeAccessPage: React.FC = () => {
               key={d}
               type="button"
               onClick={() => setDeptFilter(d)}
-              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors cursor-pointer whitespace-nowrap ${
+              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors cursor-pointer capitalize whitespace-nowrap ${
                 deptFilter === d
                   ? 'bg-teal-600 text-white'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'

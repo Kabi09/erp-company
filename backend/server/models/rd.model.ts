@@ -103,10 +103,23 @@ const RDBOMSchema = new Schema<RDBOM>(
         quantityRequested: { type: Number, default: 0 },
         quantityIssued: { type: Number, default: 0 },
         quantityConsumed: { type: Number, default: 0 },
+        quantityReceived: { type: Number, default: 0 },
+        quantityReturned: { type: Number, default: 0 },
         notes: { type: String, default: '' },
       },
     ],
     totalEstimatedCost: { type: Number, default: 0 },
+    linkedMaterialRequestId: { type: String, index: true },
+    receiptStatus: {
+      type: String,
+      enum: ['Pending', 'Partially Received', 'Fully Received'],
+      default: 'Pending',
+    },
+    requisitionStatus: {
+      type: String,
+      enum: ['Draft', 'Requested', 'Partially Issued', 'Issued'],
+      default: 'Draft',
+    },
   },
   { timestamps: true },
 );

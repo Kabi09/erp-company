@@ -2,6 +2,7 @@ import { Router } from 'express';
 import {
   CustomerModel,
   DeliveredProductModel,
+  EmployeeModel,
   MaterialModel,
   MaterialRequestModel,
   ProductModel,
@@ -11,6 +12,7 @@ import {
   ServiceMaterialRequestModel,
   ServiceRequestModel,
   ServiceWorkUpdateModel,
+  StockTransactionModel,
   TechnicianAdvanceModel,
 } from '../models';
 import { mongoERPRepository } from '../repositories/MongoERPRepository';
@@ -299,12 +301,18 @@ serviceRouter.patch('/service/requests/:id/warranty-check', requireAuth, require
 serviceRouter.post('/service/requests/:id/assign', requireAuth, requirePerm('service', 'edit'), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-    const { assignedTechnicianId, assignedTechnicianName, scheduledDate, serviceType, priority, technicianId, technicianName } = req.body;
+    const { assignedTechnicianId, assignedTechnicianName, scheduledDate, scheduledTime, instructions, serviceType, priority, technicianId, technicianName } = req.body;
     const techId = assignedTechnicianId || technicianId;
     const techName = assignedTechnicianName || technicianName;
 
     if (!techId || !techName || !scheduledDate) {
       throw new Error('assignedTechnicianId, assignedTechnicianName, and scheduledDate are required.');
+    }
+
+    // Verify technician is an active employee
+    const emp = await EmployeeModel.findOne({ id: techId }).lean();
+    if (emp && emp.status !== 'Active') {
+      throw new Error(`Technician '${techName}' is not an active employee.`);
     }
 
     const srv = await ServiceRequestModel.findOne({ id });
@@ -334,14 +342,19 @@ serviceRouter.post('/service/requests/:id/assign', requireAuth, requirePerm('ser
         assignedTechnicianId: techId,
         assignedTechnicianName: techName,
         scheduledDate,
+        scheduledTime: scheduledTime || '',
+        instructions: instructions || '',
         status: 'Scheduled',
         isChargeable: !srv.warrantyClaimValid,
+        visits: [],
       });
       srv.assignedJobId = job.id;
     } else {
-      job.assignedTechnicianId = assignedTechnicianId;
-      job.assignedTechnicianName = assignedTechnicianName;
+      job.assignedTechnicianId = techId;
+      job.assignedTechnicianName = techName;
       job.scheduledDate = scheduledDate;
+      if (scheduledTime !== undefined) job.scheduledTime = scheduledTime;
+      if (instructions !== undefined) job.instructions = instructions;
       job.serviceType = serviceType || job.serviceType;
       await job.save();
     }
@@ -356,10 +369,66 @@ serviceRouter.post('/service/requests/:id/assign', requireAuth, requirePerm('ser
       entityType: 'ServiceJob',
       entityId: job.id,
       entityDocNo: job.docNo,
-      details: `Dispatched Job ${job.docNo} to ${assignedTechnicianName} for ${scheduledDate}`,
+      details: `Dispatched Job ${job.docNo} to ${techName} for ${scheduledDate}`,
     });
 
     res.json({ serviceRequest: srv, serviceJob: job });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Reschedule or Reassign Service Job
+serviceRouter.patch('/service/jobs/:id/reschedule', requireAuth, requirePerm('service', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { scheduledDate, scheduledTime, instructions, assignedTechnicianId, assignedTechnicianName } = req.body;
+    const job = await ServiceJobModel.findOne({ id });
+    if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
+
+    if (scheduledDate) job.scheduledDate = scheduledDate;
+    if (scheduledTime !== undefined) job.scheduledTime = scheduledTime;
+    if (instructions !== undefined) job.instructions = instructions;
+
+    if (assignedTechnicianId && assignedTechnicianName) {
+      const emp = await EmployeeModel.findOne({ id: assignedTechnicianId }).lean();
+      if (emp && emp.status !== 'Active') {
+        throw new Error(`Technician '${assignedTechnicianName}' is not an active employee.`);
+      }
+      job.assignedTechnicianId = assignedTechnicianId;
+      job.assignedTechnicianName = assignedTechnicianName;
+
+      await ServiceRequestModel.updateOne(
+        { id: job.serviceRequestId },
+        {
+          $set: {
+            assignedTechnicianId,
+            assignedTechnicianName,
+            scheduledDate: job.scheduledDate,
+          },
+        },
+      );
+    } else if (scheduledDate) {
+      await ServiceRequestModel.updateOne(
+        { id: job.serviceRequestId },
+        { $set: { scheduledDate: job.scheduledDate } },
+      );
+    }
+
+    await job.save();
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'service',
+      action: 'Rescheduled Service Job',
+      entityType: 'ServiceJob',
+      entityId: job.id,
+      entityDocNo: job.docNo,
+      details: `Rescheduled Job ${job.docNo} to ${job.scheduledDate} ${job.scheduledTime || ''}`,
+    });
+
+    res.json(job);
   } catch (err) {
     sendError(res, err);
   }
@@ -425,14 +494,20 @@ serviceRouter.post('/service/jobs/:id/check-in', requireAuth, async (req: Authen
     const job = await ServiceJobModel.findOne({ id });
     if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
 
+    // Check if technician is already checked in on an active visit without check-out
+    if (job.checkIn && job.checkIn.timestamp && !job.checkOut) {
+      throw new Error('Technician is already checked in. Please record check-out for the active visit before checking in again.');
+    }
+
     const checkInTimestamp = new Date().toISOString();
     job.checkIn = {
       timestamp: checkInTimestamp,
       performedBy: req.user!.name,
-      location: location || 'Customer Site',
+      location: location || (job.serviceType === 'CRYO Workshop' ? 'CRYO Workshop' : 'Customer Site'),
       notes: notes || '',
     };
     (job as any).checkInTime = checkInTimestamp;
+    job.checkOut = undefined; // clear previous check-out for new active visit
     job.status = 'In Progress';
     await job.save();
 
@@ -481,7 +556,27 @@ serviceRouter.post('/service/jobs/:id/check-out', requireAuth, async (req: Authe
     const job = await ServiceJobModel.findOne({ id });
     if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
 
+    if (!job.checkIn || !job.checkIn.timestamp) {
+      throw new Error('Cannot check out without an active check-in.');
+    }
+
     const checkOutTimestamp = new Date().toISOString();
+    const checkInTime = job.checkIn.timestamp;
+    const durationMinutes = Math.max(1, Math.round((new Date(checkOutTimestamp).getTime() - new Date(checkInTime).getTime()) / 60000));
+
+    const currentVisits = Array.isArray(job.visits) ? [...job.visits] : [];
+    const visitRecord = {
+      visitNumber: currentVisits.length + 1,
+      checkInTime,
+      checkOutTime: checkOutTimestamp,
+      durationMinutes,
+      workSummary: resolutionSummary,
+      technicianName: req.user!.name,
+    };
+    currentVisits.push(visitRecord);
+    job.visits = currentVisits;
+    job.totalDurationMinutes = currentVisits.reduce((acc, v) => acc + (v.durationMinutes || 0), 0);
+
     job.checkOut = {
       timestamp: checkOutTimestamp,
       performedBy: req.user!.name,
@@ -513,6 +608,77 @@ serviceRouter.post('/service/jobs/:id/check-out', requireAuth, async (req: Authe
       ...job.toObject(),
       checkOutTime: checkOutTimestamp,
     });
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Workshop Custody - Receiving Machinery at CRYO Workshop
+serviceRouter.post('/service/jobs/:id/workshop-receive', requireAuth, requirePerm('service', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { receivedDate, condition, photos, notes, receivedBy } = req.body;
+    const job = await ServiceJobModel.findOne({ id });
+    if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
+
+    job.workshopDetails = {
+      ...(job.workshopDetails || {}),
+      receivedDate: receivedDate || new Date().toISOString().split('T')[0],
+      receivedBy: receivedBy || req.user!.name,
+      condition: condition || 'Received for Inspection & Workshop Overhaul',
+      photos: Array.isArray(photos) ? photos : [],
+      status: 'Received at Workshop',
+    };
+    job.status = 'In Progress';
+    await job.save();
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'service',
+      action: 'Workshop Machinery Received',
+      entityType: 'ServiceJob',
+      entityId: job.id,
+      entityDocNo: job.docNo,
+      details: `Received machinery at CRYO Workshop for Job ${job.docNo}`,
+    });
+
+    res.json(job);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Workshop Custody - Return Machinery to Customer
+serviceRouter.post('/service/jobs/:id/workshop-return', requireAuth, requirePerm('service', 'confirm'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { returnDate, returnStatus, notes, customerConfirmation } = req.body;
+    const job = await ServiceJobModel.findOne({ id });
+    if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
+
+    job.workshopDetails = {
+      ...(job.workshopDetails || {}),
+      returnDate: returnDate || new Date().toISOString().split('T')[0],
+      returnStatus: returnStatus || 'Returned in fully operational verified condition',
+      status: 'Returned to Customer',
+      customerConfirmation: Boolean(customerConfirmation ?? true),
+    };
+    job.status = 'Work Completed';
+    await job.save();
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'service',
+      action: 'Workshop Machinery Returned',
+      entityType: 'ServiceJob',
+      entityId: job.id,
+      entityDocNo: job.docNo,
+      details: `Returned workshop machinery to customer for Job ${job.docNo}`,
+    });
+
+    res.json(job);
   } catch (err) {
     sendError(res, err);
   }
@@ -565,7 +731,7 @@ serviceRouter.post('/service/jobs/:id/work-updates', requireAuth, async (req: Au
 serviceRouter.post('/service/jobs/:id/complete', requireAuth, requirePerm('service', 'confirm'), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-    const { customerFeedbackScore, customerFeedbackNotes } = req.body;
+    const { customerFeedbackScore, customerFeedbackNotes, finalProductCondition, completionSummary } = req.body;
 
     const job = await ServiceJobModel.findOne({ id });
     if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
@@ -574,6 +740,8 @@ serviceRouter.post('/service/jobs/:id/complete', requireAuth, requirePerm('servi
     job.completionDate = new Date().toISOString();
     if (customerFeedbackScore) job.customerFeedbackScore = Number(customerFeedbackScore);
     if (customerFeedbackNotes) job.customerFeedbackNotes = customerFeedbackNotes;
+    if (finalProductCondition) job.finalProductCondition = finalProductCondition;
+    if (completionSummary) job.completionSummary = completionSummary;
     await job.save();
 
     await ServiceRequestModel.updateOne(
@@ -581,11 +749,36 @@ serviceRouter.post('/service/jobs/:id/complete', requireAuth, requirePerm('servi
       { $set: { status: 'Completed', updatedAt: new Date().toISOString() } },
     );
 
-    // Release delivered product back to Active status
-    await DeliveredProductModel.updateOne(
-      { id: job.deliveredProductId },
-      { $set: { status: 'Active' } },
-    );
+    // Collect replaced parts from material requests
+    const matRequests = await ServiceMaterialRequestModel.find({ serviceJobId: job.id }).lean();
+    const replacedParts: string[] = [];
+    for (const mr of matRequests) {
+      for (const it of mr.items || []) {
+        if ((it.quantityIssued || 0) > 0) {
+          replacedParts.push(`${it.materialName} (${it.quantityIssued} ${it.unit})`);
+        }
+      }
+    }
+
+    // Release delivered product back to Active status and record service history
+    if (job.deliveredProductId) {
+      await DeliveredProductModel.updateOne(
+        { id: job.deliveredProductId },
+        {
+          $set: { status: 'Active' },
+          $push: {
+            serviceHistory: {
+              serviceJobId: job.id,
+              serviceJobDocNo: job.docNo,
+              completedDate: job.completionDate,
+              resolutionSummary: completionSummary || job.checkOut?.resolutionSummary || 'Service Completed Successfully',
+              technicianName: job.assignedTechnicianName || req.user!.name,
+              replacedParts,
+            },
+          },
+        },
+      );
+    }
 
     await mongoERPRepository.addActivity({
       actorId: req.user!.id,
@@ -738,18 +931,63 @@ serviceRouter.post('/service/material-requests/:id/reconcile', requireAuth, asyn
 
     const list = itemsUsage || items;
     if (Array.isArray(list)) {
-      list.forEach((usage: any, idx: number) => {
+      for (let idx = 0; idx < list.length; idx++) {
+        const usage = list[idx];
         const item = smr.items.find((x) => x.id === usage.id || x.materialName === usage.materialName) || smr.items[idx];
         if (item) {
-          item.quantityUsed = Number(usage.quantityUsed ?? usage.quantityConsumed) || 0;
-          item.quantityReturned = Number(usage.quantityReturned) || 0;
+          const used = Number(usage.quantityUsed ?? usage.quantityConsumed) || 0;
+          const returned = Number(usage.quantityReturned) || 0;
+          item.quantityUsed = used;
+          item.quantityReturned = returned;
+
+          // If parts were returned to store stock, update inventory ledger
+          if (returned > 0 && item.materialId) {
+            const mat = await MaterialModel.findOne({ id: item.materialId });
+            if (mat) {
+              const updatedMat = await MaterialModel.findOneAndUpdate(
+                { id: mat.id },
+                { $inc: { currentStock: returned } },
+                { returnDocument: 'after' },
+              );
+              await StockTransactionModel.create({
+                id: generateId('st'),
+                materialId: mat.id,
+                materialCode: mat.code,
+                materialName: mat.name,
+                unit: mat.unit,
+                type: 'Production Return',
+                quantityDelta: returned,
+                balanceAfter: updatedMat?.currentStock ?? mat.currentStock + returned,
+                linkedDocType: 'SMR',
+                linkedDocId: smr.id,
+                linkedDocNo: smr.docNo,
+                remarks: `Unused spare returned from Service Job ${smr.serviceJobDocNo}`,
+                performedBy: req.user!.name,
+                timestamp: new Date().toISOString(),
+              });
+            }
+          }
         }
-      });
+      }
     }
 
     smr.status = 'Reconciled';
     smr.reconciledDate = new Date().toISOString();
     await smr.save();
+
+    // If linked to Supply Chain MR, sync returnedQty
+    if (smr.linkedMaterialRequestId) {
+      const scMr = await MaterialRequestModel.findOne({ id: smr.linkedMaterialRequestId });
+      if (scMr) {
+        smr.items.forEach((sIt) => {
+          const mrIt = scMr.items.find((m) => m.materialId === sIt.materialId || m.materialName === sIt.materialName);
+          if (mrIt) {
+            mrIt.returnedQty = (mrIt.returnedQty || 0) + (sIt.quantityReturned || 0);
+          }
+        });
+        await scMr.save();
+      }
+    }
 
     res.json(smr);
   } catch (err) {
@@ -862,6 +1100,11 @@ serviceRouter.patch('/service/expenses/:id/verify', requireAuth, requirePerm('se
     const exp = await ServiceExpenseModel.findOne({ id });
     if (!exp) throw new Error(`NOT_FOUND: Service expense '${id}' not found.`);
 
+    // Segregation of duties: Technicians cannot verify their own expenses
+    if (exp.technicianId === req.user!.id || (req.user!.employeeId && exp.technicianId === req.user!.employeeId)) {
+      throw new Error('Technicians cannot verify their own expenses. Segregation of duties required.');
+    }
+
     exp.status = status;
     exp.verifiedBy = req.user!.name;
     exp.verifiedAt = new Date().toISOString();
@@ -880,7 +1123,7 @@ serviceRouter.get('/service/expenses/settlement-summary/:technicianId', requireA
     const { technicianId } = req.params;
 
     const [expenses, advances] = await Promise.all([
-      ServiceExpenseModel.find({ technicianId, status: 'Verified' }).lean(),
+      ServiceExpenseModel.find({ technicianId, status: 'Verified', settledAt: { $exists: false } }).lean(),
       TechnicianAdvanceModel.find({ technicianId, status: 'Disbursed' }).lean(),
     ]);
 
@@ -928,12 +1171,34 @@ serviceRouter.post('/service/expenses/settle', requireAuth, requirePerm('service
     const { technicianId } = req.body;
     if (!technicianId) throw new Error('technicianId is required.');
 
-    await TechnicianAdvanceModel.updateMany(
-      { technicianId, status: 'Disbursed' },
-      { $set: { status: 'Settled', settledDate: new Date().toISOString() } },
-    );
+    const [pendingExpenses, pendingAdvances] = await Promise.all([
+      ServiceExpenseModel.find({ technicianId, status: 'Verified', settledAt: { $exists: false } }),
+      TechnicianAdvanceModel.find({ technicianId, status: 'Disbursed' }),
+    ]);
 
-    res.json({ ok: true, message: `Advances for technician ${technicianId} settled.` });
+    if (pendingExpenses.length === 0 && pendingAdvances.length === 0) {
+      throw new Error('No pending verified expenses or disbursed advances to settle for this technician.');
+    }
+
+    const settlementId = generateId('SETTL');
+    const now = new Date().toISOString();
+
+    await Promise.all([
+      ServiceExpenseModel.updateMany(
+        { technicianId, status: 'Verified', settledAt: { $exists: false } },
+        { $set: { settledAt: now, settlementId } },
+      ),
+      TechnicianAdvanceModel.updateMany(
+        { technicianId, status: 'Disbursed' },
+        { $set: { status: 'Settled', settledDate: now, settlementId } },
+      ),
+    ]);
+
+    res.json({
+      ok: true,
+      settlementId,
+      message: `Settled ${pendingExpenses.length} expenses and ${pendingAdvances.length} advances for technician ${technicianId}.`,
+    });
   } catch (err) {
     sendError(res, err);
   }
@@ -955,7 +1220,7 @@ serviceRouter.get('/service/billings', requireAuth, async (req: AuthenticatedReq
 serviceRouter.post('/service/jobs/:id/billing', requireAuth, requirePerm('service', 'create'), async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-    const { items, taxPercent, notes } = req.body;
+    const { items, taxPercent, discountAmount, notes } = req.body;
 
     const job = await ServiceJobModel.findOne({ id });
     if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
@@ -982,7 +1247,8 @@ serviceRouter.post('/service/jobs/:id/billing', requireAuth, requirePerm('servic
 
     const taxRate = Number(taxPercent) ?? 18;
     const taxAmount = Math.round((subtotal * taxRate) / 100);
-    const grandTotal = subtotal + taxAmount;
+    const discount = Number(discountAmount) || 0;
+    const grandTotal = Math.max(0, subtotal + taxAmount - discount);
 
     const docNo = await mongoERPRepository.getNextDocNo('SBL');
     const billingDoc = await ServiceBillingModel.create({
@@ -997,7 +1263,10 @@ serviceRouter.post('/service/jobs/:id/billing', requireAuth, requirePerm('servic
       subtotal,
       taxPercent: taxRate,
       taxAmount,
+      discountAmount: discount,
       grandTotal,
+      paidAmount: 0,
+      outstandingAmount: grandTotal,
       paymentStatus: grandTotal === 0 ? 'Waived' : 'Pending',
       notes: notes || (grandTotal === 0 ? 'Complimentary warranty service' : ''),
     });
@@ -1012,17 +1281,31 @@ serviceRouter.post('/service/jobs/:id/billing', requireAuth, requirePerm('servic
   }
 });
 
-serviceRouter.patch('/service/billings/:id/payment', requireAuth, requirePerm('service', 'confirm'), async (req: AuthenticatedRequest, res) => {
+// Record Customer Payment (supports PATCH or POST)
+const handleRecordBillingPayment = async (req: AuthenticatedRequest, res: any) => {
   try {
     const { id } = req.params;
-    const { paymentStatus, paymentMode, paymentReference } = req.body;
+    const { amount, paymentStatus, paymentMode, paymentMethod, paymentReference, referenceDocNo } = req.body;
 
     const bill = await ServiceBillingModel.findOne({ id });
     if (!bill) throw new Error(`NOT_FOUND: Service billing '${id}' not found.`);
 
-    bill.paymentStatus = paymentStatus || 'Paid';
-    bill.paymentMode = paymentMode || 'Bank Transfer';
-    bill.paymentReference = paymentReference || '';
+    if (amount !== undefined && Number(amount) > 0) {
+      const pAmount = Number(amount);
+      const newPaid = (bill.paidAmount || 0) + pAmount;
+      bill.paidAmount = newPaid;
+      bill.outstandingAmount = Math.max(0, bill.grandTotal - newPaid);
+      bill.paymentStatus = bill.outstandingAmount === 0 ? 'Paid' : 'Partially Paid';
+    } else if (paymentStatus) {
+      bill.paymentStatus = paymentStatus;
+      if (paymentStatus === 'Paid') {
+        bill.paidAmount = bill.grandTotal;
+        bill.outstandingAmount = 0;
+      }
+    }
+
+    bill.paymentMode = paymentMode || paymentMethod || bill.paymentMode || 'Bank Transfer';
+    bill.paymentReference = referenceDocNo || paymentReference || bill.paymentReference || '';
     bill.paymentDate = new Date().toISOString();
     await bill.save();
 
@@ -1030,7 +1313,10 @@ serviceRouter.patch('/service/billings/:id/payment', requireAuth, requirePerm('s
   } catch (err) {
     sendError(res, err);
   }
-});
+};
+
+serviceRouter.patch('/service/billings/:id/payment', requireAuth, requirePerm('service', 'confirm'), handleRecordBillingPayment);
+serviceRouter.post('/service/billings/:id/payment', requireAuth, requirePerm('service', 'confirm'), handleRecordBillingPayment);
 
 // ==========================================
 // SERVICE DASHBOARD KPIS

@@ -76,6 +76,11 @@ export const RDProjectDetailPage: React.FC = () => {
   const [consumeModalOpen, setConsumeModalOpen] = useState(false);
   const [selectedBomItem, setSelectedBomItem] = useState<RDBOMItem | null>(null);
   const [consumeQty, setConsumeQty] = useState(1);
+  const [receiveModalOpen, setReceiveModalOpen] = useState(false);
+  const [returnModalOpen, setReturnModalOpen] = useState(false);
+  const [selectedReturnItem, setSelectedReturnItem] = useState<RDBOMItem | null>(null);
+  const [returnQty, setReturnQty] = useState(1);
+  const [returnReason, setReturnReason] = useState('Unused prototype material return to store stock');
   const [workUpdateOpen, setWorkUpdateOpen] = useState(false);
   const [testModalOpen, setTestModalOpen] = useState(false);
   const [retestModalOpen, setRetestModalOpen] = useState(false);
@@ -236,6 +241,43 @@ export const RDProjectDetailPage: React.FC = () => {
     }
   };
 
+  const handleReceiveAllMaterials = async () => {
+    if (!project) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await erpApi.receiveRDBOMMaterials(project.id);
+      toast('success', 'Physical Receipt of Prototype Materials Acknowledged');
+      setReceiveModalOpen(false);
+      await loadProject();
+    } catch (e: any) {
+      toast('error', 'Receipt acknowledgement failed', e.message);
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleReturnMaterial = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!project || !selectedReturnItem) return;
+    setSubmitting(true);
+    setErr(null);
+    try {
+      await erpApi.returnRDBOMMaterials(project.id, {
+        items: [{ itemId: selectedReturnItem.id, returnQty }],
+        reason: returnReason,
+      });
+      toast('success', 'Unused Materials Returned to Supply Chain Stores');
+      setReturnModalOpen(false);
+      setSelectedReturnItem(null);
+      await loadProject();
+    } catch (e: any) {
+      setErr(e.message || 'Returning materials failed.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handleWorkUpdate = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!project) return;
@@ -307,6 +349,24 @@ export const RDProjectDetailPage: React.FC = () => {
     if (!project) return;
     setSubmitting(true);
     setErr(null);
+
+    // Architectural & Verification Gate: Check for unresolved failed test iterations
+    const latestByTest = new Map<string, any>();
+    for (const t of tests) {
+      const key = t.testProtocolNumber || t.testName;
+      const existing = latestByTest.get(key);
+      if (!existing || (t.iteration || 1) > (existing.iteration || 1)) {
+        latestByTest.set(key, t);
+      }
+    }
+    const unresolvedFails = Array.from(latestByTest.values()).filter((t) => t.status === 'Failed');
+    if (unresolvedFails.length > 0) {
+      const failNames = unresolvedFails.map((f) => `${f.testName} (Iteration ${f.iteration})`).join(', ');
+      setErr(`Cannot complete R&D Project: Unresolved failed test iterations remain [${failNames}]. Retesting and passing result required before completion.`);
+      setSubmitting(false);
+      return;
+    }
+
     try {
       await erpApi.completeRDProject(project.id, {
         finalConclusion,
@@ -486,11 +546,22 @@ export const RDProjectDetailPage: React.FC = () => {
       {/* TAB 3: PROTOTYPE BOM */}
       {activeTab === 'bom' && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
-              Prototype Experimental Bill of Materials (BOM)
-            </h3>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
+                Prototype Experimental Bill of Materials (BOM)
+              </h3>
+              <p className="text-xs text-slate-500">
+                Track full component lifecycle: Required, Requested, Issued, Received, Consumed, Returned, and Pending.
+              </p>
+            </div>
             <div className="flex items-center gap-2">
+              {bom?.items?.some((i) => (i.quantityIssued || 0) > (i.quantityReceived || 0)) && (
+                <Button size="sm" variant="success" onClick={handleReceiveAllMaterials} loading={submitting}>
+                  <CheckCircle2 className="w-3.5 h-3.5 mr-1" />
+                  Acknowledge Material Receipt
+                </Button>
+              )}
               <Button
                 size="sm"
                 variant="secondary"
@@ -504,12 +575,12 @@ export const RDProjectDetailPage: React.FC = () => {
                 }}
               >
                 <Boxes className="w-3.5 h-3.5 mr-1" />
-                Request Materials from Stores
+                Request from Stores
               </Button>
               {can('rd', 'edit') && (
                 <Button size="sm" onClick={() => setBomModalOpen(true)}>
                   <Plus className="w-3.5 h-3.5 mr-1" />
-                  Define BOM Components
+                  Define BOM
                 </Button>
               )}
             </div>
@@ -519,50 +590,77 @@ export const RDProjectDetailPage: React.FC = () => {
             <table className="w-full text-left">
               <thead className="bg-slate-50 dark:bg-slate-950 text-slate-500 font-semibold border-b border-slate-200 dark:border-slate-800">
                 <tr>
-                  <th className="p-3">Component / Material</th>
-                  <th className="p-3">Part #</th>
-                  <th className="p-3">Source</th>
-                  <th className="p-3 text-right">Required</th>
-                  <th className="p-3 text-right">Unit Cost</th>
-                  <th className="p-3 text-right">Total Cost</th>
-                  <th className="p-3 text-right">Consumed</th>
-                  <th className="p-3 text-right">Action</th>
+                  <th className="p-2.5">Component / Material</th>
+                  <th className="p-2.5">Part #</th>
+                  <th className="p-2.5 text-right">Required</th>
+                  <th className="p-2.5 text-right">Requested</th>
+                  <th className="p-2.5 text-right">Issued</th>
+                  <th className="p-2.5 text-right">Received</th>
+                  <th className="p-2.5 text-right">Consumed</th>
+                  <th className="p-2.5 text-right">Returned</th>
+                  <th className="p-2.5 text-right">Pending</th>
+                  <th className="p-2.5 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {(bom?.items || []).map((it) => (
-                  <tr key={it.id}>
-                    <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{it.name}</td>
-                    <td className="p-3 font-mono text-slate-500">{it.partNumber || '-'}</td>
-                    <td className="p-3">
-                      <span className="px-2 py-0.5 rounded text-[11px] font-medium bg-slate-100 dark:bg-slate-800">
-                        {it.source}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right font-medium">{it.quantityRequired} {it.unit}</td>
-                    <td className="p-3 text-right">{formatCurrency(it.estimatedUnitCost)}</td>
-                    <td className="p-3 text-right font-bold text-slate-900 dark:text-slate-100">
-                      {formatCurrency(it.totalCost)}
-                    </td>
-                    <td className="p-3 text-right font-bold text-indigo-600">
-                      {it.quantityConsumed} {it.unit}
-                    </td>
-                    <td className="p-3 text-right">
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        onClick={() => {
-                          setSelectedBomItem(it);
-                          setConsumeQty(1);
-                          setConsumeModalOpen(true);
-                        }}
-                        className="text-xs h-6 px-2"
-                      >
-                        Log Consumption
-                      </Button>
-                    </td>
-                  </tr>
-                ))}
+                {(bom?.items || []).map((it) => {
+                  const req = it.quantityRequired || 0;
+                  const reqd = it.quantityRequested || 0;
+                  const iss = it.quantityIssued || 0;
+                  const rec = it.quantityReceived || (iss > 0 && bom?.receiptStatus === 'Received' ? iss : 0);
+                  const con = it.quantityConsumed || 0;
+                  const ret = it.quantityReturned || 0;
+                  const pending = Math.max(0, req - (rec || iss));
+                  const availableToConsume = Math.max(0, (rec || iss) - con - ret);
+                  const availableToReturn = Math.max(0, (rec || iss) - con - ret);
+
+                  return (
+                    <tr key={it.id}>
+                      <td className="p-2.5 font-semibold text-slate-800 dark:text-slate-200">
+                        {it.name}
+                        <div className="text-[11px] text-slate-400 font-normal">Source: {it.source}</div>
+                      </td>
+                      <td className="p-2.5 font-mono text-slate-500">{it.partNumber || '-'}</td>
+                      <td className="p-2.5 text-right font-medium">{req} {it.unit}</td>
+                      <td className="p-2.5 text-right text-slate-500">{reqd} {it.unit}</td>
+                      <td className="p-2.5 text-right text-blue-600 font-medium">{iss} {it.unit}</td>
+                      <td className="p-2.5 text-right text-emerald-600 font-medium">{rec} {it.unit}</td>
+                      <td className="p-2.5 text-right text-indigo-600 font-bold">{con} {it.unit}</td>
+                      <td className="p-2.5 text-right text-amber-600 font-medium">{ret} {it.unit}</td>
+                      <td className="p-2.5 text-right text-rose-600 font-semibold">{pending} {it.unit}</td>
+                      <td className="p-2.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              setSelectedBomItem(it);
+                              setConsumeQty(Math.min(1, availableToConsume || 1));
+                              setConsumeModalOpen(true);
+                            }}
+                            disabled={availableToConsume <= 0}
+                            className="text-[11px] h-6 px-2"
+                          >
+                            Consume
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="secondary"
+                            onClick={() => {
+                              setSelectedReturnItem(it);
+                              setReturnQty(Math.min(1, availableToReturn || 1));
+                              setReturnModalOpen(true);
+                            }}
+                            disabled={availableToReturn <= 0}
+                            className="text-[11px] h-6 px-2 text-amber-700 dark:text-amber-300"
+                          >
+                            Return
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>
@@ -961,6 +1059,41 @@ export const RDProjectDetailPage: React.FC = () => {
             </Button>
             <Button type="submit" loading={submitting}>
               Record Consumption
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Return Unused Materials Modal */}
+      <Modal open={returnModalOpen} onClose={() => setReturnModalOpen(false)} title="Return Unused Materials to Supply Chain Stores">
+        <form onSubmit={handleReturnMaterial} className="space-y-4">
+          {err && <ErrorBanner message={err} />}
+          <div className="text-xs">
+            Returning Component: <span className="font-semibold text-slate-800 dark:text-slate-200">{selectedReturnItem?.name}</span>
+          </div>
+          <Field label={`Return Quantity (${selectedReturnItem?.unit || 'Nos'})`} required>
+            <Input
+              type="number"
+              min="1"
+              value={returnQty}
+              onChange={(e) => setReturnQty(Number(e.target.value))}
+              required
+            />
+          </Field>
+          <Field label="Return Reason / Condition Notes" required>
+            <Input
+              value={returnReason}
+              onChange={(e) => setReturnReason(e.target.value)}
+              placeholder="e.g. Prototype assembly finalized; returning excess undamaged materials"
+              required
+            />
+          </Field>
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
+            <Button variant="secondary" onClick={() => setReturnModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" variant="success" loading={submitting}>
+              Confirm Return to Stores
             </Button>
           </div>
         </form>

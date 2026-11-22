@@ -142,7 +142,7 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
       { label: 'Quality Check', path: '/production/quality-check', icon: ShieldCheck, module: 'quality_inspections' },
       { label: 'Rework', path: '/production/rework', icon: RefreshCw, module: 'quality_inspections' },
       { label: 'Completed Production', path: '/production/completed', icon: CheckCircle2, module: 'production_orders' },
-      { label: 'Delivered Products', path: '/production/delivered-products', icon: PackageCheck, module: 'delivered_products' },
+      { label: 'Delivered Products', path: '/production/delivered-products', icon: PackageCheck, module: 'production' },
       { label: 'Reports', path: '/production/reports', icon: BarChart3, module: 'reports' },
     ],
     quickCreate: [

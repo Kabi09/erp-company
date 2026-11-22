@@ -23,6 +23,7 @@ export const MaterialRequestsPage: React.FC = () => {
 
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('All');
+  const [deptFilter, setDeptFilter] = useState('All');
   const [issuingMR, setIssuingMR] = useState<MaterialRequest | null>(null);
   const [issueQtys, setIssueQtys] = useState<Record<string, number>>({});
   const [issueRemarks, setIssueRemarks] = useState('');
@@ -87,6 +88,14 @@ export const MaterialRequestsPage: React.FC = () => {
   const filtered = useMemo(() => {
     return data.materialRequests.filter((mr) => {
       if (statusFilter !== 'All' && mr.status !== statusFilter) return false;
+      if (deptFilter !== 'All') {
+        const d = (mr.department || 'production').toLowerCase();
+        if (deptFilter.toLowerCase() === 'rd') {
+          if (d !== 'rd' && d !== 'rnd') return false;
+        } else if (d !== deptFilter.toLowerCase()) {
+          return false;
+        }
+      }
       const q = search.trim().toLowerCase();
       return (
         !q ||
@@ -95,23 +104,47 @@ export const MaterialRequestsPage: React.FC = () => {
         mr.productName.toLowerCase().includes(q)
       );
     });
-  }, [data.materialRequests, statusFilter, search]);
+  }, [data.materialRequests, statusFilter, deptFilter, search]);
 
   return (
     <div className="space-y-4">
       <PageHeader
         title="Material Requests (BOM)"
-        subtitle="Automatically received from Production. Check live store stock, issue available materials partially or fully, or purchase shortages."
+        subtitle="Consolidated indent queues from Production, Service, and R&D. Check live store stock, issue available materials, or purchase shortages."
       />
 
-      <FilterBar
-        search={search}
-        onSearchChange={setSearch}
-        searchPlaceholder="Search MR number, production order, or product..."
-        statuses={['All', 'Pending', 'Partially Issued', 'Fully Issued']}
-        activeStatus={statusFilter}
-        onStatusChange={setStatusFilter}
-      />
+      <div className="flex flex-col md:flex-row items-center justify-between gap-3">
+        <div className="flex items-center gap-1.5 overflow-x-auto w-full md:w-auto">
+          {[
+            { id: 'All', label: 'All Departments' },
+            { id: 'production', label: 'Production' },
+            { id: 'service', label: 'Service' },
+            { id: 'rd', label: 'R&D' },
+          ].map((d) => (
+            <button
+              key={d.id}
+              type="button"
+              onClick={() => setDeptFilter(d.id)}
+              className={`px-3 py-1 text-xs font-semibold rounded-full transition-colors cursor-pointer whitespace-nowrap ${
+                deptFilter === d.id
+                  ? 'bg-slate-900 text-white dark:bg-white dark:text-slate-900'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+              }`}
+            >
+              {d.label}
+            </button>
+          ))}
+        </div>
+
+        <FilterBar
+          search={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search MR number, reference order, or product..."
+          statuses={['All', 'Pending', 'Partially Issued', 'Fully Issued']}
+          activeStatus={statusFilter}
+          onStatusChange={setStatusFilter}
+        />
+      </div>
 
       {filtered.length === 0 ? (
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-10 text-center text-sm text-slate-500">
@@ -131,6 +164,14 @@ export const MaterialRequestsPage: React.FC = () => {
               return pending > 0 && avail > 0;
             });
 
+            const dept = (mr.department || 'production').toLowerCase();
+            const deptBadge =
+              dept === 'service'
+                ? { label: 'Service', color: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300' }
+                : dept === 'rd' || dept === 'rnd'
+                  ? { label: 'R&D', color: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300' }
+                  : { label: 'Production', color: 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300' };
+
             return (
               <div
                 key={mr.id}
@@ -139,6 +180,9 @@ export const MaterialRequestsPage: React.FC = () => {
                 <div className="px-4 py-3.5 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${deptBadge.color}`}>
+                        {deptBadge.label}
+                      </span>
                       <span className="font-mono font-semibold text-sm">{mr.docNo}</span>
                       <span className="text-xs text-slate-500">
                         · {mr.productionOrderDocNo} · {mr.salesOrderDocNo}
@@ -147,7 +191,7 @@ export const MaterialRequestsPage: React.FC = () => {
                       <StatusBadge status={mr.priority} />
                     </div>
                     <div className="text-xs text-slate-600 dark:text-slate-400 mt-0.5">
-                      {mr.productName} · Requested by {mr.requestedBy} on {mr.requestDate} · Prod Receipt: {mr.receiptStatus}
+                      {mr.productName} · Requested by {mr.requestedBy} on {mr.requestDate} · Dept Receipt: {mr.receiptStatus}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap shrink-0">

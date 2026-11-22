@@ -633,6 +633,7 @@ export interface MaterialRequest {
   salesOrderId: string;
   salesOrderDocNo: string;
   productName: string;
+  department?: Department | string;
   priority: 'Normal' | 'High' | 'Urgent';
   items: MaterialRequestItem[];
   status: 'Pending' | 'Partially Issued' | 'Fully Issued' | 'Cancelled';
@@ -1139,6 +1140,13 @@ export interface DeliveredProduct {
   warrantyStatus: WarrantyStatus;
   status: 'Active' | 'Under Service' | 'Decommissioned';
   notes?: string;
+  serviceHistory?: Array<{
+    serviceJobId: string;
+    serviceJobDocNo: string;
+    completedDate: string;
+    technicianName: string;
+    issueDescription: string;
+  }>;
   createdAt: string;
   updatedAt?: string;
 }
@@ -1194,6 +1202,33 @@ export interface ServiceJobCheckOut {
   customerSignatureAck?: boolean;
 }
 
+export interface ServiceJobVisit {
+  visitNumber: number;
+  checkInTime: string;
+  checkOutTime?: string;
+  durationMinutes?: number;
+  technicianId?: string;
+  technicianName?: string;
+  location?: string;
+  resolutionSummary?: string;
+  workSummary?: string;
+  notes?: string;
+}
+
+export interface WorkshopCustody {
+  status?: string;
+  condition?: string;
+  receivedDate?: string;
+  receivedBy?: string;
+  receivedCondition?: string;
+  photos?: string[];
+  returnDate?: string;
+  returnStatus?: 'Pending' | 'Ready for Pickup' | 'Collected by Customer' | 'Dispatched' | string;
+  customerConfirmation?: boolean;
+  customerSignatoryName?: string;
+  returnNotes?: string;
+}
+
 export interface ServiceJob {
   id: string;
   docNo: string; // JOB-xxxx
@@ -1209,9 +1244,18 @@ export interface ServiceJob {
   assignedTechnicianId: string;
   assignedTechnicianName: string;
   scheduledDate: string;
+  scheduledTime?: string;
+  instructions?: string;
   status: ServiceJobStatus;
   checkIn?: ServiceJobCheckIn;
+  checkInTime?: string;
   checkOut?: ServiceJobCheckOut;
+  checkOutTime?: string;
+  totalDurationMinutes?: number;
+  visits?: ServiceJobVisit[];
+  workshopDetails?: WorkshopCustody;
+  finalProductCondition?: string;
+  completionSummary?: string;
   diagnosisSummary?: string;
   rootCause?: string;
   correctiveAction?: string;
@@ -1270,7 +1314,7 @@ export interface ServiceMaterialRequest {
   requestedBy: string;
   requestDate: string;
   items: ServiceMaterialItem[];
-  status: 'Pending' | 'Issued' | 'Received' | 'Reconciled';
+  status: 'Pending' | 'Requested' | 'Issued' | 'Received' | 'Reconciled';
   issuedDate?: string;
   receivedDate?: string;
   reconciledDate?: string;
@@ -1357,6 +1401,9 @@ export interface ServiceBilling {
   taxPercent: number;
   taxAmount: number;
   grandTotal: number;
+  discountAmount?: number;
+  paidAmount?: number;
+  outstandingAmount?: number;
   paymentStatus: 'Pending' | 'Paid' | 'Waived';
   paymentMode?: string;
   paymentReference?: string;
@@ -1430,6 +1477,8 @@ export interface RDBOMItem {
   quantityRequested: number;
   quantityIssued: number;
   quantityConsumed: number;
+  quantityReceived?: number;
+  quantityReturned?: number;
   notes?: string;
 }
 
@@ -1439,6 +1488,9 @@ export interface RDBOM {
   version: string;
   items: RDBOMItem[];
   totalEstimatedCost: number;
+  linkedMaterialRequestId?: string;
+  receiptStatus?: 'Pending' | 'Partially Received' | 'Fully Received';
+  requisitionStatus?: 'Draft' | 'Requested' | 'Partially Issued' | 'Issued';
   createdAt: string;
   updatedAt: string;
 }

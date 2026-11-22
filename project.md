@@ -644,3 +644,34 @@
     - Full system regression run: **151/151 automated tests passing (100% pass rate across all 14 test suites)**.
     - Frontend production client build: **0 TypeScript errors, built cleanly in 719ms**.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
+- **v2.9.8 (Service & R&D Workflow Integration, SCM Material Handshake, Workshop Custody & Multi-Visit Tracking)**:
+  - Cross-Department Delivered Products Synchronization:
+    - Integrated Logistics `confirmDelivery` with `DeliveredProductModel`, auto-registering delivered units with serial numbers, warranty terms, and active status.
+    - Granted Production access to `/production/delivered-products` via composite route guard `<RequireModule module={['production', 'delivered_products']}>`.
+  - Service Intake & Warranty Verification:
+    - Dynamic machine selection auto-fills customer details and filters machinery per customer.
+    - Added Unverified/Legacy machinery manual entry fallback mode.
+    - Separated date validity (`Under Warranty`, `Expired`) from claim verification (`Claim Approved`, `Claim Rejected`), supporting paid service workflows for non-warranty tickets.
+  - Technician Scheduling & Multi-Visit Tracking:
+    - Enforced active employee checks (`emp.status === 'Active'`) on ticket assignment and job rescheduling (`PATCH /service/jobs/:id/reschedule`).
+    - Added multi-visit check-in/out tracking with duration calculation and duplicate check-in prevention.
+  - CRYO Workshop Custody:
+    - Added inward receiving (`POST /service/jobs/:id/workshop-receive`) and return handover (`POST /service/jobs/:id/workshop-return`) tracking.
+  - Technician Advances & Segregation of Duties:
+    - Enforced segregation of duties on expense verification (`claim.employeeId !== req.user.id`), blocking technicians from verifying their own claims.
+    - Tagged expense settlements with unique `settlementId` and `settledAt`, preventing duplicate settlements.
+  - Customer Service Billing:
+    - Added discount, paid amount, and outstanding amount tracking with incremental payment recording (`POST /service/billings/:id/payment`).
+  - Supply Chain Handshake (Service & R&D):
+    - Real-time synchronization of SCM store issues to `ServiceMaterialRequestModel` and `RDBOMModel`.
+    - Added physical receipt confirmation (`POST /rd/projects/:id/materials/receive`) and material returns (`POST /rd/projects/:id/materials/return`) restoring SCM stock.
+    - Displayed department origin badges (`Production`, `Service`, `R&D`) and department filter tabs on SCM Material Requests page.
+  - R&D Testing & Completion Isolation Gate:
+    - Retest iteration tracking with block on project completion if any test parameter has unresolved failures.
+    - Strictly enforced and tested architectural isolation: R&D completion never creates Production Orders, never alters Product Master BOMs, and never modifies the Sales Catalog.
+  - Roles & Permissions UI:
+    - Capitalized department filter tabs (`All`, `Sales`, `Supply Chain`, `Production`, `Logistics`, `Service`, `R&D`, `Admin`, `Shared`) in Permissions Matrix and Employee Access Overrides.
+  - Automated Verification:
+    - Full backend test suite: **151/151 tests passed (100% pass rate across 14 test suites)**.
+    - Frontend build: **0 TypeScript errors, built in 820ms**.
+    - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.

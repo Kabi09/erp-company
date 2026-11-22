@@ -59,6 +59,8 @@ export const ServiceRequestsPage: React.FC = () => {
     assignedTechnicianId: '',
     assignedTechnicianName: '',
     scheduledDate: new Date().toISOString().split('T')[0],
+    scheduledTime: '10:00 AM',
+    instructions: '',
     serviceType: 'Customer Site',
     priority: 'Medium',
   });
@@ -220,7 +222,11 @@ export const ServiceRequestsPage: React.FC = () => {
 
   const technicians = useMemo(() => {
     return (data?.employees || []).filter(
-      (e) => e.department === 'service' || e.designation.toLowerCase().includes('technician') || e.designation.toLowerCase().includes('engineer'),
+      (e) =>
+        e.status === 'Active' &&
+        (e.department === 'service' ||
+          e.designation.toLowerCase().includes('technician') ||
+          e.designation.toLowerCase().includes('engineer')),
     );
   }, [data?.employees]);
 
@@ -308,6 +314,8 @@ export const ServiceRequestsPage: React.FC = () => {
                     assignedTechnicianId: '',
                     assignedTechnicianName: '',
                     scheduledDate: new Date().toISOString().split('T')[0],
+                    scheduledTime: '10:00 AM',
+                    instructions: '',
                     serviceType: r.serviceType,
                     priority: r.priority,
                   });
@@ -391,16 +399,24 @@ export const ServiceRequestsPage: React.FC = () => {
               <Select
                 value={form.customerId}
                 onChange={(e) => {
-                  const cust = data?.customers.find((c) => c.id === e.target.value);
-                  setForm({
-                    ...form,
-                    customerId: e.target.value,
+                  const custId = e.target.value;
+                  const cust = data?.customers.find((c) => c.id === custId);
+                  setForm((prev) => ({
+                    ...prev,
+                    customerId: custId,
                     customerName: cust?.name || '',
                     contactPerson: cust?.contactPerson || '',
                     contactPhone: cust?.phone || '',
                     contactEmail: cust?.email || '',
                     serviceAddress: cust?.shippingAddress || cust?.billingAddress || '',
-                  });
+                    // Clear previously selected machinery when customer changes
+                    deliveredProductId: '',
+                    serialNumber: '',
+                    productName: '',
+                    modelNumber: '',
+                    isUnderWarranty: true,
+                    warrantyRemarks: '',
+                  }));
                 }}
                 required
               >
@@ -417,24 +433,42 @@ export const ServiceRequestsPage: React.FC = () => {
               <Select
                 value={form.deliveredProductId}
                 onChange={(e) => {
-                  const dp = deliveredProducts.find((p) => p.id === e.target.value);
+                  const val = e.target.value;
+                  if (val === 'custom') {
+                    // Unverified / Legacy Machinery manual mode
+                    setForm((prev) => ({
+                      ...prev,
+                      deliveredProductId: '',
+                      serialNumber: '',
+                      productName: '',
+                      modelNumber: '',
+                      isUnderWarranty: false,
+                      warrantyRemarks: 'Legacy / Unverified Third-Party Machinery (Non-Warranty)',
+                    }));
+                    return;
+                  }
+                  const dp = deliveredProducts.find((p) => p.id === val);
                   if (dp) {
-                    setForm({
-                      ...form,
+                    setForm((prev) => ({
+                      ...prev,
                       deliveredProductId: dp.id,
                       serialNumber: dp.serialNumber,
                       productName: dp.productName,
                       modelNumber: dp.modelNumber || '',
                       customerId: dp.customerId,
                       customerName: dp.customerName,
-                      serviceAddress: dp.deliveryAddress || form.serviceAddress,
+                      contactPerson: dp.customerContact || prev.contactPerson,
+                      contactPhone: dp.customerPhone || prev.contactPhone,
+                      contactEmail: dp.customerEmail || prev.contactEmail,
+                      serviceAddress: dp.deliveryAddress || prev.serviceAddress,
                       isUnderWarranty: dp.warrantyStatus === 'Under Warranty',
                       warrantyRemarks: dp.warrantyStatus === 'Under Warranty' ? 'Valid manufacturer warranty' : 'Warranty expired',
-                    });
+                    }));
                   }
                 }}
               >
                 <option value="">Select Deployed Equipment...</option>
+                <option value="custom">-- Unverified / Legacy Machinery (Manual Entry) --</option>
                 {deliveredProducts
                   .filter((p) => !form.customerId || p.customerId === form.customerId)
                   .map((p) => (
@@ -556,14 +590,23 @@ export const ServiceRequestsPage: React.FC = () => {
             </Select>
           </Field>
 
-          <Field label="Scheduled Date" required>
-            <Input
-              type="date"
-              value={assignForm.scheduledDate}
-              onChange={(e) => setAssignForm({ ...assignForm, scheduledDate: e.target.value })}
-              required
-            />
-          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Scheduled Date" required>
+              <Input
+                type="date"
+                value={assignForm.scheduledDate}
+                onChange={(e) => setAssignForm({ ...assignForm, scheduledDate: e.target.value })}
+                required
+              />
+            </Field>
+            <Field label="Scheduled Time">
+              <Input
+                placeholder="e.g. 10:00 AM"
+                value={assignForm.scheduledTime}
+                onChange={(e) => setAssignForm({ ...assignForm, scheduledTime: e.target.value })}
+              />
+            </Field>
+          </div>
 
           <Field label="Service Location Mode">
             <Select
@@ -573,6 +616,14 @@ export const ServiceRequestsPage: React.FC = () => {
               <option value="Customer Site">Customer Site Service</option>
               <option value="CRYO Workshop">CRYO Factory / Workshop Service</option>
             </Select>
+          </Field>
+
+          <Field label="Field Instructions & Site Precautions">
+            <Input
+              placeholder="e.g. Inspect refrigerant pressure and bring vacuum pump..."
+              value={assignForm.instructions}
+              onChange={(e) => setAssignForm({ ...assignForm, instructions: e.target.value })}
+            />
           </Field>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">

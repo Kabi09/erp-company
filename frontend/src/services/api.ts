@@ -549,6 +549,14 @@ export const erpApi = {
     request<ServiceBilling>(`/service/jobs/${id}/billing`, { method: 'POST', body: JSON.stringify(payload) }),
   recordServiceBillingPayment: (id: string, payload: any) =>
     request<ServiceBilling>(`/service/billings/${id}/payment`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  recordServicePayment: (id: string, payload: any) =>
+    request<ServiceBilling>(`/service/billings/${id}/payment`, { method: 'POST', body: JSON.stringify(payload) }),
+  workshopReceiveJob: (id: string, payload: any) =>
+    request<ServiceJob>(`/service/jobs/${id}/workshop-receive`, { method: 'POST', body: JSON.stringify(payload) }),
+  workshopReturnJob: (id: string, payload: any) =>
+    request<ServiceJob>(`/service/jobs/${id}/workshop-return`, { method: 'POST', body: JSON.stringify(payload) }),
+  rescheduleServiceJob: (id: string, payload: any) =>
+    request<ServiceJob>(`/service/jobs/${id}/reschedule`, { method: 'PATCH', body: JSON.stringify(payload) }),
   getServiceDashboard: () =>
     request<any>('/service/dashboard'),
 
@@ -575,6 +583,10 @@ export const erpApi = {
     request<any>(`/rd/projects/${id}/material-request`, { method: 'POST', body: JSON.stringify(payload) }),
   consumeRDBOMItem: (id: string, itemId: string, payload: any) =>
     request<RDBOM>(`/rd/projects/${id}/bom/${itemId}/consume`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  receiveRDBOMMaterials: (id: string, payload?: any) =>
+    request<RDBOM>(`/rd/projects/${id}/materials/receive`, { method: 'POST', body: JSON.stringify(payload || {}) }),
+  returnRDBOMMaterials: (id: string, payload: any) =>
+    request<RDBOM>(`/rd/projects/${id}/materials/return`, { method: 'POST', body: JSON.stringify(payload) }),
   getRDWorkUpdates: (id: string) =>
     request<RDWorkUpdate[]>(`/rd/projects/${id}/work-updates`),
   createRDWorkUpdate: (id: string, payload: any) =>

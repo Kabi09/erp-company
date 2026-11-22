@@ -1,11 +1,13 @@
 import { Router } from 'express';
 import {
+  MaterialModel,
   MaterialRequestModel,
   RDBOMModel,
   RDProjectModel,
   RDSpecificationModel,
   RDTestRecordModel,
   RDWorkUpdateModel,
+  StockTransactionModel,
 } from '../models';
 import { mongoERPRepository } from '../repositories/MongoERPRepository';
 import { generateId, sendError } from '../utils/routeUtils';
@@ -133,6 +135,22 @@ rdRouter.post('/rd/projects/:id/complete', requireAuth, requirePerm('rd', 'confi
 
     const project = await RDProjectModel.findOne({ id });
     if (!project) throw new Error(`NOT_FOUND: R&D project '${id}' not found.`);
+
+    // Completion Gate: Block completion if any test currently has an unresolved failed iteration
+    const tests = await RDTestRecordModel.find({ rdProjectId: project.id }).lean();
+    const latestByTest = new Map<string, any>();
+    for (const t of tests) {
+      const key = t.testProtocolNumber || t.testName;
+      const existing = latestByTest.get(key);
+      if (!existing || (t.iteration || 1) > (existing.iteration || 1)) {
+        latestByTest.set(key, t);
+      }
+    }
+    const unresolvedFails = Array.from(latestByTest.values()).filter((t) => t.status === 'Failed');
+    if (unresolvedFails.length > 0) {
+      const failNames = unresolvedFails.map((f) => `${f.testName} (Iteration ${f.iteration})`).join(', ');
+      throw new Error(`Cannot complete R&D Project: Unresolved failed test iterations remain [${failNames}]. Retesting and passing result required before completion.`);
+    }
 
     project.status = 'Successfully Completed';
     project.currentStage = 'Validation Finalized';
@@ -342,6 +360,9 @@ rdRouter.post('/rd/projects/:id/material-request', requireAuth, requirePerm('rd'
 
     // Update requested quantities in RDBOM if item matches
     if (bom) {
+      bom.linkedMaterialRequestId = scMr.id;
+      bom.receiptStatus = 'Pending';
+      bom.requisitionStatus = 'Requested';
       items.forEach((reqItem: any) => {
         const found = bom.items.find(
           (b) => b.id === reqItem.id || b.name.toLowerCase() === (reqItem.name || '').toLowerCase(),
@@ -354,6 +375,53 @@ rdRouter.post('/rd/projects/:id/material-request', requireAuth, requirePerm('rd'
     }
 
     res.status(201).json(scMr);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Acknowledge Physical Receipt of Prototype Materials
+rdRouter.post('/rd/projects/:id/materials/receive', requireAuth, requirePerm('rd', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { items } = req.body;
+
+    const project = await RDProjectModel.findOne({ id });
+    if (!project) throw new Error(`NOT_FOUND: R&D project '${id}' not found.`);
+
+    const bom = await RDBOMModel.findOne({ rdProjectId: project.id });
+    if (!bom) throw new Error(`NOT_FOUND: BOM for project '${id}' not found.`);
+
+    if (Array.isArray(items) && items.length > 0) {
+      items.forEach((it: any) => {
+        const target = bom.items.find((b) => b.id === it.id || b.name === it.name);
+        if (target) {
+          target.quantityReceived = (target.quantityReceived || 0) + (Number(it.quantityReceived) || target.quantityIssued || target.quantityRequired);
+        }
+      });
+    } else {
+      bom.items.forEach((b) => {
+        if (!b.quantityReceived || b.quantityReceived < (b.quantityIssued || 0)) {
+          b.quantityReceived = b.quantityIssued > 0 ? b.quantityIssued : b.quantityRequired;
+        }
+      });
+    }
+
+    bom.receiptStatus = 'Received';
+    await bom.save();
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'rd',
+      action: 'Acknowledged Material Receipt',
+      entityType: 'RDBOM',
+      entityId: bom.id,
+      entityDocNo: `RND-BOM-${project.projectCode}`,
+      details: `Acknowledged physical receipt of prototype materials for Project ${project.projectCode}`,
+    });
+
+    res.json(bom);
   } catch (err) {
     sendError(res, err);
   }
@@ -372,12 +440,119 @@ rdRouter.patch('/rd/projects/:id/bom/:itemId/consume', requireAuth, requirePerm(
     if (!item) throw new Error(`NOT_FOUND: Item '${itemId}' not found in BOM.`);
 
     const consumed = Number(quantityConsumed) || 0;
+    if (consumed <= 0) throw new Error('quantityConsumed must be greater than zero.');
+
+    const received = item.quantityReceived || item.quantityIssued || item.quantityRequired;
+    const available = received - (item.quantityConsumed || 0) - (item.quantityReturned || 0);
+    if (consumed > available) {
+      throw new Error(`Cannot consume ${consumed} ${item.unit}; only ${available} available.`);
+    }
+
     item.quantityConsumed = (item.quantityConsumed || 0) + consumed;
     await bom.save();
 
     // Increment project budget utilization
     const addedCost = consumed * item.estimatedUnitCost;
     await RDProjectModel.updateOne({ id }, { $inc: { budgetUtilized: addedCost } });
+
+    res.json(bom);
+  } catch (err) {
+    sendError(res, err);
+  }
+});
+
+// Return Unused Prototype Materials back to Supply Chain Stores
+rdRouter.post('/rd/projects/:id/materials/return', requireAuth, requirePerm('rd', 'edit'), async (req: AuthenticatedRequest, res) => {
+  try {
+    const { id } = req.params;
+    const { items, reason } = req.body; // items: [{ itemId, returnQty }]
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('At least one item is required for material return.');
+    }
+
+    const project = await RDProjectModel.findOne({ id });
+    if (!project) throw new Error(`NOT_FOUND: R&D project '${id}' not found.`);
+
+    const bom = await RDBOMModel.findOne({ rdProjectId: project.id });
+    if (!bom) throw new Error(`NOT_FOUND: BOM for project '${id}' not found.`);
+
+    const now = new Date().toISOString();
+    const returnReason = reason || `Unused prototype materials returned from R&D Project ${project.projectCode}`;
+
+    for (const retItem of items) {
+      const bomItem = bom.items.find((b) => b.id === retItem.itemId || b.name === retItem.name);
+      if (!bomItem) continue;
+
+      const qty = Number(retItem.returnQty) || 0;
+      if (qty <= 0) continue;
+
+      const received = bomItem.quantityReceived || bomItem.quantityIssued || bomItem.quantityRequired;
+      const consumed = bomItem.quantityConsumed || 0;
+      const alreadyReturned = bomItem.quantityReturned || 0;
+      const netAvailable = received - consumed - alreadyReturned;
+
+      if (qty > netAvailable) {
+        throw new Error(`Cannot return ${qty} ${bomItem.unit} of '${bomItem.name}'; only ${netAvailable} available to return.`);
+      }
+
+      bomItem.quantityReturned = alreadyReturned + qty;
+
+      // If associated with a material in MaterialModel, restore stock
+      if (bomItem.materialId) {
+        const mat = await MaterialModel.findOne({ id: bomItem.materialId });
+        if (mat) {
+          const updatedMat = await MaterialModel.findOneAndUpdate(
+            { id: mat.id },
+            { $inc: { currentStock: qty } },
+            { returnDocument: 'after' },
+          );
+
+          await StockTransactionModel.create({
+            id: generateId('st'),
+            materialId: mat.id,
+            materialCode: mat.code,
+            materialName: mat.name,
+            unit: mat.unit,
+            type: 'Production Return',
+            quantityDelta: qty,
+            balanceAfter: updatedMat?.currentStock ?? mat.currentStock + qty,
+            linkedDocType: 'RDBOM',
+            linkedDocId: bom.id,
+            linkedDocNo: `RND-BOM-${project.projectCode}`,
+            remarks: returnReason,
+            performedBy: req.user!.name,
+            timestamp: now,
+          });
+        }
+      }
+    }
+
+    await bom.save();
+
+    // Also sync to linked Supply Chain MR if present
+    if (bom.linkedMaterialRequestId) {
+      const scMr = await MaterialRequestModel.findOne({ id: bom.linkedMaterialRequestId });
+      if (scMr) {
+        bom.items.forEach((bIt) => {
+          const mrIt = scMr.items.find((m) => m.materialId === bIt.materialId || m.materialName === bIt.name);
+          if (mrIt) {
+            mrIt.returnedQty = (mrIt.returnedQty || 0) + (bIt.quantityReturned || 0);
+          }
+        });
+        await scMr.save();
+      }
+    }
+
+    await mongoERPRepository.addActivity({
+      actorId: req.user!.id,
+      actorName: req.user!.name,
+      department: 'rd',
+      action: 'Returned Prototype Materials',
+      entityType: 'RDBOM',
+      entityId: bom.id,
+      entityDocNo: `RND-BOM-${project.projectCode}`,
+      details: `Returned unused prototype materials to stores for Project ${project.projectCode}`,
+    });
 
     res.json(bom);
   } catch (err) {

@@ -124,18 +124,20 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   return <>{children}</>;
 };
 
-const RequireModule: React.FC<{ module: PermissionModule; children: React.ReactNode }> = ({ module, children }) => {
+const RequireModule: React.FC<{ module: PermissionModule | PermissionModule[]; children: React.ReactNode }> = ({ module, children }) => {
   const { user, can } = useERP();
   if (!user) return <Navigate to="/login" replace />;
-  if (!can(module, 'view')) {
+  const hasAccess = Array.isArray(module) ? module.some((m) => can(m, 'view')) : can(module, 'view');
+  if (!hasAccess) {
     const fallback = user.department === 'admin' ? '/admin' : DEPARTMENTS[user.department].basePath;
+    const label = Array.isArray(module) ? module.map((m) => m.replace('_', ' ')).join(' / ') : module.replace('_', ' ');
     return (
       <div className="max-w-lg mx-auto my-12 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-8 text-center space-y-3">
         <ShieldAlert className="w-8 h-8 text-red-600 mx-auto" />
         <h1 className="text-lg font-semibold text-slate-900 dark:text-slate-100">Access Restricted</h1>
         <p className="text-sm text-slate-600 dark:text-slate-400">
           Your role ({user.roleName}) does not have permission to access the{' '}
-          <span className="font-medium capitalize">{module.replace('_', ' ')}</span> module.
+          <span className="font-medium capitalize">{label}</span> module.
         </p>
         <div className="pt-2">
           <Button onClick={() => window.location.assign(fallback)}>Return to My Department</Button>
@@ -473,7 +475,7 @@ export function App() {
             <Route
               path="/production/delivered-products"
               element={
-                <RequireModule module="delivered_products">
+                <RequireModule module={['production', 'delivered_products']}>
                   <DeliveredProductsPage sourceDept="production" />
                 </RequireModule>
               }

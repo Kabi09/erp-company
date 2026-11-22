@@ -1174,6 +1174,48 @@ export class MongoERPRepository implements IERPRepository {
         await StockTransactionModel.create(stockTxDocs, { session: session || undefined });
       }
 
+      // Step 4: Cross-department synchronization for Service and R&D
+      try {
+        if (mr.department === 'service') {
+          const smr = await ServiceMaterialRequestModel.findOne({ linkedMaterialRequestId: mr.id }).session(session || null);
+          if (smr) {
+            smr.items.forEach((sItem) => {
+              const mrItem = mr.items.find((x) => x.materialId === sItem.materialId || x.materialName === sItem.materialName);
+              if (mrItem) {
+                sItem.quantityIssued = mrItem.issuedQty;
+              }
+            });
+            const allIssued = smr.items.every((i) => i.quantityIssued >= i.quantityRequested);
+            smr.status = allIssued ? 'Issued' : 'Issued';
+            smr.issuedDate = now.slice(0, 10);
+            await smr.save({ session: session || undefined });
+
+            // Restore job from Awaiting Spares to In Progress
+            await ServiceJobModel.updateOne(
+              { id: smr.serviceJobId, status: 'Awaiting Spares' },
+              { $set: { status: 'In Progress' } },
+              { session: session || undefined },
+            );
+          }
+        } else if (mr.department === 'rd') {
+          const rdBom = await RDBOMModel.findOne({ linkedMaterialRequestId: mr.id }).session(session || null);
+          if (rdBom) {
+            rdBom.items.forEach((bItem) => {
+              const mrItem = mr.items.find((x) => x.materialId === bItem.materialId || x.materialName === bItem.name);
+              if (mrItem) {
+                bItem.quantityIssued = mrItem.issuedQty;
+              }
+            });
+            const allIssued = rdBom.items.every((i) => (i.quantityIssued || 0) >= (i.quantityRequested || 1));
+            const anyIssued = rdBom.items.some((i) => (i.quantityIssued || 0) > 0);
+            rdBom.requisitionStatus = allIssued ? 'Issued' : anyIssued ? 'Partially Issued' : 'Requested';
+            await rdBom.save({ session: session || undefined });
+          }
+        }
+      } catch (syncErr) {
+        console.warn('[SCM->CrossDeptSync] Notice during material issue sync:', syncErr);
+      }
+
       await this.addActivity(
         {
           actorId: actor.id,
@@ -1686,6 +1728,60 @@ export class MongoERPRepository implements IERPRepository {
       }
 
       const updatedSO = await syncSalesOrderFulfillmentMongo(del.salesOrderId, session || undefined);
+
+      // Real-time synchronization to Shared Delivered Products Register
+      try {
+        const prod = await ProductModel.findOne({ id: del.items?.[0]?.productId || po?.productId }).session(session || null);
+        const cust = await CustomerModel.findOne({ id: del.customerId }).session(session || null);
+        const serials = po?.serialNumbers && po.serialNumbers.length > 0
+          ? po.serialNumbers.slice(prevDelivered, newDelivered)
+          : [`CRYO-${prod?.model || 'EQ'}-${del.docNo}-${Date.now().toString(36).slice(-4).toUpperCase()}`];
+
+        for (const sn of serials) {
+          const existingDP = await DeliveredProductModel.findOne({ serialNumber: sn }).session(session || null);
+          if (!existingDP) {
+            const deliveredDate = del.actualDeliveryDate || now.slice(0, 10);
+            const start = new Date(deliveredDate);
+            const end = new Date(start);
+            end.setFullYear(end.getFullYear() + 2); // 24 months standard warranty
+            const isUnder = new Date() <= end;
+
+            await DeliveredProductModel.create(
+              [
+                {
+                  id: generateId('DP'),
+                  serialNumber: sn,
+                  productId: prod?.id || 'prod-sample',
+                  productName: prod?.name || del.items?.[0]?.name || 'Cryogenic Equipment',
+                  modelNumber: prod?.model || 'EQ-STD',
+                  customerId: cust?.id || del.customerId,
+                  customerName: cust?.name || del.customerName,
+                  customerContact: cust?.contactPerson || '',
+                  customerPhone: cust?.phone || '',
+                  customerEmail: cust?.email || '',
+                  deliveryAddress: del.deliveryAddress || cust?.shippingAddress || cust?.billingAddress || '',
+                  salesOrderId: del.salesOrderId,
+                  salesOrderDocNo: del.salesOrderDocNo,
+                  productionOrderId: po?.id,
+                  productionOrderDocNo: po?.docNo,
+                  deliveryOrderId: del.id,
+                  deliveryOrderDocNo: del.docNo,
+                  deliveredDate,
+                  warrantyPeriodMonths: 24,
+                  warrantyStartDate: deliveredDate,
+                  warrantyEndDate: end.toISOString().split('T')[0],
+                  warrantyStatus: isUnder ? 'Under Warranty' : 'Expired',
+                  status: 'Active',
+                  notes: `Delivered under Challan ${del.docNo} to ${del.receivedBy}`,
+                },
+              ],
+              { session: session || undefined },
+            );
+          }
+        }
+      } catch (dpErr) {
+        console.warn('[Logistics->DeliveredProduct] Notice during real-time sync:', dpErr);
+      }
 
       await this.addActivity(
         {

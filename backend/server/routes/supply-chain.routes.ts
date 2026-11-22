@@ -931,9 +931,23 @@ supplyChainRouter.post(['/supply-chain/supplier-returns', '/supply-chain/supplie
   }
 });
 
-// --- Phase 6: Production Material Returns (Unused Materials Handed Back to Store) ---
-supplyChainRouter.post('/supply-chain/production-returns', requireAuth, requirePerm('production', 'create'), async (req: AuthenticatedRequest, res) => {
+// --- Phase 6: Production / Service / R&D Material Returns (Unused Materials Handed Back to Store) ---
+supplyChainRouter.post(['/supply-chain/production-returns', '/supply-chain/material-returns'], requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
+    const user = req.user!;
+    const perms = (user as any).effectivePermissions || {};
+    const canReturn =
+      user.roleId === 'role-super-admin' ||
+      perms['production']?.includes('create') ||
+      perms['production']?.includes('edit') ||
+      perms['service']?.includes('create') ||
+      perms['service']?.includes('edit') ||
+      perms['rd']?.includes('create') ||
+      perms['rd']?.includes('edit') ||
+      perms['supply_chain']?.includes('create');
+    if (!canReturn) {
+      throw new Error('FORBIDDEN: You do not have permission to record material returns.');
+    }
     const { materialRequestId, materialId, returnQty, reason } = req.body;
     if (!materialRequestId || !materialId || !returnQty || Number(returnQty) <= 0 || !reason?.trim()) {
       throw new Error('materialRequestId, materialId, positive returnQty, and reason are required.');
