@@ -179,6 +179,8 @@ export const ProfilePage: React.FC = () => {
     'supply_chain',
     'production',
     'logistics',
+    'service',
+    'rd',
     'tracking',
     'reports',
     'admin',

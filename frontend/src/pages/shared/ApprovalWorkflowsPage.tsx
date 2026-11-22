@@ -353,6 +353,8 @@ export const ApprovalWorkflowsPage: React.FC = () => {
                 <option value="supply_chain">Supply Chain Management</option>
                 <option value="production">Production Management</option>
                 <option value="logistics">Logistics & Delivery</option>
+                <option value="service">Service Management</option>
+                <option value="rd">Research & Development (R&D)</option>
                 <option value="admin">Administration</option>
               </Select>
             </Field>
@@ -365,6 +367,11 @@ export const ApprovalWorkflowsPage: React.FC = () => {
                 <option value="supplier_pos">Supplier POs (Supply Chain)</option>
                 <option value="delivery_orders">Delivery Orders (Logistics)</option>
                 <option value="material_requests">Material Requests (Supply Chain)</option>
+                <option value="service_requests">Service Requests (Service)</option>
+                <option value="service_materials">Spare Parts Indents (Service)</option>
+                <option value="service_expenses">Technician Advances & Expenses (Service)</option>
+                <option value="rd_projects">R&D Projects (R&D)</option>
+                <option value="rd_bom">Prototype BOM (R&D)</option>
               </Select>
             </Field>
             <Field label="Trigger Action" required>

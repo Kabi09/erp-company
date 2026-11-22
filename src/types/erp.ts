@@ -1211,7 +1211,9 @@ export interface ServiceJob {
   scheduledDate: string;
   status: ServiceJobStatus;
   checkIn?: ServiceJobCheckIn;
+  checkInTime?: string;
   checkOut?: ServiceJobCheckOut;
+  checkOutTime?: string;
   diagnosisSummary?: string;
   rootCause?: string;
   correctiveAction?: string;
@@ -1270,7 +1272,7 @@ export interface ServiceMaterialRequest {
   requestedBy: string;
   requestDate: string;
   items: ServiceMaterialItem[];
-  status: 'Pending' | 'Issued' | 'Received' | 'Reconciled';
+  status: 'Pending' | 'Requested' | 'Issued' | 'Received' | 'Reconciled';
   issuedDate?: string;
   receivedDate?: string;
   reconciledDate?: string;

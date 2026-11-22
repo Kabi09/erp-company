@@ -167,7 +167,13 @@ export const EmployeeAccessPage: React.FC = () => {
   const filteredCatalog = useMemo(() => {
     const q = search.trim().toLowerCase();
     return ERP_MODULE_CATALOG.filter((mod) => {
-      if (deptFilter !== 'All' && mod.department !== deptFilter) return false;
+      if (deptFilter !== 'All') {
+        if (deptFilter === 'rd' && (mod.department === 'rd' || (mod.department as string) === 'rnd')) {
+          // match
+        } else if (mod.department !== deptFilter) {
+          return false;
+        }
+      }
       if (!q) return true;
       return (
         mod.name.toLowerCase().includes(q) ||
@@ -211,7 +217,7 @@ export const EmployeeAccessPage: React.FC = () => {
           >
             {db.employees.map((emp) => (
               <option key={emp.id} value={emp.id}>
-                {emp.name} ({emp.employeeId}) — {emp.department.replace('_', ' ')} / {emp.designation}
+                {emp.name} ({emp.employeeId}) — {emp.department === 'rd' || (emp.department as string) === 'rnd' ? 'R&D' : emp.department === 'supply_chain' ? 'Supply Chain' : emp.department.replace('_', ' ')} / {emp.designation}
               </option>
             ))}
           </Select>
@@ -237,18 +243,18 @@ export const EmployeeAccessPage: React.FC = () => {
       {/* Filter and Search Bar */}
       <div className="flex flex-col sm:flex-row items-center justify-between gap-3 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 p-3 rounded-lg">
         <div className="flex items-center gap-2 overflow-x-auto w-full sm:w-auto">
-          {['All', 'sales', 'supply_chain', 'production', 'logistics', 'admin', 'shared'].map((d) => (
+          {['All', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rd', 'admin', 'shared'].map((d) => (
             <button
               key={d}
               type="button"
               onClick={() => setDeptFilter(d)}
-              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors cursor-pointer capitalize whitespace-nowrap ${
+              className={`px-3 py-1 text-xs font-medium rounded-full transition-colors cursor-pointer whitespace-nowrap ${
                 deptFilter === d
                   ? 'bg-teal-600 text-white'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
               }`}
             >
-              {d.replace('_', ' ')}
+              {d === 'rd' ? 'R&D' : d === 'supply_chain' ? 'Supply Chain' : d.replace('_', ' ')}
             </button>
           ))}
         </div>

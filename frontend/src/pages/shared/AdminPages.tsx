@@ -45,6 +45,7 @@ import type {
   Role,
 } from '../../types/erp';
 import { ERP_MODULE_CATALOG } from '../../types/erp';
+import { MODULE_ALIASES } from '../../utils/rbacLogic';
 
 // ==========================================
 // 1. ADMIN DASHBOARD
@@ -142,15 +143,15 @@ export const AdminDashboard: React.FC = () => {
         <div className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-4">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-sm font-semibold text-slate-900 dark:text-slate-100">Department Headcount</h2>
-            <span className="text-xs text-slate-500">4 Operational Departments</span>
+            <span className="text-xs text-slate-500">6 Operational Departments</span>
           </div>
           <div className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-            {(['sales', 'supply_chain', 'production', 'logistics', 'admin'] as Department[]).map((dept) => {
-              const count = db.employees.filter((e) => e.department === dept && e.status === 'Active').length;
+            {(['sales', 'supply_chain', 'production', 'logistics', 'service', 'rd', 'admin'] as Department[]).map((dept) => {
+              const count = db.employees.filter((e) => (e.department === dept || (dept === 'rd' && (e.department as string) === 'rnd')) && e.status === 'Active').length;
               return (
                 <div key={dept} className="py-2.5 flex items-center justify-between">
                   <span className="font-medium capitalize text-slate-800 dark:text-slate-200">
-                    {dept.replace('_', ' ')}
+                    {dept === 'rd' ? 'Research & Development (R&D)' : dept === 'supply_chain' ? 'Supply Chain' : dept.replace('_', ' ')}
                   </span>
                   <span className="font-mono font-semibold text-slate-900 dark:text-slate-100">{count} active</span>
                 </div>
@@ -277,7 +278,10 @@ export const EmployeesPage: React.FC = () => {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return db.employees.filter((e) => {
-      if (deptFilter !== 'All' && e.department !== deptFilter) return false;
+      if (deptFilter !== 'All') {
+        const matchesDept = e.department === deptFilter || (deptFilter === 'rd' && (e.department as string) === 'rnd');
+        if (!matchesDept) return false;
+      }
       if (!q) return true;
       return (
         e.name.toLowerCase().includes(q) ||
@@ -354,7 +358,7 @@ export const EmployeesPage: React.FC = () => {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search name, Employee ID, email, or designation..."
-        statuses={['All', 'sales', 'supply_chain', 'production', 'logistics', 'admin']}
+        statuses={['All', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rd', 'admin']}
         activeStatus={deptFilter}
         onStatusChange={setDeptFilter}
       />
@@ -423,6 +427,8 @@ export const EmployeesPage: React.FC = () => {
                 <option value="supply_chain">Supply Chain Management</option>
                 <option value="production">Production Management</option>
                 <option value="logistics">Logistics & Delivery</option>
+                <option value="service">Service Management</option>
+                <option value="rd">Research & Development (R&D)</option>
                 <option value="admin">Administration</option>
               </Select>
             </Field>
@@ -536,7 +542,7 @@ export const RolesPermissionsPage: React.FC = () => {
       next[mod.id] = [...mod.actions, 'manage'];
     }
     // Also include coarse department keys
-    for (const dept of ['sales', 'supply_chain', 'production', 'logistics', 'admin', 'tracking', 'reports']) {
+    for (const dept of ['sales', 'supply_chain', 'production', 'logistics', 'service', 'rd', 'admin', 'tracking', 'reports']) {
       next[dept] = ['view', 'create', 'edit', 'delete', 'approve', 'export', 'manage'];
     }
     setDraftPerms(next as any);
@@ -620,6 +626,14 @@ export const RolesPermissionsPage: React.FC = () => {
       'role-qc-inspector',
       'role-logistics-manager',
       'role-dispatch-exec',
+      'role-service-manager',
+      'role-service-coord',
+      'role-service-coordinator',
+      'role-service-tech',
+      'role-service-technician',
+      'role-rd-manager',
+      'role-rd-engineer',
+      'role-rd-tester',
     ];
     return core.includes(roleId);
   };
@@ -627,7 +641,13 @@ export const RolesPermissionsPage: React.FC = () => {
   const filteredCatalog = useMemo(() => {
     const q = search.trim().toLowerCase();
     return ERP_MODULE_CATALOG.filter((m) => {
-      if (deptFilter !== 'All' && m.department !== deptFilter) return false;
+      if (deptFilter !== 'All') {
+        if (deptFilter === 'rd' && (m.department === 'rd' || (m.department as string) === 'rnd')) {
+          // match
+        } else if (m.department !== deptFilter) {
+          return false;
+        }
+      }
       if (!q) return true;
       return (
         m.name.toLowerCase().includes(q) ||
@@ -684,7 +704,9 @@ export const RolesPermissionsPage: React.FC = () => {
                         </span>
                       )}
                     </div>
-                    <div className="text-[10px] text-slate-400 capitalize mt-0.5">{r.department.replace('_', ' ')}</div>
+                    <div className="text-[10px] text-slate-400 capitalize mt-0.5">
+                      {r.department === 'rd' || (r.department as string) === 'rnd' ? 'R&D' : r.department === 'supply_chain' ? 'Supply Chain' : r.department.replace('_', ' ')}
+                    </div>
                     <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-1">{r.description}</p>
                   </div>
 
@@ -715,7 +737,7 @@ export const RolesPermissionsPage: React.FC = () => {
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-slate-900 dark:text-slate-100">{activeRole?.name}</h3>
                 <span className="px-2 py-0.5 rounded text-[10px] font-mono bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-300 capitalize">
-                  {activeRole?.department.replace('_', ' ')}
+                  {activeRole?.department === 'rd' || (activeRole?.department as string) === 'rnd' ? 'R&D' : activeRole?.department === 'supply_chain' ? 'Supply Chain' : activeRole?.department.replace('_', ' ')}
                 </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">{activeRole?.description}</p>
@@ -734,18 +756,18 @@ export const RolesPermissionsPage: React.FC = () => {
           {/* Filter Bar */}
           <div className="p-3 border-b border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
             <div className="flex items-center gap-1.5 overflow-x-auto w-full sm:w-auto">
-              {['All', 'sales', 'supply_chain', 'production', 'logistics', 'admin', 'shared'].map((d) => (
+              {['All', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rd', 'admin', 'shared'].map((d) => (
                 <button
                   key={d}
                   type="button"
                   onClick={() => setDeptFilter(d)}
-                  className={`px-2.5 py-1 text-xs font-medium rounded-full cursor-pointer transition-colors capitalize whitespace-nowrap ${
+                  className={`px-2.5 py-1 text-xs font-medium rounded-full cursor-pointer transition-colors whitespace-nowrap ${
                     deptFilter === d
                       ? 'bg-teal-600 text-white font-semibold'
                       : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
                   }`}
                 >
-                  {d.replace('_', ' ')}
+                  {d === 'rd' ? 'R&D' : d === 'supply_chain' ? 'Supply Chain' : d.replace('_', ' ')}
                 </button>
               ))}
             </div>
@@ -777,8 +799,17 @@ export const RolesPermissionsPage: React.FC = () => {
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
                 {filteredCatalog.map((mod) => {
-                  const modActions = (currentPerms?.[mod.id] || []) as PermissionAction[];
-                  const deptActions = (currentPerms?.[mod.department] || []) as PermissionAction[];
+                  const directActions = new Set<PermissionAction>((currentPerms?.[mod.id] || []) as PermissionAction[]);
+                  for (const [alias, canonical] of Object.entries(MODULE_ALIASES)) {
+                    if (canonical === mod.id && currentPerms?.[alias]) {
+                      currentPerms[alias].forEach((a) => directActions.add(a));
+                    }
+                    if (alias === mod.id && currentPerms?.[canonical]) {
+                      currentPerms[canonical].forEach((a) => directActions.add(a));
+                    }
+                  }
+                  const modActions = Array.from(directActions);
+                  const deptActions = ((currentPerms?.[mod.department] || (mod.department === 'rd' ? currentPerms?.['rnd'] : [])) || []) as PermissionAction[];
                   const adminActions = (currentPerms?.['admin'] || []) as PermissionAction[];
                   const isWildcardActive = modActions.includes('manage') || adminActions.includes('manage');
 
@@ -863,6 +894,8 @@ export const RolesPermissionsPage: React.FC = () => {
               <option value="supply_chain">Supply Chain Management</option>
               <option value="production">Production Management</option>
               <option value="logistics">Logistics & Delivery</option>
+              <option value="service">Service Management</option>
+              <option value="rd">Research & Development (R&D)</option>
               <option value="admin">Administration</option>
             </Select>
           </Field>
@@ -1193,7 +1226,7 @@ export const ActivityLogsPage: React.FC = () => {
         search={search}
         onSearchChange={setSearch}
         searchPlaceholder="Search action, document number, user, or details..."
-        statuses={['All', 'sales', 'supply_chain', 'production', 'logistics', 'admin']}
+        statuses={['All', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rd', 'admin']}
         activeStatus={deptFilter}
         onStatusChange={setDeptFilter}
       />

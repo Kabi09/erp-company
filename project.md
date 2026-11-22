@@ -621,3 +621,26 @@
     - **0 TypeScript compilation errors** across backend and frontend (`tsc --noEmit`).
     - Frontend production bundle built cleanly in 712ms.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
+- **v2.9.7 (Service & R&D Universal RBAC Integration, Matrix UI Filters, and Dual Workflow Verification)**:
+  - Roles & Permissions Matrix UI Enhancements:
+    - Added dedicated `'service'` and `'rd'` department filter pills to the Permissions Matrix (`/admin/roles`) and Employee Access Overrides (`/admin/employee-access`).
+    - Added Service and R&D roles (`role-service-manager`, `role-service-coordinator`, `role-service-technician`, `role-rd-manager`, `role-rd-engineer`, `role-rd-tester`) to core protected roles with department badges.
+    - Added Service and R&D options to Employee Directory and Custom Role creation modals.
+    - Updated `filteredCatalog` and matrix checkbox state evaluators to bidirectionally resolve canonical module IDs and legacy aliases (`MODULE_ALIASES`) for Service (`service_assets` ↔ `delivered_products`, `service_parts` ↔ `service_materials`, `service_warranty` ↔ `service_requests`, `service_verification` ↔ `service_expenses`, `service_team` ↔ `service_schedule`) and R&D (`rnd` ↔ `rd`, `rnd_dashboard` ↔ `rd_dashboard`, `rnd_projects` ↔ `rd_projects`, `rnd_specs` ↔ `rd_specifications`, `rnd_materials` ↔ `rd_bom`, `rnd_updates` ↔ `rd_work_updates`, `rnd_testing` ↔ `rd_testing`, `rnd_completion` ↔ `completed_rd_projects`, `rnd_reports` ↔ `rd_reports`).
+  - Approval Workflows & Notification Configuration:
+    - Added Service and R&D departments and target modules (`service_requests`, `service_materials`, `service_expenses`, `rd_projects`, `rd_bom`) to configurable multi-level Approval Workflows (`/admin/approval-workflows`) and Notification preferences (`/profile/notifications`).
+  - Database Normalization & Seed Synchronization:
+    - Updated `seedService.ts` to automatically normalize legacy department keys from `'rnd'` to `'rd'` across `roles` and `employees` collections.
+    - Seeded and merged comprehensive module permissions across all 6 core Service and R&D roles.
+    - Normalized `role-sc-manager` to ensure boundary isolation between Supply Chain and Sales enquiry creation.
+  - Service Management Workflow Lifecycle Refinements:
+    - Added `checkInTime` and `checkOutTime` properties to `ServiceJob` schemas and API responses.
+    - Standardized `ServiceWorkUpdate` dynamic checklist mapping supporting auto-generated IDs and `notes`/`remarks` bidirectional compatibility.
+    - Aligned `ServiceMaterialRequest` status transitions defaulting to `'Requested'` upon SCM indent generation.
+    - Refined `ServiceBilling` payload mapping supporting `unitRate`/`amount` and `warrantyCovered` aliases.
+  - Automated Verification & Test Results:
+    - `service-workflow.test.ts`: **10/10 passed** (Delivered products, ticket triage, job dispatch, mobile check-in, daily updates, spare parts SCM requisition, advances/expenses settlement, check-out/billing, binary PDF report).
+    - `rd-workflow.test.ts`: **8/8 passed** (Project creation, specifications baseline, prototype BOM indents, daily engineering updates, dynamic testing/retests, completion gate & strict architectural isolation, KPI dashboard).
+    - Full system regression run: **151/151 automated tests passing (100% pass rate across all 14 test suites)**.
+    - Frontend production client build: **0 TypeScript errors, built cleanly in 719ms**.
+    - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.

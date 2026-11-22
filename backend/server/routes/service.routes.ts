@@ -425,12 +425,14 @@ serviceRouter.post('/service/jobs/:id/check-in', requireAuth, async (req: Authen
     const job = await ServiceJobModel.findOne({ id });
     if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
 
+    const checkInTimestamp = new Date().toISOString();
     job.checkIn = {
-      timestamp: new Date().toISOString(),
+      timestamp: checkInTimestamp,
       performedBy: req.user!.name,
       location: location || 'Customer Site',
       notes: notes || '',
     };
+    (job as any).checkInTime = checkInTimestamp;
     job.status = 'In Progress';
     await job.save();
 
@@ -447,7 +449,10 @@ serviceRouter.post('/service/jobs/:id/check-in', requireAuth, async (req: Authen
       details: `Technician ${req.user!.name} checked in for Job ${job.docNo}`,
     });
 
-    res.json(job);
+    res.json({
+      ...job.toObject(),
+      checkInTime: checkInTimestamp,
+    });
   } catch (err) {
     sendError(res, err);
   }
@@ -457,7 +462,18 @@ serviceRouter.post('/service/jobs/:id/check-in', requireAuth, async (req: Authen
 serviceRouter.post('/service/jobs/:id/check-out', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-    const { resolutionSummary, customerRepresentativeName, customerSignatureAck, rootCause, correctiveAction, preventiveAction } = req.body;
+    const {
+      resolutionSummary,
+      customerRepresentativeName,
+      customerSignatoryName,
+      customerSignatoryDesignation,
+      customerSignatureAck,
+      customerFeedbackRating,
+      customerFeedbackComments,
+      rootCause,
+      correctiveAction,
+      preventiveAction,
+    } = req.body;
     if (!resolutionSummary) {
       throw new Error('resolutionSummary is required for technician check-out.');
     }
@@ -465,13 +481,17 @@ serviceRouter.post('/service/jobs/:id/check-out', requireAuth, async (req: Authe
     const job = await ServiceJobModel.findOne({ id });
     if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
 
+    const checkOutTimestamp = new Date().toISOString();
     job.checkOut = {
-      timestamp: new Date().toISOString(),
+      timestamp: checkOutTimestamp,
       performedBy: req.user!.name,
       resolutionSummary,
-      customerRepresentativeName: customerRepresentativeName || '',
+      customerRepresentativeName: customerSignatoryName || customerRepresentativeName || '',
       customerSignatureAck: Boolean(customerSignatureAck),
     };
+    (job as any).checkOutTime = checkOutTimestamp;
+    if (customerFeedbackRating) job.customerFeedbackScore = Number(customerFeedbackRating);
+    if (customerFeedbackComments) job.customerFeedbackNotes = customerFeedbackComments;
     if (rootCause) job.rootCause = rootCause;
     if (correctiveAction) job.correctiveAction = correctiveAction;
     if (preventiveAction) job.preventiveAction = preventiveAction;
@@ -489,7 +509,10 @@ serviceRouter.post('/service/jobs/:id/check-out', requireAuth, async (req: Authe
       details: `Technician ${req.user!.name} checked out for Job ${job.docNo}`,
     });
 
-    res.json(job);
+    res.json({
+      ...job.toObject(),
+      checkOutTime: checkOutTimestamp,
+    });
   } catch (err) {
     sendError(res, err);
   }
@@ -499,10 +522,20 @@ serviceRouter.post('/service/jobs/:id/check-out', requireAuth, async (req: Authe
 serviceRouter.post('/service/jobs/:id/work-updates', requireAuth, async (req: AuthenticatedRequest, res) => {
   try {
     const { id } = req.params;
-    const { date, stageName, hoursSpent, highlights, checklist, findingsNotes } = req.body;
+    const { date, stageName, stage, hoursSpent, highlights, checklist, findingsNotes, workSummary } = req.body;
 
     const job = await ServiceJobModel.findOne({ id });
     if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
+
+    const mappedChecklist = Array.isArray(checklist)
+      ? checklist.map((c: any, idx: number) => ({
+          id: c.id || `CHK-${Date.now()}-${idx + 1}`,
+          item: c.item || `Inspection item ${idx + 1}`,
+          result: c.result || 'Pending',
+          remarks: c.remarks || c.notes || '',
+          notes: c.notes || c.remarks || '',
+        }))
+      : [];
 
     const updateDoc = await ServiceWorkUpdateModel.create({
       id: generateId('SWU'),
@@ -510,11 +543,11 @@ serviceRouter.post('/service/jobs/:id/work-updates', requireAuth, async (req: Au
       date: date || new Date().toISOString().split('T')[0],
       technicianId: req.user!.id,
       technicianName: req.user!.name,
-      stageName: stageName || 'Diagnostic & Repair',
+      stageName: stageName || stage || 'Diagnostic & Repair',
       hoursSpent: Number(hoursSpent) || 1,
       highlights: Array.isArray(highlights) ? highlights : [],
-      checklist: Array.isArray(checklist) ? checklist : [],
-      findingsNotes: findingsNotes || '',
+      checklist: mappedChecklist,
+      findingsNotes: findingsNotes || workSummary || '',
       createdAt: new Date().toISOString(),
     });
 
@@ -607,19 +640,23 @@ serviceRouter.post('/service/jobs/:id/material-requests', requireAuth, async (re
       customerName: job.customerName,
       requestedBy: req.user!.name,
       requestDate: new Date().toISOString().split('T')[0],
-      items: items.map((i: any) => ({
-        materialId: i.materialId,
-        materialName: i.materialName,
-        partNumber: i.partNumber || '',
-        quantityRequested: Number(i.quantityRequested) || 1,
-        quantityIssued: 0,
-        quantityUsed: 0,
-        quantityReturned: 0,
-        unit: i.unit || 'Nos',
-        unitCost: Number(i.unitCost) || 0,
-        totalCost: (Number(i.quantityRequested) || 1) * (Number(i.unitCost) || 0),
-      })),
-      status: 'Pending',
+      items: items.map((i: any) => {
+        const cost = Number(i.unitCost ?? i.estimatedCost) || 0;
+        const qty = Number(i.quantityRequested) || 1;
+        return {
+          materialId: i.materialId,
+          materialName: i.materialName,
+          partNumber: i.partNumber || '',
+          quantityRequested: qty,
+          quantityIssued: 0,
+          quantityUsed: 0,
+          quantityReturned: 0,
+          unit: i.unit || 'Nos',
+          unitCost: cost,
+          totalCost: qty * cost,
+        };
+      }),
+      status: 'Requested',
       notes: notes || '',
     });
 
@@ -923,9 +960,23 @@ serviceRouter.post('/service/jobs/:id/billing', requireAuth, requirePerm('servic
     const job = await ServiceJobModel.findOne({ id });
     if (!job) throw new Error(`NOT_FOUND: Service job '${id}' not found.`);
 
-    const billingItems = Array.isArray(items) ? items : [];
+    const billingItems = (Array.isArray(items) ? items : []).map((item: any) => {
+      const unitPrice = Number(item.unitPrice ?? item.unitRate) || 0;
+      const quantity = Number(item.quantity) || 1;
+      const totalPrice = Number(item.totalPrice ?? item.amount) ?? (unitPrice * quantity);
+      const isWarrantyCovered = Boolean(item.isWarrantyCovered ?? item.warrantyCovered);
+      return {
+        description: item.description || 'Service Item',
+        itemType: item.itemType || 'Labor',
+        quantity,
+        unitPrice,
+        totalPrice,
+        isWarrantyCovered,
+      };
+    });
+
     const subtotal = billingItems.reduce(
-      (acc: number, curr: any) => acc + (curr.isWarrantyCovered ? 0 : Number(curr.totalPrice) || 0),
+      (acc: number, curr: any) => acc + (curr.isWarrantyCovered ? 0 : curr.totalPrice),
       0,
     );
 

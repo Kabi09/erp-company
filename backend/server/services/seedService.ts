@@ -32,22 +32,17 @@ const ALL_ACTIONS = [
 
 export async function ensureServiceAndRDRolesAndData(): Promise<void> {
   try {
+    // 0. Normalize legacy department keys in MongoDB
+    await RoleModel.updateMany({ department: 'rnd' }, { $set: { department: 'rd' } });
+    await EmployeeModel.updateMany({ department: 'rnd' }, { $set: { department: 'rd' } });
+
     // 1. Ensure Super Admin role includes service and rd actions
     const superAdminRole = await RoleModel.findOne({ id: 'role-super-admin' });
     if (superAdminRole) {
-      let updated = false;
-      if (!superAdminRole.permissions.service) {
-        superAdminRole.permissions.service = [...ALL_ACTIONS];
-        updated = true;
-      }
-      if (!superAdminRole.permissions.rd) {
-        superAdminRole.permissions.rd = [...ALL_ACTIONS];
-        updated = true;
-      }
-      if (updated) {
-        superAdminRole.markModified('permissions');
-        await superAdminRole.save();
-      }
+      superAdminRole.permissions.service = [...ALL_ACTIONS];
+      superAdminRole.permissions.rd = [...ALL_ACTIONS];
+      superAdminRole.markModified('permissions');
+      await superAdminRole.save();
     }
 
     // 2. Ensure Service Roles
@@ -59,12 +54,16 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
         description: 'Complete oversight of field service, job triage, technician dispatch, warranty decisions, and expense approval.',
         permissions: {
           service: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export', 'manage'],
+          service_dashboard: ['view', 'export'],
           delivered_products: ['view', 'create', 'edit', 'delete', 'export'],
           service_requests: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'],
           service_jobs: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'],
+          service_schedule: ['view', 'create', 'edit', 'export'],
           service_materials: ['view', 'create', 'edit', 'submit', 'confirm', 'export'],
           service_expenses: ['view', 'create', 'edit', 'verify', 'confirm', 'export'],
           service_billing: ['view', 'create', 'edit', 'confirm', 'export'],
+          completed_services: ['view', 'export'],
+          service_reports: ['view', 'export'],
           tracking: ['view'],
           reports: ['view', 'export'],
         },
@@ -76,12 +75,16 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
         description: 'Customer ticket intake, scheduling, technician calendar management, and spare parts coordination.',
         permissions: {
           service: ['view', 'create', 'edit', 'submit', 'export'],
+          service_dashboard: ['view'],
           delivered_products: ['view', 'export'],
           service_requests: ['view', 'create', 'edit', 'submit', 'export'],
           service_jobs: ['view', 'create', 'edit', 'export'],
+          service_schedule: ['view', 'create', 'edit', 'export'],
           service_materials: ['view', 'create', 'submit', 'export'],
           service_expenses: ['view', 'create', 'export'],
           service_billing: ['view', 'create', 'export'],
+          completed_services: ['view'],
+          service_reports: ['view'],
           tracking: ['view'],
           reports: ['view'],
         },
@@ -93,9 +96,11 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
         description: 'Field engineer responsible for site visits, check-in/out, repair work updates, and expense submission.',
         permissions: {
           service: ['view', 'create', 'edit'],
+          service_dashboard: ['view'],
           delivered_products: ['view'],
           service_requests: ['view'],
           service_jobs: ['view', 'create', 'edit'],
+          service_schedule: ['view'],
           service_materials: ['view', 'create'],
           service_expenses: ['view', 'create'],
           service_billing: ['view'],
@@ -105,11 +110,60 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
     ];
 
     for (const r of serviceRoles) {
-      const exists = await RoleModel.findOne({ $or: [{ id: r.id }, { name: r.name }] });
-      if (!exists) {
+      let roleDoc = await RoleModel.findOne({ $or: [{ id: r.id }, { name: r.name }] });
+      if (!roleDoc) {
         await RoleModel.create(r);
+      } else {
+        roleDoc.department = 'service';
+        const merged: Record<string, any> = { ...roleDoc.permissions };
+        for (const [mod, acts] of Object.entries(r.permissions)) {
+          if (!merged[mod]) {
+            merged[mod] = acts;
+          } else {
+            merged[mod] = Array.from(new Set([...merged[mod], ...acts]));
+          }
+        }
+        roleDoc.permissions = merged;
+        roleDoc.markModified('permissions');
+        await roleDoc.save();
       }
     }
+
+    // Also update any legacy role IDs if present
+    await RoleModel.updateOne(
+      { id: 'role-service-coordinator' },
+      {
+        $set: {
+          department: 'service',
+          'permissions.service': ['view', 'create', 'edit', 'submit', 'export'],
+          'permissions.service_dashboard': ['view'],
+          'permissions.delivered_products': ['view', 'export'],
+          'permissions.service_requests': ['view', 'create', 'edit', 'submit', 'export'],
+          'permissions.service_jobs': ['view', 'create', 'edit', 'export'],
+          'permissions.service_schedule': ['view', 'create', 'edit'],
+          'permissions.service_materials': ['view', 'create', 'edit', 'submit', 'export'],
+          'permissions.service_expenses': ['view', 'create', 'export'],
+          'permissions.service_billing': ['view', 'create', 'export'],
+        },
+      },
+    );
+    await RoleModel.updateOne(
+      { id: 'role-service-technician' },
+      {
+        $set: {
+          department: 'service',
+          'permissions.service': ['view', 'create', 'edit'],
+          'permissions.service_dashboard': ['view'],
+          'permissions.delivered_products': ['view'],
+          'permissions.service_requests': ['view'],
+          'permissions.service_jobs': ['view', 'create', 'edit'],
+          'permissions.service_schedule': ['view'],
+          'permissions.service_materials': ['view', 'create'],
+          'permissions.service_expenses': ['view', 'create'],
+          'permissions.service_billing': ['view'],
+        },
+      },
+    );
 
     // 3. Ensure R&D Roles
     const rdRoles = [
@@ -120,11 +174,14 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
         description: 'Oversight of innovation initiatives, prototype projects, budget approvals, and test validation.',
         permissions: {
           rd: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export', 'manage'],
+          rd_dashboard: ['view', 'export'],
           rd_projects: ['view', 'create', 'edit', 'delete', 'submit', 'approve', 'confirm', 'export'],
           rd_specifications: ['view', 'create', 'edit', 'delete', 'export'],
           rd_bom: ['view', 'create', 'edit', 'delete', 'submit', 'export'],
           rd_work_updates: ['view', 'create', 'edit', 'export'],
           rd_testing: ['view', 'create', 'edit', 'verify', 'confirm', 'export'],
+          completed_rd_projects: ['view', 'export'],
+          rd_reports: ['view', 'export'],
           tracking: ['view'],
           reports: ['view', 'export'],
         },
@@ -136,11 +193,14 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
         description: 'Design, component selection, prototype fabrication logging, and technical specification drafting.',
         permissions: {
           rd: ['view', 'create', 'edit', 'submit', 'export'],
+          rd_dashboard: ['view'],
           rd_projects: ['view', 'edit', 'export'],
           rd_specifications: ['view', 'create', 'edit', 'export'],
           rd_bom: ['view', 'create', 'edit', 'submit', 'export'],
           rd_work_updates: ['view', 'create', 'edit', 'export'],
           rd_testing: ['view', 'create', 'edit', 'export'],
+          completed_rd_projects: ['view'],
+          rd_reports: ['view'],
           tracking: ['view'],
           reports: ['view'],
         },
@@ -152,20 +212,35 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
         description: 'Prototype test execution, dynamic checklist scoring, retesting verification, and test report generation.',
         permissions: {
           rd: ['view', 'create', 'edit'],
+          rd_dashboard: ['view'],
           rd_projects: ['view'],
           rd_specifications: ['view'],
           rd_bom: ['view'],
           rd_work_updates: ['view', 'create'],
           rd_testing: ['view', 'create', 'edit', 'verify'],
+          completed_rd_projects: ['view'],
           tracking: ['view'],
         },
       },
     ];
 
     for (const r of rdRoles) {
-      const exists = await RoleModel.findOne({ $or: [{ id: r.id }, { name: r.name }] });
-      if (!exists) {
+      let roleDoc = await RoleModel.findOne({ $or: [{ id: r.id }, { name: r.name }] });
+      if (!roleDoc) {
         await RoleModel.create(r);
+      } else {
+        roleDoc.department = 'rd';
+        const merged: Record<string, any> = { ...roleDoc.permissions };
+        for (const [mod, acts] of Object.entries(r.permissions)) {
+          if (!merged[mod]) {
+            merged[mod] = acts;
+          } else {
+            merged[mod] = Array.from(new Set([...merged[mod], ...acts]));
+          }
+        }
+        roleDoc.permissions = merged;
+        roleDoc.markModified('permissions');
+        await roleDoc.save();
       }
     }
 

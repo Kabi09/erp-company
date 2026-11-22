@@ -117,6 +117,22 @@ export const MODULE_ALIASES: Record<string, string> = {
   dispatch_notes: 'delivery_orders',
   delivery_tracking: 'in_transit',
   epod: 'completed_deliveries',
+  // Service aliases
+  service_assets: 'delivered_products',
+  service_parts: 'service_materials',
+  service_warranty: 'service_requests',
+  service_verification: 'service_expenses',
+  service_team: 'service_schedule',
+  // R&D / RND aliases
+  rnd: 'rd',
+  rnd_dashboard: 'rd_dashboard',
+  rnd_projects: 'rd_projects',
+  rnd_specs: 'rd_specifications',
+  rnd_materials: 'rd_bom',
+  rnd_updates: 'rd_work_updates',
+  rnd_testing: 'rd_testing',
+  rnd_completion: 'completed_rd_projects',
+  rnd_reports: 'rd_reports',
 };
 
 export function canonicalModule(mod: string): string {
@@ -136,8 +152,17 @@ export function checkPermission(
 
   const targetMod = canonicalModule(module);
 
-  // Check direct module permission (check targetMod, then original module key)
-  const modPerms = effectivePerms[targetMod] || effectivePerms[module];
+  // Check direct module permission (check targetMod, then original module key, or reverse alias)
+  let modPerms = effectivePerms[targetMod] || effectivePerms[module];
+  if (!modPerms) {
+    for (const [alias, canonical] of Object.entries(MODULE_ALIASES)) {
+      if ((canonical === targetMod || canonical === module) && effectivePerms[alias]) {
+        modPerms = effectivePerms[alias];
+        break;
+      }
+    }
+  }
+
   if (modPerms) {
     if (modPerms.includes(action) || modPerms.includes('manage')) return true;
     if (action === 'verify' && modPerms.includes('approve')) return true;
@@ -148,7 +173,11 @@ export function checkPermission(
   // Fallback to parent department ONLY if this module was not resolved in effectivePerms (e.g. raw role permissions in mock tests)
   const catalogEntry = ERP_MODULE_CATALOG.find((m) => m.id === targetMod || m.id === module);
   if (catalogEntry && catalogEntry.department !== 'shared' && catalogEntry.department !== 'admin') {
-    const parentPerms = effectivePerms[catalogEntry.department] || [];
+    let parentDept: string = catalogEntry.department;
+    let parentPerms = effectivePerms[parentDept] || [];
+    if (parentPerms.length === 0 && parentDept === 'rd' && effectivePerms['rnd']) {
+      parentPerms = effectivePerms['rnd'];
+    }
     if (parentPerms.includes(action) || parentPerms.includes('manage')) return true;
     if (action === 'verify' && parentPerms.includes('approve')) return true;
     if (action === 'approve' && parentPerms.includes('verify')) return true;
