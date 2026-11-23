@@ -4,8 +4,16 @@ import { Lock, Mail, Moon, Snowflake, Sun } from 'lucide-react';
 import { useERP } from '../context/ERPContext';
 import { Button, ErrorBanner, Field, Input } from '../components/ui';
 
-const DEMO_ACCOUNTS = [
-  { label: 'Super Admin', dept: 'All Departments', email: 'admin@cryoerp.com', role: 'Full access & Administration' },
+interface DemoAccountCard {
+  label: string;
+  dept: string;
+  email: string;
+  password?: string;
+  role: string;
+}
+
+const DEMO_ACCOUNTS: DemoAccountCard[] = [
+  { label: 'Super Admin', dept: 'All Departments', email: 'admin@gmail.com', password: 'Zxcvbnm09#', role: 'Full access & Administration' },
   { label: 'Sales Manager', dept: 'Sales', email: 'sales.mgr@cryoerp.com', role: 'Approve quotes, verify payments, confirm SO' },
   { label: 'Sales Executive', dept: 'Sales', email: 'sales.exec@cryoerp.com', role: 'Enquiries, follow-ups, draft quotes' },
   { label: 'Supply Chain Manager', dept: 'Supply Chain', email: 'sc.mgr@cryoerp.com', role: 'Stock, issues, supplier POs, GRN & QC' },
@@ -21,8 +29,8 @@ export const LoginPage: React.FC = () => {
   const { login, getDefaultRoute, theme, toggleTheme } = useERP();
   const navigate = useNavigate();
 
-  const [identifier, setIdentifier] = useState('admin@cryoerp.com');
-  const [password, setPassword] = useState('cryo123');
+  const [identifier, setIdentifier] = useState('admin@gmail.com');
+  const [password, setPassword] = useState('Zxcvbnm09#');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -40,13 +48,13 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const handleQuickLogin = async (email: string) => {
+  const handleQuickLogin = async (email: string, pwd = 'cryo123') => {
     setIdentifier(email);
-    setPassword('cryo123');
+    setPassword(pwd);
     setError(null);
     setSubmitting(true);
     try {
-      const loggedIn = await login(email, 'cryo123');
+      const loggedIn = await login(email, pwd);
       navigate(getDefaultRoute(loggedIn), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to sign in.');
@@ -140,11 +148,12 @@ export const LoginPage: React.FC = () => {
               Quick Access Accounts (One-Click Login)
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Click any account to sign in immediately, or click Fill to review credentials (password: <span className="font-mono">cryo123</span>).
+              Click <span className="font-semibold text-teal-600 dark:text-teal-400">Login</span> to sign in immediately, or click a card to fill credentials (dept accounts use <span className="font-mono">cryo123</span>).
             </p>
             <div className="mt-3 space-y-2 max-h-[480px] overflow-y-auto pr-1">
               {DEMO_ACCOUNTS.map((acc) => {
                 const selected = identifier.toLowerCase() === acc.email;
+                const pwd = acc.password || 'cryo123';
                 return (
                   <div
                     key={acc.email}
@@ -159,7 +168,7 @@ export const LoginPage: React.FC = () => {
                         type="button"
                         onClick={() => {
                           setIdentifier(acc.email);
-                          setPassword('cryo123');
+                          setPassword(pwd);
                           setError(null);
                         }}
                         className="text-left min-w-0 flex-1 cursor-pointer"
@@ -172,12 +181,15 @@ export const LoginPage: React.FC = () => {
                             {acc.dept}
                           </span>
                         </div>
+                        <div className="text-[10px] font-mono text-teal-700 dark:text-teal-400 truncate mt-0.5">
+                          {acc.email} · pwd: {pwd}
+                        </div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{acc.role}</div>
                       </button>
                       <button
                         type="button"
                         disabled={submitting}
-                        onClick={() => handleQuickLogin(acc.email)}
+                        onClick={() => handleQuickLogin(acc.email, pwd)}
                         className="px-2 py-1 text-[10px] font-semibold rounded bg-teal-600 hover:bg-teal-700 text-white shrink-0 cursor-pointer disabled:opacity-50"
                       >
                         Login
