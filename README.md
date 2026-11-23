@@ -19,24 +19,25 @@ CRYO Enterprise ERP 2.0 is architected as two decoupled, independent application
 
 ```
 K:\2.0\erp-company\
-├── frontend/                  # React 19 + TypeScript + Vite 8 SPA (Port 5173)
-│   ├── src/                   # React components, pages, hooks, services
+├── frontend\                  # Standalone React 19 + TypeScript + Vite 8 SPA (Port 5173)
+│   ├── src\                   # React components, pages, hooks, utils, types, services
+│   ├── .env                   # Frontend environment config (VITE_API_BASE_URL)
 │   ├── vite.config.ts         # Vite bundler with /api proxy to backend
 │   └── package.json           # Frontend dependencies (Tailwind v4, Lucide, Motion)
 │
-├── backend/                   # Node.js + Express 5 + Mongoose 9 REST API (Port 5000)
+├── backend\                   # Standalone Node.js + Express 5 + Mongoose 9 REST API (Port 5000)
 │   ├── server.ts              # Standalone Express server (with /health check)
-│   ├── server/                # Routes, controllers, models, services, repositories
-│   │   └── tests/             # 10 test suites (107 automated tests)
-│   ├── uploads/               # Private file uploads storage directory
+│   ├── server\                # Routes, controllers, models, services, repositories
+│   │   └── tests\             # Automated test suites
+│   ├── src\                   # Domain types & calculation utilities (self-contained)
+│   ├── uploads\               # Private file uploads storage directory
+│   ├── .env                   # Backend environment config (PORT, MONGODB_URI, JWT secrets, CORS)
 │   └── package.json           # Backend dependencies (Express, JWT, PDFKit, Multer)
 │
-├── shared/                    # Zero-dependency domain layer (DRY, Zero secret leakage)
-│   ├── types/erp.ts           # Shared TypeScript domain models & enums
-│   └── utils/erpLogic.ts      # Pure deterministic business calculation formulas
-│
+├── docs\                      # Architecture reports, phase logs & workflow Markdown docs
+├── client-user-guide\         # Visual Client User Manuals (PDF, DOCX, annotated PNGs)
 ├── package.json               # Root workspace orchestrator
-└── FRONTEND_BACKEND_SEPARATION.md # Detailed architectural report
+└── README.md
 ```
 
 ---
@@ -140,7 +141,7 @@ npm test
 **Results:**
 - **107 passing tests** across 10 test suites.
 - **0 failing, 0 skipped**.
-- Full test breakdown and architecture documentation is available in [FRONTEND_BACKEND_SEPARATION.md](FRONTEND_BACKEND_SEPARATION.md).
+- Full test breakdown and architecture documentation is available in [docs/FRONTEND_BACKEND_SEPARATION.md](docs/FRONTEND_BACKEND_SEPARATION.md).
 
 ---
 

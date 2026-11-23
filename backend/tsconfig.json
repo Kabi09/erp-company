@@ -8,11 +8,8 @@
     "strict": false,
     "noEmit": true,
     "resolveJsonModule": true,
-    "allowSyntheticDefaultImports": true,
-    "paths": {
-      "@shared/*": ["../shared/*"]
-    }
+    "allowSyntheticDefaultImports": true
   },
-  "include": ["server.ts", "server/**/*", "src/**/*", "../shared/**/*"],
+  "include": ["server.ts", "server/**/*", "src/**/*"],
   "exclude": ["dist", "node_modules"]
 }
