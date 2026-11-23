@@ -359,7 +359,7 @@ rdRouter.post('/rd/projects/:id/material-request', requireAuth, requirePerm('rd'
     });
 
     // Update requested quantities in RDBOM if item matches
-    if (bom) {
+    if (bom && scMr) {
       bom.linkedMaterialRequestId = scMr.id;
       bom.receiptStatus = 'Pending';
       bom.requisitionStatus = 'Requested';
@@ -709,7 +709,7 @@ rdRouter.post('/rd/projects/:id/tests/:testId/retest', requireAuth, requirePerm(
 
     const retestDoc = await RDTestRecordModel.create({
       id: generateId('RTEST'),
-      rdProjectId: id,
+      rdProjectId: String(id),
       testName: previousTest.testName,
       testProtocolNumber: previousTest.testProtocolNumber,
       iteration: nextIteration,

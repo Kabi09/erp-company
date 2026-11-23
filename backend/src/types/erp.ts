@@ -640,6 +640,8 @@ export interface MaterialRequest {
   receiptStatus: 'Pending' | 'Partially Received' | 'Fully Received';
   requestedBy: string;
   requestDate: string;
+  requiredByDate?: string;
+  notes?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -1292,6 +1294,7 @@ export interface ServiceWorkUpdate {
 }
 
 export interface ServiceMaterialItem {
+  id?: string;
   materialId?: string;
   materialName: string;
   partNumber?: string;
@@ -1345,6 +1348,8 @@ export interface ServiceExpense {
   verifiedBy?: string;
   verifiedAt?: string;
   rejectionReason?: string;
+  settledAt?: string;
+  settlementId?: string;
   createdAt: string;
 }
 
@@ -1404,7 +1409,7 @@ export interface ServiceBilling {
   discountAmount?: number;
   paidAmount?: number;
   outstandingAmount?: number;
-  paymentStatus: 'Pending' | 'Paid' | 'Waived';
+  paymentStatus: 'Pending' | 'Partially Paid' | 'Paid' | 'Waived';
   paymentMode?: string;
   paymentReference?: string;
   paymentDate?: string;
@@ -1489,7 +1494,7 @@ export interface RDBOM {
   items: RDBOMItem[];
   totalEstimatedCost: number;
   linkedMaterialRequestId?: string;
-  receiptStatus?: 'Pending' | 'Partially Received' | 'Fully Received';
+  receiptStatus?: 'Pending' | 'Partially Received' | 'Fully Received' | 'Received';
   requisitionStatus?: 'Draft' | 'Requested' | 'Partially Issued' | 'Issued';
   createdAt: string;
   updatedAt: string;

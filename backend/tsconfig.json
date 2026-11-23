@@ -10,6 +10,6 @@
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true
   },
-  "include": ["server.ts", "server/**/*", "src/**/*"],
+  "include": ["server.ts", "server/**/*", "src/**/*", "api/**/*"],
   "exclude": ["dist", "node_modules"]
 }

@@ -905,7 +905,9 @@ serviceRouter.post('/service/jobs/:id/material-requests', requireAuth, async (re
       notes: `Service Spare Parts Indent for ${job.customerName} (Job: ${job.docNo})`,
     });
 
-    smr.linkedMaterialRequestId = scMr.id;
+    if (scMr) {
+      smr.linkedMaterialRequestId = scMr.id;
+    }
     await smr.save();
 
     job.status = 'Awaiting Spares';

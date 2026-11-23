@@ -14,6 +14,7 @@ import {
   ServiceRequestModel,
 } from '../models';
 import { generateId } from '../utils/routeUtils';
+import type { RolePermissionMap } from '../../src/types/erp';
 
 const DEFAULT_HASH = bcrypt.hashSync('cryo123', 8);
 
@@ -32,7 +33,7 @@ const ALL_ACTIONS = [
 
 export async function ensureSuperAdminOnly(email: string, password: string): Promise<void> {
   const normalizedEmail = email.trim().toLowerCase();
-  const fullPerms: Record<string, string[]> = {};
+  const fullPerms: RolePermissionMap = {};
   for (const key of ['all', 'admin', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rd', 'tracking', 'reports']) {
     fullPerms[key] = [...ALL_ACTIONS];
   }
@@ -103,8 +104,8 @@ export async function ensureSuperAdminOnly(email: string, password: string): Pro
 export async function ensureServiceAndRDRolesAndData(): Promise<void> {
   try {
     // 0. Normalize legacy department keys in MongoDB
-    await RoleModel.updateMany({ department: 'rnd' }, { $set: { department: 'rd' } });
-    await EmployeeModel.updateMany({ department: 'rnd' }, { $set: { department: 'rd' } });
+    await RoleModel.updateMany({ department: 'rnd' as any }, { $set: { department: 'rd' } });
+    await EmployeeModel.updateMany({ department: 'rnd' as any }, { $set: { department: 'rd' } });
 
     // 1. Ensure Super Admin role includes service and rd actions
     const superAdminRole = await RoleModel.findOne({ id: 'role-super-admin' });
@@ -184,7 +185,7 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
     for (const r of serviceRoles) {
       let roleDoc = await RoleModel.findOne({ $or: [{ id: r.id }, { name: r.name }] });
       if (!roleDoc) {
-        roleDoc = await RoleModel.create(r);
+        roleDoc = await RoleModel.create(r as any);
       } else {
         roleDoc.department = 'service';
         const merged: Record<string, any> = { ...roleDoc.permissions };
@@ -300,7 +301,7 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
     for (const r of rdRoles) {
       let roleDoc = await RoleModel.findOne({ $or: [{ id: r.id }, { name: r.name }] });
       if (!roleDoc) {
-        roleDoc = await RoleModel.create(r);
+        roleDoc = await RoleModel.create(r as any);
       } else {
         roleDoc.department = 'rd';
         const merged: Record<string, any> = { ...roleDoc.permissions };
