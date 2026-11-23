@@ -769,7 +769,7 @@ export const DeliveryOrdersPage: React.FC<{ mode: 'all' | 'in_transit' | 'comple
       toast(
         deliverMode === 'Delivered' ? 'success' : 'info',
         deliverMode === 'Delivered'
-          ? `Delivery confirmed for ${deliverTarget.docNo}`
+          ? `Delivery confirmed for ${deliverTarget.docNo} & saved to Delivered Products Register`
           : `Delivery issue logged for ${deliverTarget.docNo}`,
       );
     } catch (err) {

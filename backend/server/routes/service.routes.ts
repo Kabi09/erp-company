@@ -18,6 +18,7 @@ import {
 import { mongoERPRepository } from '../repositories/MongoERPRepository';
 import { generateId, sendError } from '../utils/routeUtils';
 import { requireAuth, requirePerm, type AuthenticatedRequest } from '../middleware/auth.middleware';
+import { checkPermission } from '../utils/rbacLogic';
 
 export const serviceRouter = Router();
 
@@ -94,9 +95,22 @@ serviceRouter.get('/service/delivered-products/:id', requireAuth, handleGetDeliv
 serviceRouter.get('/production/delivered-products', requireAuth, handleGetDeliveredProducts);
 serviceRouter.get('/production/delivered-products/:id', requireAuth, handleGetDeliveredProductById);
 
-// Create Delivered Product (Manual or Onboarding)
-serviceRouter.post('/service/delivered-products', requireAuth, requirePerm('service', 'create'), async (req: AuthenticatedRequest, res) => {
+// Create Delivered Product (Manual or Onboarding - accessible across Service, Production, and Logistics)
+async function handleCreateDeliveredProduct(req: AuthenticatedRequest, res: any) {
   try {
+    const perms = req.user?.permissions;
+    const allowed =
+      checkPermission(perms, 'service', 'create') ||
+      checkPermission(perms, 'production', 'create') ||
+      checkPermission(perms, 'logistics', 'create') ||
+      checkPermission(perms, 'delivered_products', 'create');
+    if (!allowed) {
+      res.status(403).json({
+        error: "Access denied: missing 'create' permission for delivered products register.",
+      });
+      return;
+    }
+
     const body = req.body;
     if (!body.serialNumber || !body.productName || !body.customerId) {
       throw new Error('serialNumber, productName, and customerId are required.');
@@ -108,12 +122,15 @@ serviceRouter.post('/service/delivered-products', requireAuth, requirePerm('serv
     }
 
     const customer = await CustomerModel.findOne({ id: body.customerId }).lean();
-    const deliveredDate = body.deliveredDate || new Date().toISOString().split('T')[0];
+    const deliveredDate = body.deliveredDate || body.deliveryDate || new Date().toISOString().split('T')[0];
     const warrantyMonths = Number(body.warrantyPeriodMonths) || 12;
 
+    const explicitEnd = body.warrantyEndDate || body.warrantyExpiryDate;
     const startDate = new Date(deliveredDate);
-    const endDate = new Date(startDate);
-    endDate.setMonth(endDate.getMonth() + warrantyMonths);
+    const endDate = explicitEnd ? new Date(explicitEnd) : new Date(startDate);
+    if (!explicitEnd) {
+      endDate.setMonth(endDate.getMonth() + warrantyMonths);
+    }
     const isUnderWarranty = new Date() <= endDate;
 
     const doc = await DeliveredProductModel.create({
@@ -158,7 +175,10 @@ serviceRouter.post('/service/delivered-products', requireAuth, requirePerm('serv
   } catch (err) {
     sendError(res, err);
   }
-});
+}
+
+serviceRouter.post('/service/delivered-products', requireAuth, handleCreateDeliveredProduct);
+serviceRouter.post('/production/delivered-products', requireAuth, handleCreateDeliveredProduct);
 
 // Update Delivered Product
 serviceRouter.put('/service/delivered-products/:id', requireAuth, requirePerm('service', 'edit'), async (req: AuthenticatedRequest, res) => {

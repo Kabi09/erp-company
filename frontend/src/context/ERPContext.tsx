@@ -110,8 +110,11 @@ export const ERPProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setData(payload);
       setUser(payload.currentUser);
       setActiveDept((prev) => {
-        if (payload.currentUser.department !== 'admin') return payload.currentUser.department;
-        return prev;
+        const hasPrevAccess =
+          payload.currentUser.department === 'admin' ||
+          prev === payload.currentUser.department ||
+          checkPermission(payload.currentUser.permissions, prev, 'view');
+        return hasPrevAccess ? prev : payload.currentUser.department;
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Failed to load ERP data';

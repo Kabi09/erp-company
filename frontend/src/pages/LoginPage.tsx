@@ -12,8 +12,8 @@ const DEMO_ACCOUNTS = [
   { label: 'Production Manager', dept: 'Production', email: 'prod.mgr@cryoerp.com', role: 'Orders, BOM, daily updates, QC & rework' },
   { label: 'Logistics Manager', dept: 'Logistics', email: 'log.mgr@cryoerp.com', role: 'Delivery orders, dispatch & POD' },
   { label: 'Service Manager', dept: 'Service', email: 'service.mgr@cryoerp.com', role: 'Warranty check, triage, dispatch, expenses & billing' },
-  { label: 'Service Technician', dept: 'Service', email: 'tech.anil@cryoerp.com', role: 'Check-in/out, repair updates, checklist & expense claims' },
-  { label: 'R&D Director', dept: 'R&D', email: 'rd.mgr@cryoerp.com', role: 'Prototype projects, specifications, testing & completion' },
+  { label: 'Service Person (Technician)', dept: 'Service', email: 'tech.anil@cryoerp.com', role: 'Check-in/out, repair updates, checklist & expense claims' },
+  { label: 'R&D Manager', dept: 'R&D', email: 'rd.mgr@cryoerp.com', role: 'Prototype projects, specifications, testing & completion' },
   { label: 'R&D Engineer', dept: 'R&D', email: 'rd.eng@cryoerp.com', role: 'Prototype BOM, daily updates, multi-stage fabrication' },
 ];
 
@@ -32,6 +32,21 @@ export const LoginPage: React.FC = () => {
     setSubmitting(true);
     try {
       const loggedIn = await login(identifier, password);
+      navigate(getDefaultRoute(loggedIn), { replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unable to sign in.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleQuickLogin = async (email: string) => {
+    setIdentifier(email);
+    setPassword('cryo123');
+    setError(null);
+    setSubmitting(true);
+    try {
+      const loggedIn = await login(email, 'cryo123');
       navigate(getDefaultRoute(loggedIn), { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to sign in.');
@@ -62,7 +77,7 @@ export const LoginPage: React.FC = () => {
       </div>
 
       <div className="flex-1 flex items-center justify-center p-4 sm:p-8">
-        <div className="w-full max-w-4xl grid grid-cols-1 lg:grid-cols-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
+        <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
           {/* Login Form */}
           <div className="lg:col-span-3 p-6 sm:p-8">
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900 dark:text-slate-100">
@@ -120,37 +135,55 @@ export const LoginPage: React.FC = () => {
           </div>
 
           {/* Demo Workspace Selector */}
-          <div className="lg:col-span-2 bg-slate-50 dark:bg-slate-950/60 p-6 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800">
+          <div className="lg:col-span-2 bg-slate-50 dark:bg-slate-950/60 p-5 border-t lg:border-t-0 lg:border-l border-slate-200 dark:border-slate-800 flex flex-col">
             <div className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-              Demo Environment Accounts
+              Quick Access Accounts (One-Click Login)
             </div>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-1">
-              Click any role below to fill credentials (password: <span className="font-mono">cryo123</span>).
+              Click any account to sign in immediately, or click Fill to review credentials (password: <span className="font-mono">cryo123</span>).
             </p>
-            <div className="mt-4 space-y-2">
+            <div className="mt-3 space-y-2 max-h-[480px] overflow-y-auto pr-1">
               {DEMO_ACCOUNTS.map((acc) => {
                 const selected = identifier.toLowerCase() === acc.email;
                 return (
-                  <button
+                  <div
                     key={acc.email}
-                    type="button"
-                    onClick={() => {
-                      setIdentifier(acc.email);
-                      setPassword('cryo123');
-                      setError(null);
-                    }}
-                    className={`w-full text-left p-2.5 rounded-md border transition-colors cursor-pointer ${
+                    className={`group w-full p-2.5 rounded-md border transition-colors ${
                       selected
                         ? 'bg-white dark:bg-slate-900 border-teal-600'
-                        : 'bg-white/60 dark:bg-slate-900/50 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
+                        : 'bg-white/70 dark:bg-slate-900/60 border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700'
                     }`}
                   >
                     <div className="flex items-center justify-between gap-2">
-                      <span className="text-xs font-semibold text-slate-900 dark:text-slate-100">{acc.label}</span>
-                      <span className="text-[11px] text-slate-500">{acc.dept}</span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIdentifier(acc.email);
+                          setPassword('cryo123');
+                          setError(null);
+                        }}
+                        className="text-left min-w-0 flex-1 cursor-pointer"
+                      >
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="text-xs font-semibold text-slate-900 dark:text-slate-100 truncate">
+                            {acc.label}
+                          </span>
+                          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 shrink-0">
+                            {acc.dept}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 truncate">{acc.role}</div>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={submitting}
+                        onClick={() => handleQuickLogin(acc.email)}
+                        className="px-2 py-1 text-[10px] font-semibold rounded bg-teal-600 hover:bg-teal-700 text-white shrink-0 cursor-pointer disabled:opacity-50"
+                      >
+                        Login
+                      </button>
                     </div>
-                    <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5">{acc.role}</div>
-                  </button>
+                  </div>
                 );
               })}
             </div>

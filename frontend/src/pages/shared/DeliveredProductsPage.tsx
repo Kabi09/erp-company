@@ -244,7 +244,7 @@ export const DeliveredProductsPage: React.FC<DeliveredProductsPageProps> = ({ so
           { label: 'Delivered Products' },
         ]}
         actions={
-          can('service', 'create') || can('production', 'create') ? (
+          can('service', 'create') || can('production', 'create') || can('logistics', 'create') || can('delivered_products', 'create') ? (
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="w-4 h-4 mr-1.5" />
               Register Delivered Machinery
@@ -311,6 +311,28 @@ export const DeliveredProductsPage: React.FC<DeliveredProductsPageProps> = ({ so
                 {data?.customers.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.name}
+                  </option>
+                ))}
+              </Select>
+            </Field>
+
+            <Field label="Select from Product Catalog (Optional)">
+              <Select
+                value={form.productId}
+                onChange={(e) => {
+                  const prod = data?.products.find((pr) => pr.id === e.target.value);
+                  setForm({
+                    ...form,
+                    productId: e.target.value,
+                    productName: prod ? prod.name : form.productName,
+                    modelNumber: prod ? ((prod as any).model || prod.code || form.modelNumber) : form.modelNumber,
+                  });
+                }}
+              >
+                <option value="">-- Manual / Custom Equipment Entry --</option>
+                {data?.products.map((pr) => (
+                  <option key={pr.id} value={pr.id}>
+                    {pr.code} — {pr.name}
                   </option>
                 ))}
               </Select>

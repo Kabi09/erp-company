@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
   Activity,
   AlertTriangle,
@@ -56,10 +56,50 @@ const PREDEFINED_STAGES = [
   'Insulation & Outer Enclosure Curing',
 ];
 
+type DraftBomItem = Omit<
+  RDBOMItem,
+  'id' | 'totalCost' | 'quantityRequested' | 'quantityIssued' | 'quantityConsumed'
+> & { entryMode?: 'scm' | 'manual' };
+
+const createEmptyTestForm = () => ({
+  testName: '',
+  testProtocolNumber: '',
+  environmentalConditions: '',
+  testNotes: '',
+  checklist: [
+    {
+      id: `${Date.now()}-1`,
+      parameterOrCheck: '',
+      expectedCondition: '',
+      measuredValue: '',
+      result: 'Pending' as 'Pass' | 'Fail' | 'Pending',
+    },
+  ],
+});
+
+const createEmptyBomRow = (): DraftBomItem => ({
+  entryMode: 'scm',
+  materialId: '',
+  name: '',
+  partNumber: '',
+  category: 'Mechanical',
+  quantityRequired: 1,
+  unit: 'Nos',
+  source: 'Stock',
+  estimatedUnitCost: 0,
+});
+
 export const RDProjectDetailPage: React.FC = () => {
   const { id } = useParams<{ id: string }>();
-  const { user, toast, can } = useERP();
+  const [searchParams] = useSearchParams();
+  const { user, data, toast, can } = useERP();
   const navigate = useNavigate();
+
+  const resolveTabFromParam = (t: string | null) => {
+    if (t === 'specifications') return 'spec';
+    if (t && ['overview', 'spec', 'bom', 'updates', 'testing', 'archive'].includes(t)) return t;
+    return 'overview';
+  };
 
   const [project, setProject] = useState<RDProject | null>(null);
   const [spec, setSpec] = useState<RDSpecification | null>(null);
@@ -67,7 +107,12 @@ export const RDProjectDetailPage: React.FC = () => {
   const [updates, setUpdates] = useState<RDWorkUpdate[]>([]);
   const [tests, setTests] = useState<RDTestRecord[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(() => resolveTabFromParam(searchParams.get('tab')));
+
+  useEffect(() => {
+    const t = searchParams.get('tab');
+    if (t) setActiveTab(resolveTabFromParam(t));
+  }, [searchParams]);
 
   // Modals
   const [specModalOpen, setSpecModalOpen] = useState(false);
@@ -90,54 +135,70 @@ export const RDProjectDetailPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  // Forms
-  const [specParameters, setSpecParameters] = useState<RDSpecParameter[]>([
-    { id: '1', category: 'Thermal', parameterName: 'Ultimate Low Temperature', targetValue: '-86', tolerance: '±1', unit: '°C' },
-    { id: '2', category: 'Thermal', parameterName: 'Pull-down Time (+25°C to -86°C)', targetValue: '180', tolerance: '<= 210', unit: 'Min' },
-    { id: '3', category: 'Electrical', parameterName: 'Power Consumption (Steady State)', targetValue: '950', tolerance: '±50', unit: 'Watts' },
-    { id: '4', category: 'Acoustic', parameterName: 'Noise Level (1 Meter)', targetValue: '48', tolerance: '<= 52', unit: 'dBA' },
-  ]);
+  // Forms (clean initial state without hardcoded sample test/spec/BOM defaults)
+  const [specParameters, setSpecParameters] = useState<RDSpecParameter[]>([]);
 
-  const [bomItems, setBomItems] = useState<Array<Omit<RDBOMItem, 'id' | 'totalCost' | 'quantityRequested' | 'quantityIssued' | 'quantityConsumed'>>>([
-    { name: 'Secop Low-Temp Hermetic Compressor 1.5HP', partNumber: 'SC-150-LT', category: 'Refrigeration', quantityRequired: 1, unit: 'Nos', source: 'Stock', estimatedUnitCost: 42000 },
-    { name: 'Copper Tubing 3/8" Refrigerant Grade (Roll)', partNumber: 'CU-38-REF', category: 'Piping', quantityRequired: 3, unit: 'Rolls', source: 'Stock', estimatedUnitCost: 6500 },
-    { name: 'Micro-Channel Auxiliary Condenser Coil', partNumber: 'MC-COND-400', category: 'Heat Exchanger', quantityRequired: 1, unit: 'Nos', source: 'Procurement', estimatedUnitCost: 14500 },
-  ]);
+  const [bomItems, setBomItems] = useState<DraftBomItem[]>([]);
 
   const [selectedMrItems, setSelectedMrItems] = useState<Array<{ name: string; quantityRequested: number; unit: string }>>([]);
 
   const [workUpdateForm, setWorkUpdateForm] = useState({
-    selectedStages: ['Frame & Structural Fabrication'],
+    selectedStages: [] as string[],
     customStage: '',
     hoursSpent: 4,
-    highlights: ['Cut and TIG-welded base structural frame', 'Deburred all mounting flanges'],
+    highlights: [] as string[],
     newHighlightText: '',
-    technicalObservations: 'Structural rigidity verified under static load test. No vibration resonance.',
+    technicalObservations: '',
   });
 
-  const [testForm, setTestForm] = useState({
-    testName: 'Cascade Pull-Down Performance Validation',
-    testProtocolNumber: 'TP-RND-001',
-    environmentalConditions: 'Ambient temperature: 24.5°C, Relative Humidity: 55%',
-    testNotes: 'Continuous data logger recording every 30 seconds.',
-    checklist: [
-      { id: '1', parameterOrCheck: 'Pull-down to -40°C Stage 1', expectedCondition: '<= 60 Mins', measuredValue: '52 Mins', result: 'Pass' as const },
-      { id: '2', parameterOrCheck: 'Pull-down to -86°C Stage 2', expectedCondition: '<= 180 Mins', measuredValue: '174 Mins', result: 'Pass' as const },
-      { id: '3', parameterOrCheck: 'Steady state cabinet stability', expectedCondition: '±0.5°C over 4 hours', measuredValue: '±0.3°C', result: 'Pass' as const },
-      { id: '4', parameterOrCheck: 'Compressor discharge temperature', expectedCondition: '<= 95°C', measuredValue: '88°C', result: 'Pass' as const },
-    ],
-  });
+  const [testForm, setTestForm] = useState(createEmptyTestForm);
 
   const [retestForm, setRetestForm] = useState({
-    retestReason: 'Secondary cycle thermostatic valve orifice recalibrated.',
-    environmentalConditions: 'Ambient 25°C',
-    testNotes: 'Retesting after orifice adjustment.',
+    retestReason: '',
+    environmentalConditions: '',
+    testNotes: '',
     checklist: [] as RDTestItem[],
   });
 
-  const [finalConclusion, setFinalConclusion] = useState(
-    'All prototype design specifications, thermal pull-down performance parameters, and electrical safety tests have passed full engineering validation.',
-  );
+  const [finalConclusion, setFinalConclusion] = useState('');
+
+  const openSpecModal = () => {
+    setErr(null);
+    if (spec?.parameters?.length) {
+      setSpecParameters(spec.parameters.map((p) => ({ ...p })));
+    } else {
+      setSpecParameters([{ id: String(Date.now()), category: '', parameterName: '', targetValue: '', tolerance: '', unit: '' }]);
+    }
+    setSpecModalOpen(true);
+  };
+
+  const openBomModal = () => {
+    setErr(null);
+    if (bom?.items?.length) {
+      setBomItems(
+        bom.items.map((it) => ({
+          entryMode: it.materialId ? 'scm' : 'manual',
+          materialId: it.materialId || '',
+          name: it.name,
+          partNumber: it.partNumber || '',
+          category: it.category || 'Mechanical',
+          quantityRequired: it.quantityRequired || 1,
+          unit: it.unit || 'Nos',
+          source: it.source || 'Stock',
+          estimatedUnitCost: it.estimatedUnitCost || 0,
+        })),
+      );
+    } else {
+      setBomItems([createEmptyBomRow()]);
+    }
+    setBomModalOpen(true);
+  };
+
+  const openTestModal = () => {
+    setErr(null);
+    setTestForm(createEmptyTestForm());
+    setTestModalOpen(true);
+  };
 
   const loadProject = async () => {
     if (!id) return;
@@ -186,11 +247,25 @@ export const RDProjectDetailPage: React.FC = () => {
   const handleSaveBom = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!project) return;
+    const cleanItems = bomItems
+      .filter((it) => it.name.trim() || it.materialId)
+      .map(({ entryMode: _mode, ...rest }) => ({
+        ...rest,
+        materialId: rest.materialId || undefined,
+      }));
+    if (cleanItems.length === 0) {
+      setErr('Add at least one Supply Chain material or manual component.');
+      return;
+    }
+    if (cleanItems.some((it) => !it.name.trim())) {
+      setErr('Every BOM row must have a component name.');
+      return;
+    }
     setSubmitting(true);
     setErr(null);
     try {
       await erpApi.saveRDBOM(project.id, {
-        items: bomItems,
+        items: cleanItems,
       });
       toast('success', 'Prototype BOM Saved');
       setBomModalOpen(false);
@@ -507,7 +582,7 @@ export const RDProjectDetailPage: React.FC = () => {
               Design Specifications Baseline {spec ? `(Version ${spec.version})` : ''}
             </h3>
             {can('rd', 'edit') && (
-              <Button size="sm" onClick={() => setSpecModalOpen(true)}>
+              <Button size="sm" onClick={openSpecModal}>
                 <Plus className="w-3.5 h-3.5 mr-1" />
                 Edit / Add Specifications
               </Button>
@@ -527,16 +602,24 @@ export const RDProjectDetailPage: React.FC = () => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                {specParameters.map((p) => (
-                  <tr key={p.id}>
-                    <td className="p-3 font-medium text-slate-500">{p.category || 'Mechanical'}</td>
-                    <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{p.parameterName}</td>
-                    <td className="p-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">{p.targetValue}</td>
-                    <td className="p-3 text-slate-600 dark:text-slate-400">{p.tolerance || '-'}</td>
-                    <td className="p-3 text-slate-500">{p.unit || '-'}</td>
-                    <td className="p-3 text-slate-500">{p.notes || '-'}</td>
+                {(spec?.parameters || specParameters).length === 0 ? (
+                  <tr>
+                    <td colSpan={6} className="p-6 text-center text-slate-500">
+                      No specifications defined yet. Click &ldquo;Edit / Add Specifications&rdquo; to enter parameters manually.
+                    </td>
                   </tr>
-                ))}
+                ) : (
+                  (spec?.parameters || specParameters).map((p) => (
+                    <tr key={p.id}>
+                      <td className="p-3 font-medium text-slate-500">{p.category || 'General'}</td>
+                      <td className="p-3 font-semibold text-slate-800 dark:text-slate-200">{p.parameterName}</td>
+                      <td className="p-3 font-mono font-bold text-indigo-600 dark:text-indigo-400">{p.targetValue}</td>
+                      <td className="p-3 text-slate-600 dark:text-slate-400">{p.tolerance || '-'}</td>
+                      <td className="p-3 text-slate-500">{p.unit || '-'}</td>
+                      <td className="p-3 text-slate-500">{p.notes || '-'}</td>
+                    </tr>
+                  ))
+                )}
               </tbody>
             </table>
           </div>
@@ -578,7 +661,7 @@ export const RDProjectDetailPage: React.FC = () => {
                 Request from Stores
               </Button>
               {can('rd', 'edit') && (
-                <Button size="sm" onClick={() => setBomModalOpen(true)}>
+                <Button size="sm" onClick={openBomModal}>
                   <Plus className="w-3.5 h-3.5 mr-1" />
                   Define BOM
                 </Button>
@@ -607,7 +690,7 @@ export const RDProjectDetailPage: React.FC = () => {
                   const req = it.quantityRequired || 0;
                   const reqd = it.quantityRequested || 0;
                   const iss = it.quantityIssued || 0;
-                  const rec = it.quantityReceived || (iss > 0 && bom?.receiptStatus === 'Received' ? iss : 0);
+                  const rec = it.quantityReceived || (iss > 0 && ((bom?.receiptStatus as any) === 'Received' || bom?.receiptStatus === 'Fully Received') ? iss : 0);
                   const con = it.quantityConsumed || 0;
                   const ret = it.quantityReturned || 0;
                   const pending = Math.max(0, req - (rec || iss));
@@ -741,7 +824,7 @@ export const RDProjectDetailPage: React.FC = () => {
             <h3 className="font-semibold text-slate-900 dark:text-slate-100 text-sm">
               Prototype Test Protocols &amp; Iteration Retests
             </h3>
-            <Button size="sm" onClick={() => setTestModalOpen(true)}>
+            <Button size="sm" onClick={openTestModal}>
               <Plus className="w-3.5 h-3.5 mr-1" />
               New Test Protocol Run
             </Button>
@@ -863,12 +946,20 @@ export const RDProjectDetailPage: React.FC = () => {
       <Modal open={specModalOpen} onClose={() => setSpecModalOpen(false)} title="Define Product Specifications" size="lg">
         <form onSubmit={handleSaveSpecs} className="space-y-4">
           {err && <ErrorBanner message={err} />}
-          <div className="space-y-3">
+          <div className="grid grid-cols-12 gap-2 px-3 text-[11px] font-semibold text-slate-500">
+            <div className="col-span-2">Category</div>
+            <div className="col-span-3">Parameter Name</div>
+            <div className="col-span-2">Target Value</div>
+            <div className="col-span-2">Tolerance</div>
+            <div className="col-span-2">Unit</div>
+            <div className="col-span-1 text-right">Del</div>
+          </div>
+          <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
             {specParameters.map((p, idx) => (
-              <div key={idx} className="p-3 border border-slate-200 dark:border-slate-800 rounded-md grid grid-cols-12 gap-2 items-center">
-                <div className="col-span-3">
+              <div key={p.id || idx} className="p-2.5 border border-slate-200 dark:border-slate-800 rounded-md grid grid-cols-12 gap-2 items-center">
+                <div className="col-span-2">
                   <Input
-                    placeholder="Category"
+                    placeholder="e.g. Thermal"
                     value={p.category}
                     onChange={(e) => {
                       const next = [...specParameters];
@@ -877,7 +968,7 @@ export const RDProjectDetailPage: React.FC = () => {
                     }}
                   />
                 </div>
-                <div className="col-span-4">
+                <div className="col-span-3">
                   <Input
                     placeholder="Parameter Name"
                     value={p.parameterName}
@@ -903,7 +994,18 @@ export const RDProjectDetailPage: React.FC = () => {
                 </div>
                 <div className="col-span-2">
                   <Input
-                    placeholder="Unit"
+                    placeholder="e.g. ±1"
+                    value={p.tolerance || ''}
+                    onChange={(e) => {
+                      const next = [...specParameters];
+                      next[idx].tolerance = e.target.value;
+                      setSpecParameters(next);
+                    }}
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Input
+                    placeholder="e.g. °C, V"
                     value={p.unit}
                     onChange={(e) => {
                       const next = [...specParameters];
@@ -914,6 +1016,7 @@ export const RDProjectDetailPage: React.FC = () => {
                 </div>
                 <div className="col-span-1 flex justify-end">
                   <Button
+                    type="button"
                     size="sm"
                     variant="ghost"
                     onClick={() => setSpecParameters(specParameters.filter((_, i) => i !== idx))}
@@ -929,14 +1032,14 @@ export const RDProjectDetailPage: React.FC = () => {
             type="button"
             size="sm"
             variant="secondary"
-            onClick={() => setSpecParameters([...specParameters, { id: String(Date.now()), category: 'Mechanical', parameterName: '', targetValue: '', tolerance: '', unit: '' }])}
+            onClick={() => setSpecParameters([...specParameters, { id: String(Date.now()), category: '', parameterName: '', targetValue: '', tolerance: '', unit: '' }])}
           >
             <Plus className="w-3.5 h-3.5 mr-1" />
             Add Parameter Row
           </Button>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-            <Button variant="secondary" onClick={() => setSpecModalOpen(false)}>
+            <Button type="button" variant="secondary" onClick={() => setSpecModalOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" loading={submitting}>
@@ -946,88 +1049,194 @@ export const RDProjectDetailPage: React.FC = () => {
         </form>
       </Modal>
 
-      {/* Define Prototype BOM Modal */}
+      {/* Define Prototype BOM Modal (Supply Chain Materials Dropdown + Manual Entry) */}
       <Modal open={bomModalOpen} onClose={() => setBomModalOpen(false)} title="Define Prototype BOM Components" size="lg">
         <form onSubmit={handleSaveBom} className="space-y-4">
           {err && <ErrorBanner message={err} />}
-          <div className="space-y-3">
-            {bomItems.map((b, idx) => (
-              <div key={idx} className="p-3 border border-slate-200 dark:border-slate-800 rounded-md grid grid-cols-12 gap-2 items-center">
-                <div className="col-span-4">
-                  <Input
-                    placeholder="Component Name"
-                    value={b.name}
-                    onChange={(e) => {
-                      const next = [...bomItems];
-                      next[idx].name = e.target.value;
-                      setBomItems(next);
-                    }}
-                    required
-                  />
+          <p className="text-xs text-slate-500 dark:text-slate-400">
+            Pick an existing material from Supply Chain stock or choose &ldquo;Enter Custom Material Manually&rdquo; to define a prototype component.
+          </p>
+          <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+            {bomItems.map((b, idx) => {
+              const isManual = b.entryMode === 'manual';
+              return (
+                <div key={idx} className="p-3 border border-slate-200 dark:border-slate-800 rounded-md space-y-2.5 bg-slate-50/50 dark:bg-slate-950/40">
+                  <div className="grid grid-cols-12 gap-2 items-center">
+                    <div className="col-span-6">
+                      <label className="block text-[11px] font-medium text-slate-500 mb-1">Material Source / Catalog</label>
+                      <Select
+                        value={isManual ? '__manual__' : b.materialId || ''}
+                        onChange={(e) => {
+                          const val = e.target.value;
+                          const next = [...bomItems];
+                          if (val === '__manual__') {
+                            next[idx] = {
+                              ...next[idx],
+                              entryMode: 'manual',
+                              materialId: '',
+                              name: next[idx].materialId ? '' : next[idx].name,
+                              partNumber: next[idx].materialId ? '' : next[idx].partNumber,
+                            };
+                          } else if (val === '') {
+                            next[idx] = createEmptyBomRow();
+                          } else {
+                            const mat = data?.materials?.find((m) => m.id === val);
+                            if (mat) {
+                              next[idx] = {
+                                ...next[idx],
+                                entryMode: 'scm',
+                                materialId: mat.id,
+                                name: mat.name,
+                                partNumber: mat.code,
+                                category: mat.category || 'Mechanical',
+                                unit: mat.unit || 'Nos',
+                                estimatedUnitCost: (mat as any).unitCost || 0,
+                                source: 'Stock',
+                              };
+                            }
+                          }
+                          setBomItems(next);
+                        }}
+                      >
+                        <option value="">-- Select Supply Chain Material --</option>
+                        <option value="__manual__">✎ Enter Custom Material Manually</option>
+                        {(data?.materials || []).map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.code} — {m.name} (Stock: {data?.stockMap?.[m.id] ?? 0} {m.unit})
+                          </option>
+                        ))}
+                      </Select>
+                    </div>
+                    <div className="col-span-2">
+                      <label className="block text-[11px] font-medium text-slate-500 mb-1">Qty</label>
+                      <Input
+                        type="number"
+                        min="1"
+                        placeholder="Qty"
+                        value={b.quantityRequired}
+                        onChange={(e) => {
+                          const next = [...bomItems];
+                          next[idx].quantityRequired = Number(e.target.value);
+                          setBomItems(next);
+                        }}
+                        required
+                      />
+                    </div>
+                    <div className="col-span-3">
+                      <label className="block text-[11px] font-medium text-slate-500 mb-1">Est. Unit Cost</label>
+                      <Input
+                        type="number"
+                        min="0"
+                        placeholder="Unit Cost"
+                        value={b.estimatedUnitCost}
+                        onChange={(e) => {
+                          const next = [...bomItems];
+                          next[idx].estimatedUnitCost = Number(e.target.value);
+                          setBomItems(next);
+                        }}
+                        required
+                      />
+                    </div>
+                    <div className="col-span-1 flex justify-end pt-4">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => setBomItems(bomItems.filter((_, i) => i !== idx))}
+                      >
+                        <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                      </Button>
+                    </div>
+                  </div>
+
+                  {isManual ? (
+                    <div className="grid grid-cols-12 gap-2 items-center pt-1 border-t border-slate-200 dark:border-slate-800">
+                      <div className="col-span-5">
+                        <Input
+                          placeholder="Custom Material / Component Name *"
+                          value={b.name}
+                          onChange={(e) => {
+                            const next = [...bomItems];
+                            next[idx].name = e.target.value;
+                            setBomItems(next);
+                          }}
+                          required
+                        />
+                      </div>
+                      <div className="col-span-3">
+                        <Input
+                          placeholder="Part # / Spec"
+                          value={b.partNumber || ''}
+                          onChange={(e) => {
+                            const next = [...bomItems];
+                            next[idx].partNumber = e.target.value;
+                            setBomItems(next);
+                          }}
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <Input
+                          placeholder="Unit (Nos, Kg)"
+                          value={b.unit}
+                          onChange={(e) => {
+                            const next = [...bomItems];
+                            next[idx].unit = e.target.value;
+                            setBomItems(next);
+                          }}
+                          required
+                        />
+                      </div>
+                      <div className="col-span-2">
+                        <Select
+                          value={b.source}
+                          onChange={(e) => {
+                            const next = [...bomItems];
+                            next[idx].source = e.target.value as any;
+                            setBomItems(next);
+                          }}
+                        >
+                          <option value="Stock">Stock</option>
+                          <option value="Procurement">Procurement</option>
+                          <option value="Custom Fabrication">Fabrication</option>
+                          <option value="Existing Rig">Existing Rig</option>
+                        </Select>
+                      </div>
+                    </div>
+                  ) : b.materialId ? (
+                    <div className="flex items-center justify-between text-[11px] text-slate-500 px-1">
+                      <span>
+                        Selected: <strong className="text-slate-700 dark:text-slate-300">{b.name}</strong> ({b.partNumber}) • Unit: {b.unit}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const next = [...bomItems];
+                          next[idx].entryMode = 'manual';
+                          setBomItems(next);
+                        }}
+                        className="text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                      >
+                        Edit details manually
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-                <div className="col-span-2">
-                  <Input
-                    placeholder="Part #"
-                    value={b.partNumber}
-                    onChange={(e) => {
-                      const next = [...bomItems];
-                      next[idx].partNumber = e.target.value;
-                      setBomItems(next);
-                    }}
-                  />
-                </div>
-                <div className="col-span-2">
-                  <Input
-                    type="number"
-                    min="1"
-                    placeholder="Qty"
-                    value={b.quantityRequired}
-                    onChange={(e) => {
-                      const next = [...bomItems];
-                      next[idx].quantityRequired = Number(e.target.value);
-                      setBomItems(next);
-                    }}
-                    required
-                  />
-                </div>
-                <div className="col-span-3">
-                  <Input
-                    type="number"
-                    placeholder="Est Unit Cost"
-                    value={b.estimatedUnitCost}
-                    onChange={(e) => {
-                      const next = [...bomItems];
-                      next[idx].estimatedUnitCost = Number(e.target.value);
-                      setBomItems(next);
-                    }}
-                    required
-                  />
-                </div>
-                <div className="col-span-1 flex justify-end">
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setBomItems(bomItems.filter((_, i) => i !== idx))}
-                  >
-                    <Trash2 className="w-3.5 h-3.5 text-red-500" />
-                  </Button>
-                </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           <Button
             type="button"
             size="sm"
             variant="secondary"
-            onClick={() => setBomItems([...bomItems, { name: '', partNumber: '', category: 'Mechanical', quantityRequired: 1, unit: 'Nos', source: 'Stock', estimatedUnitCost: 0 }])}
+            onClick={() => setBomItems([...bomItems, createEmptyBomRow()])}
           >
             <Plus className="w-3.5 h-3.5 mr-1" />
             Add BOM Component
           </Button>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-            <Button variant="secondary" onClick={() => setBomModalOpen(false)}>
+            <Button type="button" variant="secondary" onClick={() => setBomModalOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" loading={submitting}>
@@ -1206,13 +1415,14 @@ export const RDProjectDetailPage: React.FC = () => {
         </form>
       </Modal>
 
-      {/* New Test Modal (Dynamic Checklist) */}
+      {/* New Test Modal (Dynamic Manual Checklist) */}
       <Modal open={testModalOpen} onClose={() => setTestModalOpen(false)} title="New Prototype Test Protocol Execution" size="lg">
         <form onSubmit={handleCreateTest} className="space-y-4">
           {err && <ErrorBanner message={err} />}
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Field label="Test Protocol Name" required>
               <Input
+                placeholder="e.g. Thermal Pull-Down Validation"
                 value={testForm.testName}
                 onChange={(e) => setTestForm({ ...testForm, testName: e.target.value })}
                 required
@@ -1220,57 +1430,140 @@ export const RDProjectDetailPage: React.FC = () => {
             </Field>
             <Field label="Protocol #">
               <Input
+                placeholder="e.g. TP-RND-001"
                 value={testForm.testProtocolNumber}
                 onChange={(e) => setTestForm({ ...testForm, testProtocolNumber: e.target.value })}
               />
             </Field>
           </div>
 
-          <Field label="Environmental Conditions">
-            <Input
-              value={testForm.environmentalConditions}
-              onChange={(e) => setTestForm({ ...testForm, environmentalConditions: e.target.value })}
-            />
-          </Field>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Field label="Environmental Conditions">
+              <Input
+                placeholder="e.g. Ambient 25°C, RH 50%"
+                value={testForm.environmentalConditions}
+                onChange={(e) => setTestForm({ ...testForm, environmentalConditions: e.target.value })}
+              />
+            </Field>
+            <Field label="Test Notes">
+              <Input
+                placeholder="Observations or test rig details..."
+                value={testForm.testNotes}
+                onChange={(e) => setTestForm({ ...testForm, testNotes: e.target.value })}
+              />
+            </Field>
+          </div>
 
           <div className="space-y-2">
-            <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
-              Inspection &amp; Validation Checklist
-            </label>
-            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-semibold text-slate-700 dark:text-slate-300 block">
+                Inspection &amp; Validation Checklist
+              </label>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                onClick={() =>
+                  setTestForm({
+                    ...testForm,
+                    checklist: [
+                      ...testForm.checklist,
+                      {
+                        id: `${Date.now()}-${testForm.checklist.length + 1}`,
+                        parameterOrCheck: '',
+                        expectedCondition: '',
+                        measuredValue: '',
+                        result: 'Pending',
+                      },
+                    ],
+                  })
+                }
+              >
+                <Plus className="w-3.5 h-3.5 mr-1" />
+                Add Test Case
+              </Button>
+            </div>
+            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
               {testForm.checklist.map((chk, idx) => (
-                <div key={chk.id} className="p-2.5 rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 flex items-center justify-between gap-3 text-xs">
-                  <span className="text-slate-800 dark:text-slate-200 flex-1">{chk.parameterOrCheck}</span>
-                  <Input
-                    placeholder="Measured"
-                    value={chk.measuredValue}
-                    onChange={(e) => {
-                      const next = [...testForm.checklist];
-                      next[idx].measuredValue = e.target.value;
-                      setTestForm({ ...testForm, checklist: next });
-                    }}
-                    className="w-28 text-xs py-1"
-                  />
-                  <Select
-                    value={chk.result}
-                    onChange={(e) => {
-                      const next = [...testForm.checklist];
-                      next[idx].result = e.target.value as any;
-                      setTestForm({ ...testForm, checklist: next });
-                    }}
-                    className="w-24 text-xs py-1"
-                  >
-                    <option value="Pass">Pass</option>
-                    <option value="Fail">Fail</option>
-                    <option value="Pending">Pending</option>
-                  </Select>
+                <div
+                  key={chk.id}
+                  className="p-2.5 rounded border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-950 grid grid-cols-12 gap-2 items-center text-xs"
+                >
+                  <div className="col-span-4">
+                    <Input
+                      placeholder="Test case / check item *"
+                      value={chk.parameterOrCheck}
+                      onChange={(e) => {
+                        const next = [...testForm.checklist];
+                        next[idx].parameterOrCheck = e.target.value;
+                        setTestForm({ ...testForm, checklist: next });
+                      }}
+                      required
+                      className="text-xs py-1"
+                    />
+                  </div>
+                  <div className="col-span-3">
+                    <Input
+                      placeholder="Expected spec"
+                      value={chk.expectedCondition}
+                      onChange={(e) => {
+                        const next = [...testForm.checklist];
+                        next[idx].expectedCondition = e.target.value;
+                        setTestForm({ ...testForm, checklist: next });
+                      }}
+                      className="text-xs py-1"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Input
+                      placeholder="Measured"
+                      value={chk.measuredValue}
+                      onChange={(e) => {
+                        const next = [...testForm.checklist];
+                        next[idx].measuredValue = e.target.value;
+                        setTestForm({ ...testForm, checklist: next });
+                      }}
+                      className="text-xs py-1"
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Select
+                      value={chk.result}
+                      onChange={(e) => {
+                        const next = [...testForm.checklist];
+                        next[idx].result = e.target.value as any;
+                        setTestForm({ ...testForm, checklist: next });
+                      }}
+                      className="text-xs py-1"
+                    >
+                      <option value="Pending">Pending</option>
+                      <option value="Pass">Pass</option>
+                      <option value="Fail">Fail</option>
+                    </Select>
+                  </div>
+                  <div className="col-span-1 flex justify-end">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      disabled={testForm.checklist.length <= 1}
+                      onClick={() =>
+                        setTestForm({
+                          ...testForm,
+                          checklist: testForm.checklist.filter((_, i) => i !== idx),
+                        })
+                      }
+                    >
+                      <Trash2 className="w-3.5 h-3.5 text-red-500" />
+                    </Button>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
 
           <div className="flex justify-end gap-2 pt-2 border-t border-slate-200 dark:border-slate-800">
-            <Button variant="secondary" onClick={() => setTestModalOpen(false)}>
+            <Button type="button" variant="secondary" onClick={() => setTestModalOpen(false)}>
               Cancel
             </Button>
             <Button type="submit" loading={submitting}>
@@ -1352,6 +1645,7 @@ export const RDProjectDetailPage: React.FC = () => {
 
           <Field label="Final Technical Conclusion & Validation Summary" required>
             <Textarea
+              placeholder="Summarize prototype validation results, performance observations, and key engineering takeaways..."
               value={finalConclusion}
               onChange={(e) => setFinalConclusion(e.target.value)}
               rows={4}

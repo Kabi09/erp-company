@@ -675,3 +675,17 @@
     - Full backend test suite: **151/151 tests passed (100% pass rate across 14 test suites)**.
     - Frontend build: **0 TypeScript errors, built in 820ms**.
     - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
+- **v2.9.9 (Multi-Department RBAC Workspace Switcher, Quick Login, R&D Form Simplification & Delivered Products Sync)**:
+  - Multi-Department RBAC Workspace Switcher (`AppLayout.tsx`, `ERPContext.tsx`):
+    - Derived `accessibleDepartments` from role permissions and employee permission overrides across operational departments and Administration.
+    - Enabled the sidebar and mobile `Department Workspace` switcher dropdown whenever an employee has access to 2 or more departments, strictly scoped to their authorized departments without reverting to their home department on refresh.
+  - Easy Quick Login & Role-ID Healing (`LoginPage.tsx`, `seedService.ts`):
+    - Added clear labels (`Service Manager`, `Service Person (Technician)`, `R&D Manager`, `R&D Engineer`) and one-click `Login` buttons for instant sign-in on `LoginPage.tsx`.
+    - Updated `ensureServiceAndRDRolesAndData` in `seedService.ts` to resolve legacy vs. canonical role IDs (`role-service-tech` / `role-service-technician`) and automatically heal broken role references, missing password hashes, or inactive status on demo accounts without resetting database records.
+  - R&D Forms Simplification & Supply Chain Material Selector (`RDProjectDetailPage.tsx`):
+    - Prototype BOM modal now provides a Supply Chain materials dropdown (auto-populating material ID, code, unit, and showing current stock) alongside an **Enter Custom Material Manually** mode for experimental components.
+    - Removed hardcoded default sample rows from Specifications and the Inspection & Validation Checklist; added simple manual controls (`+ Add Parameter Row`, `+ Add Test Case`, Expected spec, Measured value, `Pending`/`Pass`/`Fail` result selector, and row removal) plus `?tab=` URL query navigation.
+  - Delivered Products Sync & Save Fixes (`MongoERPRepository.ts`, `seedService.ts`, `service.routes.ts`, `DeliveredProductsPage.tsx`, `LogisticsPages.tsx`):
+    - Fixed `confirmDelivery` and `syncDeliveredProducts` to extract `del.serialNumbers` (or generate deterministic unit serials for each delivered unit), resolve `ProductModel` from `ProductionOrder.productId` or `DeliveryOrder.productName`, and guarantee valid `deliveryAddress`.
+    - Opened `POST /service/delivered-products` and `POST /production/delivered-products` to authorized Service, Production, and Logistics creators, and added an optional Product Catalog quick-fill selector in `DeliveredProductsPage.tsx`.
+  - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.

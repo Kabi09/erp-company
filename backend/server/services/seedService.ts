@@ -109,10 +109,12 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
       },
     ];
 
+    const resolvedRoleIds: Record<string, string> = {};
+
     for (const r of serviceRoles) {
       let roleDoc = await RoleModel.findOne({ $or: [{ id: r.id }, { name: r.name }] });
       if (!roleDoc) {
-        await RoleModel.create(r);
+        roleDoc = await RoleModel.create(r);
       } else {
         roleDoc.department = 'service';
         const merged: Record<string, any> = { ...roleDoc.permissions };
@@ -127,6 +129,7 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
         roleDoc.markModified('permissions');
         await roleDoc.save();
       }
+      resolvedRoleIds[r.id] = roleDoc.id;
     }
 
     // Also update any legacy role IDs if present
@@ -227,7 +230,7 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
     for (const r of rdRoles) {
       let roleDoc = await RoleModel.findOne({ $or: [{ id: r.id }, { name: r.name }] });
       if (!roleDoc) {
-        await RoleModel.create(r);
+        roleDoc = await RoleModel.create(r);
       } else {
         roleDoc.department = 'rd';
         const merged: Record<string, any> = { ...roleDoc.permissions };
@@ -242,6 +245,7 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
         roleDoc.markModified('permissions');
         await roleDoc.save();
       }
+      resolvedRoleIds[r.id] = roleDoc.id;
     }
 
     // 4. Ensure Service and R&D Employees
@@ -301,9 +305,28 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
     ];
 
     for (const emp of defaultEmployees) {
+      const targetRoleId = resolvedRoleIds[emp.roleId] || emp.roleId;
       const exists = await EmployeeModel.findOne({ $or: [{ id: emp.id }, { email: emp.email }, { employeeId: emp.employeeId }] });
       if (!exists) {
-        await EmployeeModel.create(emp);
+        await EmployeeModel.create({ ...emp, roleId: targetRoleId });
+      } else {
+        let changed = false;
+        const assignedRole = await RoleModel.findOne({ id: exists.roleId }).lean();
+        if (!assignedRole) {
+          exists.roleId = targetRoleId;
+          changed = true;
+        }
+        if (!exists.passwordHash) {
+          exists.passwordHash = DEFAULT_HASH;
+          changed = true;
+        }
+        if (exists.status !== 'Active') {
+          exists.status = 'Active';
+          changed = true;
+        }
+        if (changed) {
+          await exists.save();
+        }
       }
     }
 
@@ -328,29 +351,38 @@ export async function ensureServiceAndRDRolesAndData(): Promise<void> {
 export async function syncDeliveredProducts(): Promise<number> {
   let count = 0;
   const completedDeliveries = await DeliveryOrderModel.find({
-    status: { $in: ['Delivered', 'Completed'] },
+    status: { $in: ['Delivered', 'Partially Delivered'] },
   }).lean();
 
   for (const del of completedDeliveries) {
     const existing = await DeliveredProductModel.findOne({ deliveryOrderId: del.id });
     if (!existing) {
-      const so = await SalesOrderModel.findOne({ id: del.salesOrderId }).lean();
-      const prodOrder = await ProductionOrderModel.findOne({ salesOrderId: del.salesOrderId }).lean();
-      const product = await ProductModel.findOne({
-        id: del.items?.[0]?.productId || prodOrder?.productId,
-      }).lean();
+      const prodOrder = del.productionOrderId
+        ? await ProductionOrderModel.findOne({ id: del.productionOrderId }).lean()
+        : await ProductionOrderModel.findOne({ salesOrderId: del.salesOrderId }).lean();
+      const product = prodOrder?.productId
+        ? await ProductModel.findOne({ id: prodOrder.productId }).lean()
+        : await ProductModel.findOne({ name: del.productName }).lean();
       const customer = await CustomerModel.findOne({ id: del.customerId }).lean();
 
-      const serials =
-        prodOrder?.serialNumbers && prodOrder.serialNumbers.length > 0
-          ? prodOrder.serialNumbers
-          : [`CRYO-${product?.model || 'EQ'}-${Date.now().toString(36).toUpperCase()}`];
+      const rawSerials =
+        del.serialNumbers && del.serialNumbers.length > 0
+          ? del.serialNumbers
+          : prodOrder?.serialNumbers && prodOrder.serialNumbers.length > 0
+            ? prodOrder.serialNumbers
+            : [];
+      const deliveredCount = Math.max(1, del.deliveredQty || del.quantity || 1);
+      const modelCode = (product as any)?.model || product?.code || 'EQ';
+      const serials: string[] = [...rawSerials.slice(0, deliveredCount).filter(Boolean)];
+      for (let idx = serials.length; idx < deliveredCount; idx++) {
+        serials.push(`CRYO-${modelCode}-${del.docNo}-${String(idx + 1).padStart(2, '0')}`);
+      }
 
       for (const sn of serials) {
         const already = await DeliveredProductModel.findOne({ serialNumber: sn });
         if (!already) {
           const deliveredDate =
-            del.actualDeliveryDate || del.dispatchDate || new Date().toISOString().split('T')[0];
+            del.actualDeliveryDate || del.actualDispatchDate || new Date().toISOString().split('T')[0];
           const start = new Date(deliveredDate);
           const end = new Date(start);
           end.setFullYear(end.getFullYear() + 2); // 24 months standard warranty
@@ -359,15 +391,15 @@ export async function syncDeliveredProducts(): Promise<number> {
           await DeliveredProductModel.create({
             id: generateId('DP'),
             serialNumber: sn,
-            productId: product?.id || 'prod-sample',
-            productName: product?.name || del.items?.[0]?.name || 'Ultra-Low Temperature Freezer -86°C',
-            modelNumber: product?.model || 'ULT-86-400',
+            productId: product?.id || prodOrder?.productId || 'prod-delivered',
+            productName: product?.name || del.productName || prodOrder?.productName || 'Ultra-Low Temperature Freezer -86°C',
+            modelNumber: (product as any)?.model || product?.code || 'ULT-86-400',
             customerId: customer?.id || del.customerId,
             customerName: customer?.name || del.customerName,
             customerContact: customer?.contactPerson || '',
             customerPhone: customer?.phone || '',
             customerEmail: customer?.email || '',
-            deliveryAddress: del.deliveryAddress || customer?.shippingAddress || customer?.billingAddress || '',
+            deliveryAddress: del.deliveryAddress || customer?.shippingAddress || customer?.billingAddress || 'Customer Delivery Site',
             salesOrderId: del.salesOrderId,
             salesOrderDocNo: del.salesOrderDocNo,
             productionOrderId: prodOrder?.id,

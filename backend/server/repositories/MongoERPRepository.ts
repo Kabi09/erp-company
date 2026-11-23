@@ -1731,11 +1731,23 @@ export class MongoERPRepository implements IERPRepository {
 
       // Real-time synchronization to Shared Delivered Products Register
       try {
-        const prod = await ProductModel.findOne({ id: del.items?.[0]?.productId || po?.productId }).session(session || null);
+        const prod = await (po?.productId
+          ? ProductModel.findOne({ id: po.productId }).session(session || null)
+          : ProductModel.findOne({ name: del.productName }).session(session || null));
         const cust = await CustomerModel.findOne({ id: del.customerId }).session(session || null);
-        const serials = po?.serialNumbers && po.serialNumbers.length > 0
-          ? po.serialNumbers.slice(prevDelivered, newDelivered)
-          : [`CRYO-${prod?.model || 'EQ'}-${del.docNo}-${Date.now().toString(36).slice(-4).toUpperCase()}`];
+        const rawSerials =
+          del.serialNumbers && del.serialNumbers.length > 0
+            ? del.serialNumbers
+            : po?.serialNumbers && po.serialNumbers.length > 0
+              ? po.serialNumbers
+              : [];
+        const slicedSerials = rawSerials.slice(prevDelivered, newDelivered).filter(Boolean);
+        const modelCode = (prod as any)?.model || prod?.code || 'EQ';
+        const serials: string[] = [...slicedSerials];
+        for (let idx = serials.length; idx < delta; idx++) {
+          const unitNo = prevDelivered + idx + 1;
+          serials.push(`CRYO-${modelCode}-${del.docNo}-${String(unitNo).padStart(2, '0')}`);
+        }
 
         for (const sn of serials) {
           const existingDP = await DeliveredProductModel.findOne({ serialNumber: sn }).session(session || null);
@@ -1751,15 +1763,15 @@ export class MongoERPRepository implements IERPRepository {
                 {
                   id: generateId('DP'),
                   serialNumber: sn,
-                  productId: prod?.id || 'prod-sample',
-                  productName: prod?.name || del.items?.[0]?.name || 'Cryogenic Equipment',
-                  modelNumber: prod?.model || 'EQ-STD',
+                  productId: prod?.id || po?.productId || 'prod-delivered',
+                  productName: prod?.name || del.productName || po?.productName || 'Cryogenic Equipment',
+                  modelNumber: (prod as any)?.model || prod?.code || 'EQ-STD',
                   customerId: cust?.id || del.customerId,
                   customerName: cust?.name || del.customerName,
                   customerContact: cust?.contactPerson || '',
                   customerPhone: cust?.phone || '',
                   customerEmail: cust?.email || '',
-                  deliveryAddress: del.deliveryAddress || cust?.shippingAddress || cust?.billingAddress || '',
+                  deliveryAddress: del.deliveryAddress || cust?.shippingAddress || cust?.billingAddress || 'Customer Delivery Site',
                   salesOrderId: del.salesOrderId,
                   salesOrderDocNo: del.salesOrderDocNo,
                   productionOrderId: po?.id,
@@ -1780,7 +1792,7 @@ export class MongoERPRepository implements IERPRepository {
           }
         }
       } catch (dpErr) {
-        console.warn('[Logistics->DeliveredProduct] Notice during real-time sync:', dpErr);
+        console.error('[Logistics->DeliveredProduct] Failed during real-time sync:', dpErr);
       }
 
       await this.addActivity(

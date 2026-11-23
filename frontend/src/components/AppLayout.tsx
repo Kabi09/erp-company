@@ -75,15 +75,34 @@ export const AppLayout: React.FC = () => {
     }
   }, [globalQuery]);
 
-  const isSuperAdmin = user?.department === 'admin' || can('admin', 'view');
+  const isSuperAdmin = Boolean(
+    user?.department === 'admin' ||
+    user?.roleId === 'role-super-admin' ||
+    can('admin', 'manage'),
+  );
+
+  const accessibleDepartments: Department[] = useMemo(() => {
+    if (!user) return [];
+    const allDepts: Department[] = [...OPERATIONAL_DEPARTMENTS, 'admin'];
+    if (isSuperAdmin) return allDepts;
+
+    return allDepts.filter((d) => {
+      if (user.department === d) return true;
+      if (can(d, 'view')) return true;
+      return DEPARTMENTS[d].nav.some((item) => item.module && can(item.module, item.action || 'view'));
+    });
+  }, [user, isSuperAdmin, can]);
 
   const currentDept: Department = useMemo(() => {
     const inferred = inferDepartmentFromPath(location.pathname, activeDept);
-    if (!isSuperAdmin && user && inferred !== user.department) {
+    if (accessibleDepartments.includes(inferred)) {
+      return inferred;
+    }
+    if (user && accessibleDepartments.includes(user.department)) {
       return user.department;
     }
-    return inferred;
-  }, [location.pathname, activeDept, isSuperAdmin, user]);
+    return accessibleDepartments[0] || user?.department || 'sales';
+  }, [location.pathname, activeDept, accessibleDepartments, user]);
 
   useEffect(() => {
     if (currentDept !== activeDept) {
@@ -102,10 +121,10 @@ export const AppLayout: React.FC = () => {
     if (!data || !user) return 0;
     return data.notifications.filter(
       (n) =>
-        (n.department === 'all' || isSuperAdmin || n.department === user.department) &&
+        (n.department === 'all' || isSuperAdmin || accessibleDepartments.includes(n.department as Department)) &&
         !n.readBy.includes(user.id),
     ).length;
-  }, [data, user, isSuperAdmin]);
+  }, [data, user, isSuperAdmin, accessibleDepartments]);
 
   const searchResults = useMemo(() => {
     if (!data || !globalQuery.trim()) return [];
@@ -253,8 +272,8 @@ export const AppLayout: React.FC = () => {
         </button>
       </div>
 
-      {/* Super Admin Department Switcher */}
-      {isSuperAdmin && !collapsed && (
+      {/* Department Workspace Switcher (shown whenever user has access to 2+ departments) */}
+      {accessibleDepartments.length > 1 && !collapsed && (
         <div className="px-3 py-3 border-b border-slate-800 shrink-0">
           <label htmlFor="dept-switcher" className="block text-[11px] font-medium text-slate-400 mb-1.5">
             Department Workspace
@@ -269,18 +288,17 @@ export const AppLayout: React.FC = () => {
             }}
             className="w-full px-2.5 py-1.5 text-xs font-medium bg-slate-800 border border-slate-700 rounded-md text-slate-100 focus:outline-none focus:ring-2 focus:ring-teal-500"
           >
-            {OPERATIONAL_DEPARTMENTS.map((d) => (
+            {accessibleDepartments.map((d) => (
               <option key={d} value={d}>
                 {DEPARTMENTS[d].label}
               </option>
             ))}
-            <option value="admin">{DEPARTMENTS.admin.label}</option>
           </select>
         </div>
       )}
 
       {/* Department Indicator (for single-dept users) */}
-      {!isSuperAdmin && !collapsed && (
+      {accessibleDepartments.length <= 1 && !collapsed && (
         <div className="px-4 py-2.5 border-b border-slate-800 flex items-center gap-2 shrink-0">
           <span className="text-xs font-medium text-slate-300 truncate">{deptMeta.label}</span>
         </div>
@@ -346,7 +364,7 @@ export const AppLayout: React.FC = () => {
               <span className="text-[11px] font-mono tabular-nums text-teal-400">{unreadNotifications}</span>
             )}
           </NavLink>
-          {isSuperAdmin && currentDept !== 'admin' && (
+          {(isSuperAdmin || accessibleDepartments.includes('admin')) && currentDept !== 'admin' && (
             <NavLink
               to="/admin"
               title={collapsed ? 'Administration' : undefined}
@@ -629,11 +647,11 @@ export const AppLayout: React.FC = () => {
         size="md"
       >
         <div className="space-y-2">
-          {isSuperAdmin && (
+          {accessibleDepartments.length > 1 && (
             <div className="pb-2 border-b border-slate-200 dark:border-slate-800">
               <div className="text-xs font-medium text-slate-500 mb-2">Switch Department</div>
               <div className="grid grid-cols-2 gap-1.5">
-                {[...OPERATIONAL_DEPARTMENTS, 'admin' as Department].map((d) => (
+                {accessibleDepartments.map((d) => (
                   <button
                     key={d}
                     type="button"

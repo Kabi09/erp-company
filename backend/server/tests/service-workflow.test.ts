@@ -16,7 +16,11 @@ import {
   TechnicianAdvanceModel,
   ServiceBillingModel,
   MaterialRequestModel,
+  DeliveryOrderModel,
 } from '../models';
+import { ensureServiceAndRDRolesAndData } from '../services/seedService';
+import { mongoERPRepository } from '../repositories/MongoERPRepository';
+import { resolveEffectivePermissions, checkPermission } from '../utils/rbacLogic';
 
 let server: http.Server;
 let baseUrl = '';
@@ -412,6 +416,109 @@ test('CRYO ERP 2.0 — Service Management Complete Lifecycle & Settlement Integr
 
     const arrayBuffer = await pdfRes.arrayBuffer();
     assert.ok(arrayBuffer.byteLength > 500);
+  });
+
+  await t.test('10. Service & R&D Accounts Login & Permission Verification', async () => {
+    await ensureServiceAndRDRolesAndData();
+
+    for (const acc of [
+      { email: 'service.mgr@cryoerp.com', dept: 'service' },
+      { email: 'tech.anil@cryoerp.com', dept: 'service' },
+      { email: 'rd.mgr@cryoerp.com', dept: 'rd' },
+    ]) {
+      const res = await apiRequest('/auth/login', {
+        method: 'POST',
+        body: { identifier: acc.email, password: 'cryo123' },
+      });
+      assert.equal(res.status, 200, `Login failed for ${acc.email}: ${JSON.stringify(res.data)}`);
+      assert.ok(res.data.token);
+      assert.equal(res.data.user.department, acc.dept);
+      assert.equal(checkPermission(res.data.user.permissions, acc.dept, 'view'), true);
+    }
+  });
+
+  await t.test('11. Logistics Delivery Confirm Auto-Save & Production Save to Delivered Products', async () => {
+    const prodMgrLogin = await apiRequest('/auth/login', {
+      method: 'POST',
+      body: { identifier: 'prod.mgr@cryoerp.com', password: 'cryo123' },
+    });
+    assert.equal(prodMgrLogin.status, 200);
+
+    const manualSerial = `SN-PROD-${Date.now()}`;
+    const manualRes = await apiRequest('/service/delivered-products', {
+      method: 'POST',
+      token: prodMgrLogin.data.token,
+      body: {
+        serialNumber: manualSerial,
+        productName: 'Ultra-Low Cryo Chamber -86C',
+        customerId: 'cust-demo-1',
+        customerName: 'Apex Biotech Laboratories',
+        deliveryAddress: '101 Cryo Park',
+      },
+    });
+    assert.equal(manualRes.status, 201);
+    assert.equal(manualRes.data.serialNumber, manualSerial);
+
+    const delId = `del-test-${Date.now()}`;
+    const autoSerial = `SN-AUTO-DEL-${Date.now()}`;
+    await DeliveryOrderModel.create({
+      id: delId,
+      docNo: `DEL-T-${Date.now().toString().slice(-4)}`,
+      salesOrderId: 'so-nonexistent-test',
+      salesOrderDocNo: 'SO-TEST-01',
+      productionOrderId: 'po-nonexistent-test',
+      productionOrderDocNo: 'PO-TEST-01',
+      customerId: 'cust-1',
+      customerName: 'Biogenix Diagnostics',
+      productName: 'Cryo Chamber 500L',
+      quantity: 1,
+      serialNumbers: [autoSerial],
+      deliveryAddress: 'Plot 88, Science City, Hyderabad',
+      transportMethod: 'Courier',
+      courierCompany: 'BlueDart',
+      trackingNumber: `AWB-${Date.now()}`,
+      plannedDispatchDate: new Date().toISOString().split('T')[0],
+      expectedDeliveryDate: new Date().toISOString().split('T')[0],
+      status: 'In Transit',
+      createdBy: 'Test Runner',
+    });
+
+    try {
+      await mongoERPRepository.confirmDelivery(
+        delId,
+        {
+          actualDeliveryDate: new Date().toISOString().split('T')[0],
+          receivedBy: 'Dr. Nair',
+          deliveredQty: 1,
+        },
+        { id: 'emp-admin', name: 'Test Runner' },
+      );
+
+      const dpRecord = await DeliveredProductModel.findOne({ serialNumber: autoSerial }).lean();
+      assert.ok(dpRecord, 'DeliveredProduct must be auto-created on confirmDelivery');
+      assert.equal(dpRecord.productName, 'Cryo Chamber 500L');
+      assert.ok(dpRecord.customerName.includes('Biogenix Diagnostics'));
+      assert.equal(dpRecord.deliveryAddress, 'Plot 88, Science City, Hyderabad');
+      assert.equal(dpRecord.deliveryOrderId, delId);
+    } finally {
+      await DeliveredProductModel.deleteMany({ serialNumber: { $in: [manualSerial, autoSerial] } });
+      await DeliveryOrderModel.deleteOne({ id: delId });
+    }
+  });
+
+  await t.test('12. Multi-Department Permission Resolution Across Two Assigned Departments', async () => {
+    const rolePerms = {
+      production: ['view', 'create'] as any,
+    };
+    const overrides = {
+      service_requests: { view: 'allow' as const, create: 'allow' as const },
+    };
+    const effective = resolveEffectivePermissions(rolePerms, overrides);
+    assert.equal(checkPermission(effective, 'production', 'view'), true);
+    assert.equal(checkPermission(effective, 'service', 'view'), true);
+    assert.equal(checkPermission(effective, 'service_requests', 'create'), true);
+    assert.equal(checkPermission(effective, 'sales', 'view'), false);
+    assert.equal(checkPermission(effective, 'admin', 'manage'), false);
   });
 
   await stopTestServer();
