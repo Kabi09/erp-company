@@ -43,20 +43,54 @@ export function createApp() {
     });
   });
 
+  // Lazy DB + seed initializer for serverless environments (e.g. Vercel Express runtime)
+  app.use('/api', async (_req, res, next) => {
+    try {
+      await ensureDbInitialized();
+      next();
+    } catch (err: any) {
+      console.error('[API Init Error]', err);
+      res.status(500).json({
+        status: 'error',
+        error: err?.message || 'Backend initialization failed',
+      });
+    }
+  });
+
   // Mount REST API
   app.use('/api', apiRouter);
 
   return app;
 }
 
+let dbInitPromise: Promise<void> | null = null;
+let dbInitialized = false;
+
+async function ensureDbInitialized() {
+  if (dbInitialized) return;
+  if (env.configError) {
+    throw new Error(env.configError);
+  }
+  if (!dbInitPromise) {
+    dbInitPromise = (async () => {
+      await connectDatabase();
+      if (env.seedDemoData) {
+        await ensureServiceAndRDRolesAndData();
+      } else {
+        await ensureSuperAdminOnly(env.superAdminEmail, env.superAdminPassword || 'Zxcvbnm09#');
+      }
+      dbInitialized = true;
+    })().catch((err) => {
+      dbInitPromise = null;
+      throw err;
+    });
+  }
+  return dbInitPromise;
+}
+
 export async function startServer() {
   // Connect to MongoDB before accepting HTTP traffic
-  await connectDatabase();
-  if (env.seedDemoData) {
-    await ensureServiceAndRDRolesAndData();
-  } else {
-    await ensureSuperAdminOnly(env.superAdminEmail, env.superAdminPassword || 'Zxcvbnm09#');
-  }
+  await ensureDbInitialized();
 
   const app = createApp();
 
@@ -66,6 +100,9 @@ export async function startServer() {
 
   return { app, server };
 }
+
+const app = createApp();
+export default app;
 
 // Only auto-start when executed directly as entrypoint (not when imported in test suites)
 const isMainModule = process.argv[1] && (process.argv[1].endsWith('server.ts') || process.argv[1].endsWith('server.js'));

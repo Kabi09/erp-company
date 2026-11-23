@@ -19,30 +19,37 @@ export interface EnvironmentConfig {
   corsOrigin: string;
   isProd: boolean;
   isTest: boolean;
+  configError?: string;
 }
 
 const nodeEnv = (process.env.NODE_ENV || 'development') as 'development' | 'production' | 'test';
 const isProd = nodeEnv === 'production';
 const isTest = nodeEnv === 'test';
+const isVercel = Boolean(process.env.VERCEL);
 
 const jwtSecret = process.env.JWT_SECRET || (isProd ? '' : 'cryo-erp-2-local-dev-secret-key-at-least-32chars');
 const jwtRefreshSecret =
   process.env.JWT_REFRESH_SECRET || (isProd ? '' : 'cryo-erp-2-refresh-dev-secret-key-at-least-32chars');
 
+let configError: string | undefined;
+
 if (isProd) {
   if (!jwtSecret || jwtSecret === 'cryo-erp-2-local-dev-secret-key-at-least-32chars' || jwtSecret.length < 32) {
-    throw new Error(
-      '[FATAL SECURITY ERROR] A strong, secure JWT_SECRET (minimum 32 characters) must be configured in production mode!',
-    );
-  }
-  if (
+    configError =
+      '[FATAL SECURITY ERROR] A strong, secure JWT_SECRET (minimum 32 characters) must be configured in production mode!';
+    if (!isVercel) {
+      throw new Error(configError);
+    }
+  } else if (
     !jwtRefreshSecret ||
     jwtRefreshSecret === 'cryo-erp-2-refresh-dev-secret-key-at-least-32chars' ||
     jwtRefreshSecret.length < 32
   ) {
-    throw new Error(
-      '[FATAL SECURITY ERROR] A strong, secure JWT_REFRESH_SECRET (minimum 32 characters) must be configured in production mode!',
-    );
+    configError =
+      '[FATAL SECURITY ERROR] A strong, secure JWT_REFRESH_SECRET (minimum 32 characters) must be configured in production mode!';
+    if (!isVercel) {
+      throw new Error(configError);
+    }
   }
 }
 
@@ -65,6 +72,7 @@ export const env: EnvironmentConfig = {
   corsOrigin: process.env.CORS_ORIGIN || clientUrl,
   isProd,
   isTest,
+  configError,
 };
 
 export function maskMongoUri(uri: string): string {
