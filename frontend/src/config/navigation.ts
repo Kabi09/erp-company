@@ -255,7 +255,7 @@ export const DEPARTMENTS: Record<Department, DepartmentMeta> = {
   },
 };
 
-export const OPERATIONAL_DEPARTMENTS: Department[] = ['sales', 'supply_chain', 'production', 'logistics', 'service', 'rd'];
+export const OPERATIONAL_DEPARTMENTS: Department[] = ['sales', 'production', 'supply_chain', 'logistics', 'service', 'rd'];
 
 export function inferDepartmentFromPath(pathname: string, fallback: Department): Department {
   if (pathname.startsWith('/sales')) return 'sales';

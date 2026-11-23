@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { CheckCircle2, Download, Edit2, Plus, RefreshCw, ShieldAlert, SlidersHorizontal } from 'lucide-react';
+import { CheckCircle2, Download, Edit2, Eye, Plus, RefreshCw, ShieldAlert, SlidersHorizontal } from 'lucide-react';
 import {
   Button,
   DataTable,
@@ -12,12 +12,14 @@ import {
   PageHeader,
   Select,
   StatusBadge,
+  Tabs,
   Textarea,
   type ColumnDef,
 } from '../../components/ui';
 import { useERP } from '../../context/ERPContext';
 import { erpApi } from '../../services/api';
 import type { Material, StockTransaction, Supplier } from '../../types/erp';
+import { formatCurrency } from '../../utils/erpLogic';
 
 export const MaterialsInventoryPage: React.FC<{ mode: 'materials' | 'inventory' }> = ({ mode }) => {
   const { data, refresh, toast, can } = useERP();
@@ -36,6 +38,10 @@ export const MaterialsInventoryPage: React.FC<{ mode: 'materials' | 'inventory' 
   const [reconData, setReconData] = useState<any>(null);
   const [reconLoading, setReconLoading] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+
+  // Material Stock & Supplier detail view state
+  const [detailMaterial, setDetailMaterial] = useState<Material | null>(null);
+  const [detailTab, setDetailTab] = useState('movements');
 
   const [form, setForm] = useState({
     code: '',
@@ -112,6 +118,11 @@ export const MaterialsInventoryPage: React.FC<{ mode: 'materials' | 'inventory' 
     } finally {
       setReconciling(false);
     }
+  };
+
+  const openDetail = (m: Material, tab = 'movements') => {
+    setDetailMaterial(m);
+    setDetailTab(tab);
   };
 
   const filtered = data.materials.filter((m) => {
@@ -201,7 +212,13 @@ export const MaterialsInventoryPage: React.FC<{ mode: 'materials' | 'inventory' 
       sortValue: (r) => r.name,
       render: (r) => (
         <div>
-          <div className="font-medium">{r.name}</div>
+          <button
+            type="button"
+            onClick={() => openDetail(r)}
+            className="text-left font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+          >
+            {r.name}
+          </button>
           <div className="text-xs text-slate-500">{r.category} · {r.specification || 'Standard spec'}</div>
         </div>
       ),
@@ -245,6 +262,10 @@ export const MaterialsInventoryPage: React.FC<{ mode: 'materials' | 'inventory' 
       align: 'right',
       render: (r) => (
         <div className="flex justify-end gap-1.5">
+          <Button size="sm" variant="secondary" onClick={() => openDetail(r)}>
+            <Eye className="w-3.5 h-3.5" />
+            Show
+          </Button>
           {mode === 'materials' && can('supply_chain', 'edit') && (
             <Button size="sm" variant="ghost" onClick={() => openEdit(r)}>
               <Edit2 className="w-3.5 h-3.5" />
@@ -309,10 +330,28 @@ export const MaterialsInventoryPage: React.FC<{ mode: 'materials' | 'inventory' 
                 <span className="font-mono text-xs font-semibold">{r.code} · {r.storageLocation}</span>
                 <StatusBadge status={bal < r.minStock ? 'Issue' : 'Active'} />
               </div>
-              <div className="font-medium text-sm">{r.name}</div>
+              <button
+                type="button"
+                onClick={() => openDetail(r)}
+                className="text-left font-medium text-sm text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+              >
+                {r.name}
+              </button>
               <div className="flex items-center justify-between text-xs pt-1">
                 <span className="text-slate-500">Min: {r.minStock} {r.unit}</span>
                 <span className="font-mono font-semibold text-sm">Available: {bal} {r.unit}</span>
+              </div>
+              <div className="pt-2 flex gap-2">
+                <Button size="sm" variant="secondary" onClick={() => openDetail(r)}>
+                  <Eye className="w-3.5 h-3.5" />
+                  Show
+                </Button>
+                {mode === 'inventory' && can('supply_chain', 'approve') && (
+                  <Button size="sm" variant="secondary" onClick={() => setAdjustTarget(r)}>
+                    <SlidersHorizontal className="w-3.5 h-3.5" />
+                    Adjust
+                  </Button>
+                )}
               </div>
             </div>
           );
@@ -525,6 +564,208 @@ export const MaterialsInventoryPage: React.FC<{ mode: 'materials' | 'inventory' 
           </div>
         ) : null}
       </Modal>
+
+      {/* Material Stock Add/Decrease & Supplier History Modal */}
+      <Modal
+        open={Boolean(detailMaterial)}
+        onClose={() => setDetailMaterial(null)}
+        title={detailMaterial ? `${detailMaterial.code} — ${detailMaterial.name}` : ''}
+        subtitle={
+          detailMaterial
+            ? `${detailMaterial.category} · Storage: ${detailMaterial.storageLocation} · Unit: ${detailMaterial.unit}`
+            : ''
+        }
+        size="xl"
+        footer={<Button variant="secondary" onClick={() => setDetailMaterial(null)}>Close</Button>}
+      >
+        {detailMaterial && (() => {
+          const mat = detailMaterial;
+          const avail = data.stockMap[mat.id] || 0;
+          const txns = (data.stockTransactions || [])
+            .filter((t) => t.materialId === mat.id)
+            .slice()
+            .sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+          const totalAdded = txns
+            .filter((t) => t.quantityDelta > 0)
+            .reduce((sum, t) => sum + t.quantityDelta, 0);
+          const totalDecreased = txns
+            .filter((t) => t.quantityDelta < 0)
+            .reduce((sum, t) => sum + Math.abs(t.quantityDelta), 0);
+
+          const supplierPurchases = (data.supplierPOs || [])
+            .flatMap((po) =>
+              (po.items || [])
+                .filter((it) => it.materialId === mat.id || (it.materialCode && it.materialCode === mat.code))
+                .map((it) => ({
+                  po,
+                  item: it,
+                  supplier: (data.suppliers || []).find((s) => s.id === po.supplierId),
+                })),
+            )
+            .sort((a, b) => (b.po.poDate || b.po.createdAt || '').localeCompare(a.po.poDate || a.po.createdAt || ''));
+
+          const approvedSuppliers = (data.suppliers || []).filter(
+            (s) => s.id === mat.preferredSupplierId || (s.suppliedMaterialIds || []).includes(mat.id),
+          );
+
+          return (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+                  <div className="text-[11px] font-medium text-slate-500">Available Stock</div>
+                  <div className={`text-lg font-mono font-bold mt-0.5 ${avail < mat.minStock ? 'text-red-600 dark:text-red-400' : 'text-slate-900 dark:text-slate-100'}`}>
+                    {avail} {mat.unit}
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+                  <div className="text-[11px] font-medium text-slate-500">Minimum Level</div>
+                  <div className="text-lg font-mono font-bold mt-0.5 text-slate-900 dark:text-slate-100">
+                    {mat.minStock} {mat.unit}
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/70 dark:bg-emerald-950/30">
+                  <div className="text-[11px] font-medium text-emerald-700 dark:text-emerald-400">Total Stock Added</div>
+                  <div className="text-lg font-mono font-bold mt-0.5 text-emerald-700 dark:text-emerald-300">
+                    +{totalAdded} {mat.unit}
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg border border-red-200 dark:border-red-900/60 bg-red-50/70 dark:bg-red-950/30">
+                  <div className="text-[11px] font-medium text-red-700 dark:text-red-400">Total Stock Decreased</div>
+                  <div className="text-lg font-mono font-bold mt-0.5 text-red-700 dark:text-red-300">
+                    -{totalDecreased} {mat.unit}
+                  </div>
+                </div>
+              </div>
+
+              <Tabs
+                active={detailTab}
+                onChange={setDetailTab}
+                tabs={[
+                  { key: 'movements', label: 'Stock Add / Decrease', count: txns.length },
+                  { key: 'suppliers', label: 'Suppliers (Date-wise)', count: supplierPurchases.length },
+                ]}
+              />
+
+              {detailTab === 'movements' && (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {txns.length === 0 ? (
+                    <div className="p-6 text-center text-sm text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+                      No stock add or decrease movements recorded for this material yet.
+                    </div>
+                  ) : (
+                    txns.map((t, idx) => {
+                      const isAdd = t.quantityDelta >= 0;
+                      const num = String(idx + 1).padStart(2, '0');
+                      return (
+                        <div
+                          key={t.id}
+                          className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm"
+                        >
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-xs font-semibold text-slate-700 dark:text-slate-300 shrink-0 mt-0.5">
+                              {num}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold ${isAdd ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950/60 dark:text-emerald-300' : 'bg-red-100 text-red-800 dark:bg-red-950/60 dark:text-red-300'}`}>
+                                  {isAdd ? 'Stock Added' : 'Stock Decreased'}
+                                </span>
+                                <span className="font-medium text-slate-900 dark:text-slate-100">{t.type}</span>
+                                <span className="font-mono text-xs text-slate-500">· {t.linkedDocNo}</span>
+                              </div>
+                              <div className="text-xs text-slate-500 mt-1">
+                                {(t.timestamp || '').slice(0, 16).replace('T', ' ')} · By {t.performedBy}
+                                {t.remarks ? ` · ${t.remarks}` : ''}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="text-left sm:text-right shrink-0 pl-8 sm:pl-0">
+                            <div className={`font-mono font-bold text-sm ${isAdd ? 'text-emerald-700 dark:text-emerald-400' : 'text-red-700 dark:text-red-400'}`}>
+                              {isAdd ? `+${t.quantityDelta}` : t.quantityDelta} {t.unit}
+                            </div>
+                            <div className="text-xs font-mono text-slate-500">
+                              Balance: {t.balanceAfter} {t.unit}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {detailTab === 'suppliers' && (
+                <div className="space-y-3 max-h-96 overflow-y-auto pr-1">
+                  {approvedSuppliers.length > 0 && (
+                    <div className="p-3 rounded-lg bg-slate-50 dark:bg-slate-900/60 border border-slate-200 dark:border-slate-800">
+                      <div className="text-xs font-medium text-slate-500 mb-1.5">Preferred / Mapped Suppliers</div>
+                      <div className="flex flex-wrap gap-2">
+                        {approvedSuppliers.map((sup) => (
+                          <span
+                            key={sup.id}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-medium"
+                          >
+                            <span>{sup.name}</span>
+                            {sup.id === mat.preferredSupplierId && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 dark:bg-amber-950/60 dark:text-amber-300 font-semibold">
+                                Preferred
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {supplierPurchases.length === 0 ? (
+                    <div className="p-6 text-center text-sm text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+                      No supplier purchase orders recorded for this material yet.
+                    </div>
+                  ) : (
+                    supplierPurchases.map(({ po, item, supplier }, idx) => {
+                      const num = String(idx + 1).padStart(2, '0');
+                      const rate = item.unitPrice || 0;
+                      const total = item.lineTotal || item.orderedQty * rate;
+                      return (
+                        <div
+                          key={`${po.id}-${idx}`}
+                          className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm"
+                        >
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-xs font-semibold text-slate-700 dark:text-slate-300 shrink-0 mt-0.5">
+                              {num}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="font-medium text-slate-900 dark:text-slate-100">{po.supplierName}</div>
+                              <div className="text-xs text-slate-500 mt-0.5">
+                                Date: <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{po.poDate || (po.createdAt || '').slice(0, 10)}</span>
+                                {' · '}PO: <span className="font-mono">{po.docNo}</span>
+                                {supplier?.phone ? ` · ${supplier.phone}` : ''}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pl-8 sm:pl-0">
+                            <div className="text-left sm:text-right">
+                              <div className="font-mono text-xs font-semibold">
+                                Ordered: {item.orderedQty} {item.unit || mat.unit}
+                                {item.acceptedQty > 0 ? ` · Accepted: ${item.acceptedQty}` : ''}
+                              </div>
+                              <div className="text-xs font-mono text-slate-500">
+                                {formatCurrency(rate)}/{item.unit || mat.unit} · Total {formatCurrency(total)}
+                              </div>
+                            </div>
+                            <StatusBadge status={po.status} />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </Modal>
     </div>
   );
 };
@@ -533,6 +774,8 @@ export const SuppliersPage: React.FC = () => {
   const { data, refresh, toast, can } = useERP();
   const [search, setSearch] = useState('');
   const [open, setOpen] = useState(false);
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(null);
+  const [supplierTab, setSupplierTab] = useState('materials');
   const [form, setForm] = useState({ name: '', contactPerson: '', phone: '', email: '', address: '', gstin: '', notes: '' });
   const [submitting, setSubmitting] = useState(false);
   const [err, setErr] = useState<string | null>(null);
@@ -561,8 +804,27 @@ export const SuppliersPage: React.FC = () => {
     }
   };
 
+  const openSupplierDetail = (s: Supplier) => {
+    setSelectedSupplier(s);
+    setSupplierTab('materials');
+  };
+
   const columns: ColumnDef<Supplier>[] = [
-    { key: 'name', header: 'Supplier', render: (r) => <span className="font-medium">{r.name}</span> },
+    {
+      key: 'name',
+      header: 'Supplier',
+      sortable: true,
+      sortValue: (r) => r.name,
+      render: (r) => (
+        <button
+          type="button"
+          onClick={() => openSupplierDetail(r)}
+          className="text-left font-medium text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+        >
+          {r.name}
+        </button>
+      ),
+    },
     {
       key: 'contact',
       header: 'Contact',
@@ -576,9 +838,28 @@ export const SuppliersPage: React.FC = () => {
     { key: 'gstin', header: 'GSTIN', render: (r) => <span className="font-mono text-xs">{r.gstin || '—'}</span> },
     {
       key: 'pos',
-      header: 'Open POs',
+      header: 'POs / Items',
       align: 'right',
-      render: (r) => <span className="font-mono">{data.supplierPOs.filter((p) => p.supplierId === r.id).length}</span>,
+      render: (r) => {
+        const pos = data.supplierPOs.filter((p) => p.supplierId === r.id);
+        const itemCount = pos.reduce((s, p) => s + (p.items || []).length, 0);
+        return (
+          <span className="font-mono text-xs">
+            {pos.length} POs · {itemCount} items
+          </span>
+        );
+      },
+    },
+    {
+      key: 'actions',
+      header: 'Actions',
+      align: 'right',
+      render: (r) => (
+        <Button size="sm" variant="secondary" onClick={() => openSupplierDetail(r)}>
+          <Eye className="w-3.5 h-3.5" />
+          Show
+        </Button>
+      ),
     },
   ];
 
@@ -602,9 +883,21 @@ export const SuppliersPage: React.FC = () => {
         columns={columns}
         renderMobileCard={(r) => (
           <div className="space-y-1">
-            <div className="font-semibold text-sm">{r.name}</div>
+            <button
+              type="button"
+              onClick={() => openSupplierDetail(r)}
+              className="text-left font-semibold text-sm text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+            >
+              {r.name}
+            </button>
             <div className="text-xs text-slate-500">{r.contactPerson} · {r.phone}</div>
             <div className="text-xs font-mono text-slate-500">GSTIN: {r.gstin || 'N/A'}</div>
+            <div className="pt-2">
+              <Button size="sm" variant="secondary" onClick={() => openSupplierDetail(r)}>
+                <Eye className="w-3.5 h-3.5" />
+                Show
+              </Button>
+            </div>
           </div>
         )}
       />
@@ -633,6 +926,202 @@ export const SuppliersPage: React.FC = () => {
           <Field label="Address"><Textarea value={form.address} onChange={(e) => setForm({ ...form, address: e.target.value })} rows={2} /></Field>
           <Field label="Notes"><Input value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} /></Field>
         </form>
+      </Modal>
+
+      {/* Supplier Purchase & Materials Bought Modal */}
+      <Modal
+        open={Boolean(selectedSupplier)}
+        onClose={() => setSelectedSupplier(null)}
+        title={selectedSupplier ? `${selectedSupplier.name} — Purchase Details` : ''}
+        subtitle={
+          selectedSupplier
+            ? `${selectedSupplier.contactPerson || 'Primary Contact'} · ${selectedSupplier.phone || '—'} · GSTIN: ${selectedSupplier.gstin || 'N/A'}`
+            : ''
+        }
+        size="xl"
+        footer={<Button variant="secondary" onClick={() => setSelectedSupplier(null)}>Close</Button>}
+      >
+        {selectedSupplier && (() => {
+          const sup = selectedSupplier;
+          const pos = (data.supplierPOs || [])
+            .filter((p) => p.supplierId === sup.id)
+            .slice()
+            .sort((a, b) => (b.poDate || b.createdAt || '').localeCompare(a.poDate || a.createdAt || ''));
+          const boughtItems = pos.flatMap((po) => (po.items || []).map((item) => ({ po, item })));
+          const distinctMaterials = new Set(boughtItems.map((x) => x.item.materialId || x.item.materialCode)).size;
+          const totalUnits = boughtItems.reduce((sum, x) => sum + (x.item.orderedQty || 0), 0);
+          const totalValue = boughtItems.reduce(
+            (sum, x) => sum + (x.item.lineTotal || x.item.orderedQty * (x.item.unitPrice || 0)),
+            0,
+          );
+          const grns = (data.grns || [])
+            .filter((g) => g.supplierId === sup.id)
+            .slice()
+            .sort((a, b) => (b.receivedDate || b.createdAt || '').localeCompare(a.receivedDate || a.createdAt || ''));
+
+          return (
+            <div className="space-y-4">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+                  <div className="text-[11px] font-medium text-slate-500">Materials Bought</div>
+                  <div className="text-lg font-mono font-bold mt-0.5 text-slate-900 dark:text-slate-100">
+                    {boughtItems.length} <span className="text-xs font-normal text-slate-500">({distinctMaterials} unique)</span>
+                  </div>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+                  <div className="text-[11px] font-medium text-slate-500">Purchase Orders</div>
+                  <div className="text-lg font-mono font-bold mt-0.5 text-slate-900 dark:text-slate-100">{pos.length}</div>
+                </div>
+                <div className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/50">
+                  <div className="text-[11px] font-medium text-slate-500">Total Qty Ordered</div>
+                  <div className="text-lg font-mono font-bold mt-0.5 text-slate-900 dark:text-slate-100">{totalUnits}</div>
+                </div>
+                <div className="p-3 rounded-lg border border-amber-200 dark:border-amber-900/60 bg-amber-50/70 dark:bg-amber-950/30">
+                  <div className="text-[11px] font-medium text-amber-700 dark:text-amber-400">Total Purchase Value</div>
+                  <div className="text-lg font-mono font-bold mt-0.5 text-amber-700 dark:text-amber-300">{formatCurrency(totalValue)}</div>
+                </div>
+              </div>
+
+              <Tabs
+                active={supplierTab}
+                onChange={setSupplierTab}
+                tabs={[
+                  { key: 'materials', label: 'Materials Bought', count: boughtItems.length },
+                  { key: 'pos', label: 'Purchase Orders', count: pos.length },
+                  { key: 'grns', label: 'GRN Receipts', count: grns.length },
+                  { key: 'info', label: 'Supplier Info' },
+                ]}
+              />
+
+              {supplierTab === 'materials' && (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {boughtItems.length === 0 ? (
+                    <div className="p-6 text-center text-sm text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+                      No materials purchased from this supplier yet.
+                    </div>
+                  ) : (
+                    boughtItems.map(({ po, item }, idx) => {
+                      const num = String(idx + 1).padStart(2, '0');
+                      const rate = item.unitPrice || 0;
+                      const total = item.lineTotal || item.orderedQty * rate;
+                      return (
+                        <div
+                          key={`${po.id}-${item.materialId || item.materialCode}-${idx}`}
+                          className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-sm"
+                        >
+                          <div className="flex items-start gap-2.5 min-w-0">
+                            <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-xs font-semibold text-slate-700 dark:text-slate-300 shrink-0 mt-0.5">
+                              {num}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="font-medium text-slate-900 dark:text-slate-100">
+                                {item.materialName}
+                                <span className="font-mono text-xs text-slate-500 ml-1.5">({item.materialCode})</span>
+                              </div>
+                              <div className="text-xs text-slate-500 mt-0.5">
+                                Date: <span className="font-mono font-medium text-slate-700 dark:text-slate-300">{po.poDate || (po.createdAt || '').slice(0, 10)}</span>
+                                {' · '}PO: <span className="font-mono">{po.docNo}</span>
+                                {' · '}{po.purchaseType}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pl-8 sm:pl-0">
+                            <div className="text-left sm:text-right">
+                              <div className="font-mono text-xs font-semibold text-slate-900 dark:text-slate-100">
+                                Qty: {item.orderedQty} {item.unit}
+                                {item.acceptedQty > 0 ? ` · Accepted: ${item.acceptedQty}` : ''}
+                              </div>
+                              <div className="text-xs font-mono text-slate-500">
+                                {formatCurrency(rate)}/{item.unit} · {formatCurrency(total)}
+                              </div>
+                            </div>
+                            <StatusBadge status={po.status} />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {supplierTab === 'pos' && (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {pos.length === 0 ? (
+                    <div className="p-6 text-center text-sm text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+                      No purchase orders raised for this supplier.
+                    </div>
+                  ) : (
+                    pos.map((po, idx) => {
+                      const num = String(idx + 1).padStart(2, '0');
+                      return (
+                        <div key={po.id} className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 text-sm">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-xs font-semibold text-slate-700 dark:text-slate-300 shrink-0">
+                              {num}
+                            </span>
+                            <div className="min-w-0">
+                              <div className="font-mono font-semibold">{po.docNo}</div>
+                              <div className="text-xs text-slate-500">
+                                Date: {po.poDate || (po.createdAt || '').slice(0, 10)} · {(po.items || []).length} item(s) · {po.purchaseType}
+                              </div>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2.5 shrink-0">
+                            <span className="font-mono font-semibold">{formatCurrency(po.totalAmount)}</span>
+                            <StatusBadge status={po.status} />
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {supplierTab === 'grns' && (
+                <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                  {grns.length === 0 ? (
+                    <div className="p-6 text-center text-sm text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-lg">
+                      No GRN receipts logged for this supplier.
+                    </div>
+                  ) : (
+                    grns.map((g, idx) => {
+                      const num = String(idx + 1).padStart(2, '0');
+                      const acc = (g.items || []).reduce((s, it) => s + (it.acceptedQty || 0), 0);
+                      const rej = (g.items || []).reduce((s, it) => s + (it.rejectedQty || 0), 0);
+                      return (
+                        <div key={g.id} className="p-3 rounded-lg border border-slate-200 dark:border-slate-800 flex items-center justify-between gap-2 text-sm">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-slate-100 dark:bg-slate-800 font-mono text-xs font-semibold text-slate-700 dark:text-slate-300 shrink-0">
+                              {num}
+                            </span>
+                            <div>
+                              <div className="font-mono font-semibold">{g.docNo} <span className="text-xs font-normal text-slate-500">(PO: {g.supplierPoDocNo})</span></div>
+                              <div className="text-xs text-slate-500">
+                                Received: {g.receivedDate || (g.createdAt || '').slice(0, 10)} · Accepted: {acc} · Rejected: {rej}
+                              </div>
+                            </div>
+                          </div>
+                          <StatusBadge status={g.verificationStatus} />
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+              )}
+
+              {supplierTab === 'info' && (
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+                  <div><dt className="text-xs text-slate-500">Contact Person</dt><dd>{sup.contactPerson || '—'}</dd></div>
+                  <div><dt className="text-xs text-slate-500">Phone</dt><dd>{sup.phone || '—'}</dd></div>
+                  <div><dt className="text-xs text-slate-500">Email</dt><dd>{sup.email || '—'}</dd></div>
+                  <div><dt className="text-xs text-slate-500">GSTIN</dt><dd className="font-mono">{sup.gstin || '—'}</dd></div>
+                  <div className="sm:col-span-2"><dt className="text-xs text-slate-500">Address</dt><dd>{sup.address || '—'}</dd></div>
+                  <div className="sm:col-span-2"><dt className="text-xs text-slate-500">Notes</dt><dd>{sup.notes || '—'}</dd></div>
+                </dl>
+              )}
+            </div>
+          );
+        })()}
       </Modal>
     </div>
   );
