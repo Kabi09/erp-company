@@ -9,5 +9,4 @@ coverage/
 .aistudio/
 data/replica_test_db/
 uploads/
-backend/api/index.cjs
 
