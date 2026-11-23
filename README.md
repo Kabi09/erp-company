@@ -15,28 +15,36 @@ Rework / Acceptance → Logistics Dispatch (Own Vehicle / Courier) → Delivery 
 
 ## Architecture Overview
 
-CRYO Enterprise ERP 2.0 is architected as two decoupled, independent applications unified by a zero-dependency domain layer and managed via **npm workspaces**:
+CRYO Enterprise ERP 2.0 is organized into decoupled, 100% standalone `frontend/` and `backend/` applications (each with its own `package.json`, `package-lock.json`, `node_modules/`, `tsconfig.json`, and `.env`):
 
 ```
 K:\2.0\erp-company\
 ├── frontend\                  # Standalone React 19 + TypeScript + Vite 8 SPA (Port 5173)
 │   ├── src\                   # React components, pages, hooks, utils, types, services
 │   ├── .env                   # Frontend environment config (VITE_API_BASE_URL)
-│   ├── vite.config.ts         # Vite bundler with /api proxy to backend
-│   └── package.json           # Frontend dependencies (Tailwind v4, Lucide, Motion)
+│   ├── .env.example
+│   ├── .gitignore
+│   ├── package.json           # Frontend dependencies (Tailwind v4, Lucide, Motion)
+│   ├── package-lock.json
+│   ├── tsconfig.json
+│   ├── vercel.json            # SPA routing rewrites
+│   └── vite.config.ts         # Vite bundler with /api proxy to backend
 │
 ├── backend\                   # Standalone Node.js + Express 5 + Mongoose 9 REST API (Port 5000)
-│   ├── server.ts              # Standalone Express server (with /health check)
+│   ├── server.ts              # Standalone Express server (with /health check & default app export)
 │   ├── server\                # Routes, controllers, models, services, repositories
 │   │   └── tests\             # Automated test suites
 │   ├── src\                   # Domain types & calculation utilities (self-contained)
 │   ├── uploads\               # Private file uploads storage directory
 │   ├── .env                   # Backend environment config (PORT, MONGODB_URI, JWT secrets, CORS)
-│   └── package.json           # Backend dependencies (Express, JWT, PDFKit, Multer)
+│   ├── .env.example
+│   ├── .gitignore
+│   ├── package.json           # Backend dependencies (Express, JWT, PDFKit, Multer, tsx)
+│   ├── package-lock.json
+│   └── tsconfig.json
 │
 ├── docs\                      # Architecture reports, phase logs & workflow Markdown docs
 ├── client-user-guide\         # Visual Client User Manuals (PDF, DOCX, annotated PNGs)
-├── package.json               # Root workspace orchestrator
 └── README.md
 ```
 
@@ -50,15 +58,10 @@ K:\2.0\erp-company\
 
 ---
 
-## Quick Start (Run Both Tiers)
+## Quick Start (Run Backend & Frontend Independently)
 
-1. **Install dependencies across all workspaces:**
-   ```bash
-   npm install
-   ```
-
-2. **Configure Environment Variables:**
-   - Backend: Copy `backend/.env.example` to `backend/.env` (or root `.env`):
+1. **Configure Environment Variables:**
+   - **Backend (`backend/.env`)**: Copy `backend/.env.example` to `backend/.env`:
      ```env
      PORT=5000
      NODE_ENV=development
@@ -68,65 +71,68 @@ K:\2.0\erp-company\
      CLIENT_URL=http://localhost:5173
      CORS_ORIGIN=http://localhost:5173
      ```
-   - Frontend: Copy `frontend/.env.example` to `frontend/.env` (optional, defaults to proxy):
+   - **Frontend (`frontend/.env`)**: Copy `frontend/.env.example` to `frontend/.env`:
      ```env
      VITE_API_BASE_URL=http://localhost:5000
      ```
 
-3. **Start both Frontend & Backend concurrently:**
+2. **Start Backend Terminal (`http://localhost:5000`):**
    ```bash
+   cd backend
+   npm install
    npm run dev
    ```
-   - **Backend REST API:** `http://localhost:5000` (Health Check: `http://localhost:5000/health`)
-   - **Frontend Web UI:** `http://localhost:5173`
+
+3. **Start Frontend Terminal (`http://localhost:5173`):**
+   ```bash
+   cd frontend
+   npm install
+   npm run dev
+   ```
 
 ---
 
-## Independent Workspace Workflows
+## Independent Folder Scripts
 
-### Working on the Frontend Only
+### Frontend (`cd frontend`)
 ```bash
-cd frontend
-npm install
+npm install        # Installs dependencies into frontend/node_modules & frontend/package-lock.json
 npm run dev        # Starts Vite dev server on http://localhost:5173
 npm run lint       # Typecheck frontend (tsc --noEmit)
 npm run build      # Builds production SPA to frontend/dist/
 npm run preview    # Preview production build locally
 ```
 
-### Working on the Backend Only
+### Backend (`cd backend`)
 ```bash
-cd backend
-npm install
+npm install        # Installs dependencies into backend/node_modules & backend/package-lock.json
 npm run dev        # Starts Express server on http://localhost:5000 with tsx watch
+npm run start      # Starts production API server via tsx server.ts
 npm run lint       # Typecheck backend (tsc --noEmit)
-npm test           # Runs all 107 backend and integration tests
+npm run build      # Typecheck backend (tsc --noEmit)
+npm test           # Runs all backend and integration test suites
 ```
 
 ---
 
-## Workspace Script Reference
+## Script Reference
 
-All commands can be executed directly from the project root:
-
-| Command | Workspace Target | Description |
+| Folder | Command | Description |
 | :--- | :--- | :--- |
-| `npm run dev` | Both | Runs backend on 5000 and frontend on 5173 concurrently |
-| `npm run dev:backend` | Backend | Starts standalone Express API server with file watching |
-| `npm run dev:frontend` | Frontend | Starts Vite dev server with HMR and reverse proxy |
-| `npm run lint` | Both | Typechecks TypeScript across frontend and backend (0 errors) |
-| `npm run lint:frontend` | Frontend | Typechecks frontend TypeScript only |
-| `npm run lint:backend` | Backend | Typechecks backend TypeScript only |
-| `npm run build` | Both | Builds frontend production assets and verifies backend types |
-| `npm run build:frontend` | Frontend | Builds optimized production client bundle (`frontend/dist`) |
-| `npm test` | Backend | Executes all 107 tests across 10 test suites sequentially |
-| `npm run test:sales` | Backend | Runs Sales department workflow tests (8 tests) |
-| `npm run test:supply-chain` | Backend | Runs Supply Chain & inventory tests (12 tests) |
-| `npm run test:production` | Backend | Runs Production & manufacturing tests (14 tests) |
-| `npm run test:logistics` | Backend | Runs Logistics & dispatch tests (22 tests) |
-| `npm run test:security` | Backend | Runs Auth, RBAC, and session tests (7 tests) |
-| `npm run test:shared` | Backend | Runs Tracking, PDFs, storage, search tests (13 tests) |
-| `npm run test:full` | Backend | Runs Master 24-step cross-department lifecycle test (11 tests) |
+| `backend/` | `npm run dev` | Starts standalone Express API server with file watching (`5000`) |
+| `backend/` | `npm run start` | Runs `tsx server.ts` for production Node hosting |
+| `backend/` | `npm run lint` / `build` | Typechecks backend TypeScript (`0` errors) |
+| `backend/` | `npm test` | Executes all backend test suites sequentially |
+| `backend/` | `npm run test:sales` | Runs Sales department workflow tests |
+| `backend/` | `npm run test:supply-chain` | Runs Supply Chain & inventory tests |
+| `backend/` | `npm run test:production` | Runs Production & manufacturing tests |
+| `backend/` | `npm run test:logistics` | Runs Logistics & dispatch tests |
+| `backend/` | `npm run test:security` | Runs Auth, RBAC, and session tests |
+| `backend/` | `npm run test:shared` | Runs Tracking, PDFs, storage, search tests |
+| `backend/` | `npm run test:full` | Runs Master cross-department lifecycle test |
+| `frontend/` | `npm run dev` | Starts Vite dev server with HMR (`5173`) |
+| `frontend/` | `npm run lint` | Typechecks frontend TypeScript only |
+| `frontend/` | `npm run build` | Builds optimized production client bundle (`frontend/dist`) |
 
 ---
 

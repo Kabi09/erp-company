@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch server.ts",
-    "start": "node --loader tsx server.ts",
+    "start": "tsx server.ts",
     "build": "tsc --noEmit",
     "lint": "tsc --noEmit",
     "test": "tsx --test --test-concurrency=1 server/tests/erpLogic.test.ts server/tests/mongo-integration.test.ts server/tests/api-lifecycle.test.ts server/tests/security-auth.test.ts server/tests/sales-workflow.test.ts server/tests/supply-chain-workflow.test.ts server/tests/production-workflow.test.ts server/tests/production-form-refinement.test.ts server/tests/logistics-workflow.test.ts server/tests/shared-modules.test.ts server/tests/full-system-integration.test.ts server/tests/universal-rbac-approvals.test.ts server/tests/service-workflow.test.ts server/tests/rd-workflow.test.ts",
@@ -29,7 +29,8 @@
     "jsonwebtoken": "^9.0.3",
     "mongoose": "^9.0.0",
     "multer": "^2.0.2",
-    "pdfkit": "^0.17.2"
+    "pdfkit": "^0.17.2",
+    "tsx": "^4.19.4"
   },
   "devDependencies": {
     "@types/bcryptjs": "^2.4.6",
@@ -38,8 +39,6 @@
     "@types/multer": "^2.0.0",
     "@types/node": "^22.13.14",
     "@types/pdfkit": "^0.17.5",
-    "esbuild": "^0.28.0",
-    "tsx": "^4.19.4",
     "typescript": "~5.8.2"
   }
 }
