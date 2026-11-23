@@ -689,3 +689,14 @@
     - Fixed `confirmDelivery` and `syncDeliveredProducts` to extract `del.serialNumbers` (or generate deterministic unit serials for each delivered unit), resolve `ProductModel` from `ProductionOrder.productId` or `DeliveryOrder.productName`, and guarantee valid `deliveryAddress`.
     - Opened `POST /service/delivered-products` and `POST /production/delivered-products` to authorized Service, Production, and Logistics creators, and added an optional Product Catalog quick-fill selector in `DeliveredProductsPage.tsx`.
   - Code pushed: **None (Strictly kept local per user instruction `dont push the code`)**.
+- **v2.9.10 (Developer Branding Update — Ameyy Digital Services)**:
+  - Reusable Developer Credit Component (`frontend/src/components/DeveloperCredit.tsx`):
+    - Added centered, lightweight attribution (`Developed by ❤️ Ameyy Digital Services ↗`) linking safely (`target="_blank" rel="noopener noreferrer"`) to `https://www.ameyy.in/`.
+  - UI Placement (`LoginPage.tsx`, `AppLayout.tsx`, `DocumentPreviewModal.tsx`):
+    - Placed centered developer credit directly below the login card on `LoginPage.tsx`.
+    - Added one shared common `<footer>` inside `AppLayout.tsx` below `<main>` (with mobile bottom-bar clearance `pb-20 md:pb-3`), without touching sidebars, mobile nav, or individual department pages.
+    - Rendered bottom developer credit inside `#printable-document` on `DocumentPreviewModal.tsx` strictly for Quotations and Proforma Invoices.
+  - Binary PDFs & Client User Guide (`backend/server/services/pdf.service.ts`, `backend/server/routes/document.routes.ts`, `client-user-guide/`):
+    - Added `drawDeveloperCreditFooter` with PDF-safe vector heart and external-link arrow + clickable `https://www.ameyy.in/` URI links across all buffered pages for `quotation` and `proforma-invoice` PDFs, preserving CRYO branding, calculations, terms, and signatures cleanly.
+    - Updated `build_manuals.py` and regenerated `CRYO_ERP_VISUAL_USER_MANUAL.pdf`, `CRYO_ERP_COMPLETE_WORKFLOW.pdf`, `CRYO_ERP_QUICK_START.pdf`, and `CRYO_ERP_VISUAL_USER_MANUAL.docx` with consistent footer attribution.
+  - Code pushed: **None (Strictly kept local)**.

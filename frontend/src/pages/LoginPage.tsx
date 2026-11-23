@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Lock, Mail, Moon, Snowflake, Sun } from 'lucide-react';
 import { useERP } from '../context/ERPContext';
+import { DeveloperCredit } from '../components/DeveloperCredit';
 import { Button, ErrorBanner, Field, Input } from '../components/ui';
 
 interface DemoAccountCard {
@@ -84,7 +85,7 @@ export const LoginPage: React.FC = () => {
         </button>
       </div>
 
-      <div className="flex-1 flex items-center justify-center p-4 sm:p-8">
+      <div className="flex-1 flex flex-col items-center justify-center p-4 sm:p-8">
         <div className="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden">
           {/* Login Form */}
           <div className="lg:col-span-3 p-6 sm:p-8">
@@ -201,6 +202,7 @@ export const LoginPage: React.FC = () => {
             </div>
           </div>
         </div>
+        <DeveloperCredit className="mt-5" />
       </div>
     </div>
   );

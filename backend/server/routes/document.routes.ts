@@ -99,6 +99,7 @@ documentRouter.get('/documents/:type/:id/pdf', requireAuth, async (req: Authenti
           grandTotal: q.totalAmount,
           bankDetails: true,
           terms: q.termsAndConditions || [company.defaultPaymentTerms, company.defaultDeliveryTerms, company.defaultWarranty],
+          includeDeveloperCredit: true,
         };
         break;
       }
@@ -134,6 +135,7 @@ documentRouter.get('/documents/:type/:id/pdf', requireAuth, async (req: Authenti
           grandTotal: pi.totalAmount,
           bankDetails: true,
           terms: [company.defaultPaymentTerms, company.defaultDeliveryTerms, company.defaultWarranty],
+          includeDeveloperCredit: true,
         };
         break;
       }

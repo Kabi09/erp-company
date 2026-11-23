@@ -26,6 +26,7 @@ import type {
 } from '../types/erp';
 import { formatCurrency } from '../utils/erpLogic';
 import { erpApi } from '../services/api';
+import { DeveloperCredit } from './DeveloperCredit';
 import { Button, Modal } from './ui';
 
 export type DocUnion =
@@ -646,6 +647,12 @@ export const DocumentPreviewModal: React.FC<{
                 </div>
               )}
             </div>
+
+            {(payload.kind === 'quotation' || payload.kind === 'pi') && (
+              <div className="mt-6 pt-3 border-t border-slate-100">
+                <DeveloperCredit className="text-[11px]" />
+              </div>
+            )}
           </div>
         </div>
       )}

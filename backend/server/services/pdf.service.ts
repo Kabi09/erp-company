@@ -42,6 +42,80 @@ export interface PDFDocData {
     finalResult?: string;
     inspectedBy?: string;
   };
+  includeDeveloperCredit?: boolean;
+}
+
+const DEVELOPER_CREDIT_URL = 'https://www.ameyy.in/';
+
+function drawDeveloperCreditFooter(doc: InstanceType<typeof PDFDocument>): void {
+  const prevBottomMargin = doc.page.margins.bottom;
+  doc.page.margins.bottom = 0;
+
+  try {
+    const prefix = 'Developed by';
+    const companyText = 'Ameyy Digital Services';
+    const fontSize = 7.5;
+    const footerY = doc.page.height - 24;
+    const gapHeart = 3.5;
+    const heartW = 7;
+    const gapArrow = 2.5;
+    const arrowW = 6;
+
+    doc.font('Helvetica').fontSize(fontSize);
+    const prefixW = doc.widthOfString(prefix);
+    const companyW = doc.widthOfString(companyText);
+    const totalW = prefixW + gapHeart + heartW + gapHeart + companyW + gapArrow + arrowW;
+
+    let x = (doc.page.width - totalW) / 2;
+
+    doc.fillColor('#94a3b8').text(prefix, x, footerY, { lineBreak: false });
+    x += prefixW + gapHeart;
+
+    // Draw crisp vector red heart aligned with 7.5pt text baseline
+    const hx = x + heartW / 2;
+    doc.save()
+      .moveTo(hx, footerY + 2.3)
+      .bezierCurveTo(hx - 1.6, footerY + 0.6, hx - 3.8, footerY + 1.8, hx - 3.4, footerY + 3.8)
+      .bezierCurveTo(hx - 3.1, footerY + 5.1, hx - 1.4, footerY + 6.0, hx, footerY + 6.9)
+      .bezierCurveTo(hx + 1.4, footerY + 6.0, hx + 3.1, footerY + 5.1, hx + 3.4, footerY + 3.8)
+      .bezierCurveTo(hx + 3.8, footerY + 1.8, hx + 1.6, footerY + 0.6, hx, footerY + 2.3)
+      .closePath()
+      .fillColor('#ef4444')
+      .fill()
+      .restore();
+    x += heartW + gapHeart;
+
+    // Blue underlined company name (draw explicit crisp underline to avoid PDFKit lineBreak NaN bug)
+    const linkStartX = x;
+    doc.font('Helvetica').fontSize(fontSize).fillColor('#2563eb').text(companyText, x, footerY, {
+      lineBreak: false,
+    });
+    doc.save()
+      .strokeColor('#2563eb')
+      .lineWidth(0.55)
+      .moveTo(linkStartX, footerY + 8.4)
+      .lineTo(linkStartX + companyW, footerY + 8.4)
+      .stroke()
+      .restore();
+    x += companyW + gapArrow;
+
+    // Vector northeast arrow
+    doc.save()
+      .strokeColor('#2563eb')
+      .lineWidth(0.85)
+      .lineCap('round')
+      .lineJoin('round')
+      .moveTo(x + 0.8, footerY + 6.2)
+      .lineTo(x + 5.0, footerY + 2.0)
+      .moveTo(x + 2.0, footerY + 2.0)
+      .lineTo(x + 5.0, footerY + 2.0)
+      .lineTo(x + 5.0, footerY + 5.0)
+      .stroke()
+      .restore();
+    doc.link(linkStartX, footerY - 1, companyW + gapArrow + arrowW, 10.5, DEVELOPER_CREDIT_URL);
+  } finally {
+    doc.page.margins.bottom = prevBottomMargin;
+  }
 }
 
 export class PDFService {
@@ -51,6 +125,7 @@ export class PDFService {
         const doc = new PDFDocument({
           size: 'A4',
           margin: 36,
+          bufferPages: true,
           info: {
             Title: `${data.title} - ${data.docNo}`,
             Author: company.companyName || 'CRYO Enterprise ERP',
@@ -187,6 +262,10 @@ export class PDFService {
 
         // --- 4. FINANCIAL SUMMARY BLOCK ---
         if (data.grandTotal !== undefined) {
+          if (curY > 660) {
+            doc.addPage();
+            curY = margin;
+          }
           const sumBoxWidth = 200;
           const sumBoxX = pageWidth - margin - sumBoxWidth;
 
@@ -209,6 +288,10 @@ export class PDFService {
         }
 
         // --- 5. BANK DETAILS & TERMS ---
+        if (curY > 685) {
+          doc.addPage();
+          curY = margin;
+        }
         if (data.bankDetails && company.bankName) {
           doc.rect(margin, curY, 260, 50).fillColor('#f8fafc').fill().strokeColor('#cbd5e1').stroke();
           doc.fillColor('#0f172a').fontSize(8).font('Helvetica-Bold').text('COMPANY BANK DETAILS FOR REMITTANCE:', margin + 6, curY + 5);
@@ -239,6 +322,12 @@ export class PDFService {
 
         curY += 60;
 
+        // Guard before signature block so footer credit never overlaps signatures on multi-page PDFs
+        if (curY > 745) {
+          doc.addPage();
+          curY = margin;
+        }
+
         // --- 6. SIGNATURE BLOCK ---
         const sigY = Math.max(curY, 730);
         doc.strokeColor('#cbd5e1').lineWidth(0.5).moveTo(pageWidth - margin - 150, sigY).lineTo(pageWidth - margin, sigY).stroke();
@@ -247,6 +336,14 @@ export class PDFService {
 
         // Footer note
         doc.font('Helvetica').fontSize(7).fillColor('#94a3b8').text('This is a computer-generated document issued by CRYO Enterprise ERP 2.0.', margin, sigY + 16, { width: 300 });
+
+        if (data.includeDeveloperCredit) {
+          const range = doc.bufferedPageRange();
+          for (let i = range.start; i < range.start + range.count; i += 1) {
+            doc.switchToPage(i);
+            drawDeveloperCreditFooter(doc);
+          }
+        }
 
         doc.end();
       } catch (err) {

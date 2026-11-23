@@ -24,6 +24,7 @@ import { DEPARTMENTS, inferDepartmentFromPath, OPERATIONAL_DEPARTMENTS } from '.
 import { useERP } from '../context/ERPContext';
 import { erpApi } from '../services/api';
 import type { Department } from '../types/erp';
+import { DeveloperCredit } from './DeveloperCredit';
 import { ErrorBanner, LoadingSkeleton, Modal, ToastContainer } from './ui';
 
 export const AppLayout: React.FC = () => {
@@ -524,7 +525,7 @@ export const AppLayout: React.FC = () => {
         </header>
 
         {/* Main Viewport */}
-        <main className="flex-1 p-4 sm:p-6 pb-20 md:pb-8 max-w-[1600px] w-full mx-auto">
+        <main className="flex-1 p-4 sm:p-6 pb-6 md:pb-8 max-w-[1600px] w-full mx-auto">
           {error && (
             <div className="mb-4">
               <ErrorBanner message={error} onRetry={refresh} />
@@ -538,6 +539,9 @@ export const AppLayout: React.FC = () => {
             </React.Suspense>
           )}
         </main>
+        <footer className="border-t border-slate-200 dark:border-slate-800 py-3 px-4 pb-20 md:pb-3 text-center no-print">
+          <DeveloperCredit />
+        </footer>
       </div>
 
       {/* Mobile Bottom Navigation Bar */}
