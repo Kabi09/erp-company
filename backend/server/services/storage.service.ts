@@ -1,4 +1,5 @@
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import crypto from 'crypto';
 
@@ -13,9 +14,21 @@ export class LocalStorageAdapter implements IStorageAdapter {
   private baseDir: string;
 
   constructor(baseDir?: string) {
-    this.baseDir = baseDir || path.resolve(process.cwd(), 'uploads');
-    if (!fs.existsSync(this.baseDir)) {
-      fs.mkdirSync(this.baseDir, { recursive: true });
+    const tmpFallback = path.join(os.tmpdir(), 'cryo-uploads');
+    this.baseDir = baseDir || (process.env.VERCEL ? tmpFallback : path.resolve(process.cwd(), 'uploads'));
+    try {
+      if (!fs.existsSync(this.baseDir)) {
+        fs.mkdirSync(this.baseDir, { recursive: true });
+      }
+    } catch {
+      this.baseDir = tmpFallback;
+      try {
+        if (!fs.existsSync(this.baseDir)) {
+          fs.mkdirSync(this.baseDir, { recursive: true });
+        }
+      } catch {
+        // Defer directory creation until an explicit save() if filesystem is restricted
+      }
     }
   }
 

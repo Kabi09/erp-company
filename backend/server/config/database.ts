@@ -11,9 +11,10 @@ export async function connectDatabase(customUri?: string): Promise<typeof mongoo
     return mongoose;
   }
 
+  const isServerless = Boolean(process.env.VERCEL);
   const options: ConnectOptions = {
-    maxPoolSize: 50,
-    minPoolSize: 5,
+    maxPoolSize: isServerless ? 10 : 50,
+    minPoolSize: isServerless ? 1 : 5,
     serverSelectionTimeoutMS: 5000,
     socketTimeoutMS: 45000,
     autoIndex: true,
@@ -37,7 +38,7 @@ export async function connectDatabase(customUri?: string): Promise<typeof mongoo
 
     await mongoose.connect(uri, options);
 
-    // Detect transaction / replica set capability
+    // Detect transaction / replica set capability (use `hello: 1` as fallback for Atlas M0 shared clusters)
     try {
       const adminDb = mongoose.connection.db?.admin();
       const replStatus = await adminDb?.command({ replSetGetStatus: 1 }).catch(() => null);
@@ -45,13 +46,21 @@ export async function connectDatabase(customUri?: string): Promise<typeof mongoo
         supportsTransactions = true;
         console.log(`[MongoDB] Multi-document transaction capability: ACTIVE (Replica Set: ${replStatus.set})`);
       } else {
-        supportsTransactions = false;
-        console.log(
-          '[MongoDB] Running on Standalone instance. Transactions will execute with atomic single-doc updates unless replica set is strictly required.',
-        );
+        const hello = await adminDb?.command({ hello: 1 }).catch(() => null);
+        if (hello && (hello.setName || uri.startsWith('mongodb+srv://'))) {
+          supportsTransactions = true;
+          console.log(
+            `[MongoDB] Multi-document transaction capability: ACTIVE (Cluster: ${hello.setName || 'Atlas SRV'})`,
+          );
+        } else {
+          supportsTransactions = false;
+          console.log(
+            '[MongoDB] Running on Standalone instance. Transactions will execute with atomic single-doc updates unless replica set is strictly required.',
+          );
+        }
       }
     } catch {
-      supportsTransactions = false;
+      supportsTransactions = uri.startsWith('mongodb+srv://');
     }
 
     isConnected = true;

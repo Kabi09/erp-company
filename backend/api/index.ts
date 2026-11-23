@@ -24,6 +24,14 @@ function ensureInitialized(): Promise<void> {
 }
 
 export default async function handler(req: any, res: any) {
-  await ensureInitialized();
-  return app(req, res);
+  try {
+    await ensureInitialized();
+    return app(req, res);
+  } catch (err: any) {
+    console.error('[Vercel Handler Error]', err);
+    return res.status(500).json({
+      status: 'error',
+      error: err?.message || 'Backend initialization failed',
+    });
+  }
 }
