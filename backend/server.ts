@@ -3,7 +3,7 @@ import { connectDatabase } from './server/config/database';
 import { env } from './server/config/environment';
 import { corsMiddleware, noSqlSanitizer, securityHeaders } from './server/middleware/auth.middleware';
 import { apiRouter } from './server/routes';
-import { ensureServiceAndRDRolesAndData } from './server/services/seedService';
+import { ensureServiceAndRDRolesAndData, ensureSuperAdminOnly } from './server/services/seedService';
 
 export function createApp() {
   const app = express();
@@ -52,7 +52,11 @@ export function createApp() {
 export async function startServer() {
   // Connect to MongoDB before accepting HTTP traffic
   await connectDatabase();
-  await ensureServiceAndRDRolesAndData();
+  if (env.seedDemoData) {
+    await ensureServiceAndRDRolesAndData();
+  } else {
+    await ensureSuperAdminOnly(env.superAdminEmail, env.superAdminPassword || 'Zxcvbnm09#');
+  }
 
   const app = createApp();
 

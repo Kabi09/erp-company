@@ -30,6 +30,76 @@ const ALL_ACTIONS = [
   'manage',
 ] as const;
 
+export async function ensureSuperAdminOnly(email: string, password: string): Promise<void> {
+  const normalizedEmail = email.trim().toLowerCase();
+  const fullPerms: Record<string, string[]> = {};
+  for (const key of ['all', 'admin', 'sales', 'supply_chain', 'production', 'logistics', 'service', 'rd', 'tracking', 'reports']) {
+    fullPerms[key] = [...ALL_ACTIONS];
+  }
+
+  let superAdminRole = await RoleModel.findOne({ $or: [{ id: 'role-super-admin' }, { name: 'Super Admin' }] });
+  if (!superAdminRole) {
+    superAdminRole = await RoleModel.create({
+      id: 'role-super-admin',
+      name: 'Super Admin',
+      department: 'admin',
+      description: 'Full unrestricted access across all departments and system administration.',
+      permissions: fullPerms,
+    });
+  } else {
+    superAdminRole.department = 'admin';
+    superAdminRole.permissions = { ...(superAdminRole.permissions || {}), ...fullPerms };
+    superAdminRole.markModified('permissions');
+    await superAdminRole.save();
+  }
+
+  let superAdminEmp = await EmployeeModel.findOne({
+    $or: [{ email: normalizedEmail }, { id: 'emp-super-admin' }, { employeeId: 'EMP-001' }],
+  });
+
+  if (!superAdminEmp) {
+    await EmployeeModel.create({
+      id: 'emp-super-admin',
+      employeeId: 'EMP-001',
+      name: 'Super Admin',
+      email: normalizedEmail,
+      phone: '',
+      department: 'admin',
+      roleId: superAdminRole.id,
+      designation: 'Super Administrator',
+      status: 'Active',
+      passwordHash: bcrypt.hashSync(password, 10),
+      permissionOverrides: {},
+      createdAt: new Date().toISOString(),
+    });
+  } else {
+    let changed = false;
+    if (superAdminEmp.email !== normalizedEmail) {
+      superAdminEmp.email = normalizedEmail;
+      changed = true;
+    }
+    if (superAdminEmp.roleId !== superAdminRole.id) {
+      superAdminEmp.roleId = superAdminRole.id;
+      changed = true;
+    }
+    if (superAdminEmp.department !== 'admin') {
+      superAdminEmp.department = 'admin';
+      changed = true;
+    }
+    if (superAdminEmp.status !== 'Active') {
+      superAdminEmp.status = 'Active';
+      changed = true;
+    }
+    if (!superAdminEmp.passwordHash || !bcrypt.compareSync(password, superAdminEmp.passwordHash)) {
+      superAdminEmp.passwordHash = bcrypt.hashSync(password, 10);
+      changed = true;
+    }
+    if (changed) {
+      await superAdminEmp.save();
+    }
+  }
+}
+
 export async function ensureServiceAndRDRolesAndData(): Promise<void> {
   try {
     // 0. Normalize legacy department keys in MongoDB

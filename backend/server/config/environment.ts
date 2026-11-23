@@ -12,6 +12,9 @@ export interface EnvironmentConfig {
   jwtRefreshExpiresIn: string;
   allowDemoReset: boolean;
   requireReplicaSet: boolean;
+  seedDemoData: boolean;
+  superAdminEmail: string;
+  superAdminPassword: string;
   clientUrl: string;
   corsOrigin: string;
   isProd: boolean;
@@ -55,6 +58,9 @@ export const env: EnvironmentConfig = {
   jwtRefreshExpiresIn: process.env.JWT_REFRESH_EXPIRES_IN || '7d',
   allowDemoReset: process.env.ALLOW_DEMO_RESET === 'true',
   requireReplicaSet: process.env.REQUIRE_REPLICA_SET === 'true' || isProd,
+  seedDemoData: process.env.SEED_DEMO_DATA !== 'false',
+  superAdminEmail: process.env.SUPER_ADMIN_EMAIL || 'admin@gmail.com',
+  superAdminPassword: process.env.SUPER_ADMIN_PASSWORD || '',
   clientUrl,
   corsOrigin: process.env.CORS_ORIGIN || clientUrl,
   isProd,
