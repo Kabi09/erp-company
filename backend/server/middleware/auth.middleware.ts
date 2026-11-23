@@ -114,8 +114,22 @@ export function securityHeaders(req: Request, res: Response, next: NextFunction)
 }
 
 export function corsMiddleware(req: Request, res: Response, next: NextFunction): void {
-  const origin = req.headers.origin || '*';
-  res.setHeader('Access-Control-Allow-Origin', env.corsOrigin === '*' ? origin : env.corsOrigin);
+  const rawOrigin = req.headers.origin;
+  const reqOrigin = rawOrigin ? rawOrigin.replace(/\/+$/, '') : '';
+  const allowed = env.corsOrigin
+    .split(',')
+    .map((o) => o.trim().replace(/\/+$/, ''))
+    .filter(Boolean);
+
+  if (allowed.includes('*')) {
+    res.setHeader('Access-Control-Allow-Origin', reqOrigin || '*');
+  } else if (reqOrigin && allowed.includes(reqOrigin)) {
+    res.setHeader('Access-Control-Allow-Origin', reqOrigin);
+  } else if (allowed.length > 0) {
+    res.setHeader('Access-Control-Allow-Origin', allowed[0]);
+  }
+
+  res.setHeader('Vary', 'Origin');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
